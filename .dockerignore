@@ -1,0 +1,20 @@
+# Exclude local environment files from build context to protect secrets
+.env.django
+.env.django.local
+.env.django.docker
+.env.django.shared
+.env.shared
+.env
+.env.local
+.env.prod
+
+# Exclude local dev packages and SQLite databases
+.venv
+__pycache__
+*.pyc
+db.sqlite3
+.git
+.dockerignore
+Dockerfile
+docker-compose.yml
+.env*
