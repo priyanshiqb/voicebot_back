@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     # Local custom apps
     "user",
     "tenant",
+    "onboard",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -125,20 +126,19 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database
-# Overridden in environment settings (sqlite in local, postgres in production)
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("POSTGRES_DB"),
+        "USER": env("POSTGRES_USER"),
+        "PASSWORD": env("POSTGRES_PASSWORD"),
+        "HOST": env("POSTGRES_HOST"),
+        "PORT": env("POSTGRES_PORT"),
     }
 }
 
-# Custom User Model
 AUTH_USER_MODEL = "user.CustomUser"
 
-# Password validation
-# https://docs.djangoproject.com/en/stable/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -155,19 +155,11 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Internationalization
-# https://docs.djangoproject.com/en/stable/topics/i18n/
 
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_TZ = True
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/stable/howto/static-files/
 
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
@@ -177,9 +169,6 @@ STATICFILES_DIRS = [
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/stable/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -223,12 +212,26 @@ SIMPLE_JWT = {
     "CHECK_USER_IS_ACTIVE": True,
 }
 
-# Django Channels Redis Backend Layer Configuration
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [env.str("REDIS_URL", default="redis://redis:6379/0")],
+            "hosts": [
+                (
+                    str(env("REDIS_HOST")),
+                    int(env("REDIS_PORT")),
+                )
+            ],
+            "expiry": 120
         },
-    },
+    }
 }
+
+
+EMAIL_BACKEND = env.str("EMAIL_BACKEND", "")
+EMAIL_HOST = env.str("EMAIL_HOST", "")
+EMAIL_PORT = env.str("EMAIL_PORT", "")
+EMAIL_USE_TLS = env.str("EMAIL_USE_TLS", "") 
+EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", "")
+EMAIL_SENDER_NAME = env.str("EMAIL_SENDER_NAME", "VoiceBot")

@@ -1,11 +1,11 @@
 services:
   # 1. Mount local code & expose ports for unified Daphne web server
-  api:
+  backend:
     volumes:
       - .:/app # Enables instant hot-reloading as you edit code!
       - /app/.venv # Masks/hides the host's Windows .venv directory inside the container!
     ports:
-      - "${API_PORT}:8000"
+      - "${DAPHNE_PORT}:${DAPHNE_PORT}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -17,7 +17,7 @@ services:
   # 2. Local PostgreSQL Relational Database with Healthcheck
   postgres:
     image: postgres:latest
-    container_name: postgres
+    container_name: postgres-voicebot
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -38,7 +38,7 @@ services:
   # 3. Database Admin Web UI (pgAdmin)
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: pgadmin
+    container_name: pgadmin-voicebot
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
@@ -56,7 +56,7 @@ services:
   # 4. Local Redis Caching & Event Layer with Healthcheck
   redis:
     image: redis:latest
-    container_name: redis
+    container_name: redis-voicebot
     command: [ "redis-server", "--appendonly", "yes" ]
     volumes:
       - ./.data/redis:/data
@@ -74,7 +74,7 @@ services:
   # 6. Redis Insights Web UI
   redis-insight:
     image: redis/redisinsight:latest
-    container_name: redis-insight
+    container_name: redis-insight-voicebot
     ports:
       - "${REDIS_INSIGHT_PORT}:5540"
     volumes:

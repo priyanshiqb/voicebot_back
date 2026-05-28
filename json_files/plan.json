@@ -1,0 +1,61 @@
+{
+  "app_label": "onboard",
+  "model": "plan",
+  "unique_fields": [
+    "code"
+  ],
+  "data": [
+    {
+      "code": "free_plan",
+      "name": "Free Tier",
+      "description": "Standard free plan for trial users.",
+      "base_price": "0.00",
+      "discount_percentage": "0.00",
+      "tax_percentage": "0.00",
+      "currency": "INR",
+      "billing_cycle": "monthly",
+      "plan_type": "free",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "code": "starter_inr",
+      "name": "Starter INR",
+      "description": "Perfect for individuals and small startups in India.",
+      "base_price": "999.00",
+      "discount_percentage": "0.00",
+      "tax_percentage": "18.00",
+      "currency": "INR",
+      "billing_cycle": "monthly",
+      "plan_type": "paid",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "code": "professional_inr",
+      "name": "Professional INR",
+      "description": "Advanced tools for growing teams in India.",
+      "base_price": "2999.00",
+      "discount_percentage": "10.00",
+      "tax_percentage": "18.00",
+      "currency": "INR",
+      "billing_cycle": "monthly",
+      "plan_type": "paid",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "code": "pay_as_you_go_inr",
+      "name": "Pay As You Go INR",
+      "description": "Metered usage-based charging in INR.",
+      "base_price": "0.00",
+      "discount_percentage": "0.00",
+      "tax_percentage": "0.00",
+      "currency": "INR",
+      "billing_cycle": "monthly",
+      "plan_type": "pay_as_you_go",
+      "sort_order": 4,
+      "is_active": true
+    }
+  ]
+}

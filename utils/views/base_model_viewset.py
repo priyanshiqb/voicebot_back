@@ -61,7 +61,7 @@ class ResponseMixin:
 
 
 class BaseViewSet(ResponseMixin, ModelViewSet):
-    permission_classes = (IsAuthenticated, IsWithinLoginWindow)
+    permission_classes = (IsAuthenticated,)
     pagination_class = SetPagination
 
     queryset = None # type: models.QuerySet
@@ -639,17 +639,6 @@ class BaseViewSet(ResponseMixin, ModelViewSet):
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-
-        no_pagination = request.query_params.get("no_pagination")
-        page_size = request.query_params.get("page_size")
-
-        if (no_pagination and no_pagination.lower() == "true") or (page_size and page_size=="all"):
-            serializer = self.get_serializer(queryset, many=True)
-
-            return self.success(
-                data=serializer.data,
-                message="Listed successfully"
-            )
 
         page = self.paginate_queryset(queryset)
 

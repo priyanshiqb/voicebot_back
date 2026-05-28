@@ -6,9 +6,14 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+# Import for serving media and static files during development
+from django.conf import settings
+from django.conf.urls.static import static
+
 api_v1_patterns = [
     # Include user registration and JWT auth endpoints
     path("auth/", include("user.urls")),
+    path("onboard/", include("onboard.urls")),
 ]
 
 urlpatterns = [
@@ -30,3 +35,8 @@ urlpatterns = [
         name="redoc",
     ),
 ]
+
+# Add media and static file serving for local development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)  

@@ -1,10 +1,10 @@
 services:
   # Single unified service running Daphne to handle both HTTP APIs and WebSockets collectively
-  api:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: daphne -b 0.0.0.0 -p ${DAPHNE_PORT} config.asgi:application
     env_file:
       - .env.shared
       - .env.django.docker
