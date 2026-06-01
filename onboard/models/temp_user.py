@@ -9,12 +9,19 @@ class TempUser(BaseModelCore):
     It separates unverified users from the main CustomUser authentication database.
     """
     email = models.EmailField(
-        unique=True,
         help_text="Primary email address of the pending registrant."
     )
     phone_number = models.CharField(
         max_length=20,
+        blank=True,
+        null=True,
         help_text="Phone number of the pending registrant."
+    )
+    referral_code = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Referral code used during signup."
     )
     password_hash = models.CharField(
         max_length=255,
@@ -47,6 +54,10 @@ class TempUser(BaseModelCore):
         default=False,
         help_text="Flag indicating whether the registrant has successfully verified their OTP."
     )
+    is_onboarded = models.BooleanField(
+        default=False,
+        help_text="Flag indicating whether the registrant has completed onboarding."
+    )
     selected_plan = models.ForeignKey(
         "onboard.Plan",
         on_delete=models.SET_NULL,
@@ -59,15 +70,22 @@ class TempUser(BaseModelCore):
     class Meta:
         db_table = "onboard_temp_user"
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=models.Q(is_deleted=False),
+                name="unique_active_temp_user_email"
+            )
+        ]
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
 
     def is_otp_expired(self):
         """
-        Check if the generated OTP code is older than 10 minutes.
+        Check if the generated OTP code is older than 2 minutes.
         """
         if not self.otp_created_at:
             return True
-        expiry_limit = timezone.now() - timezone.timedelta(minutes=10)
+        expiry_limit = timezone.now() - timezone.timedelta(minutes=2)
         return self.otp_created_at < expiry_limit

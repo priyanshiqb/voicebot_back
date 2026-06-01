@@ -56,6 +56,32 @@
       "plan_type": "pay_as_you_go",
       "sort_order": 4,
       "is_active": true
+    },
+    {
+      "code": "starter_inr_yearly",
+      "name": "Starter INR Yearly",
+      "description": "Perfect for individuals and small startups - Billed Yearly.",
+      "base_price": "9999.00",
+      "discount_percentage": "0.00",
+      "tax_percentage": "18.00",
+      "currency": "INR",
+      "billing_cycle": "yearly",
+      "plan_type": "paid",
+      "sort_order": 5,
+      "is_active": true
+    },
+    {
+      "code": "professional_inr_yearly",
+      "name": "Professional INR Yearly",
+      "description": "Advanced tools for growing teams - Billed Yearly.",
+      "base_price": "29999.00",
+      "discount_percentage": "10.00",
+      "tax_percentage": "18.00",
+      "currency": "INR",
+      "billing_cycle": "yearly",
+      "plan_type": "paid",
+      "sort_order": 6,
+      "is_active": true
     }
   ]
 }

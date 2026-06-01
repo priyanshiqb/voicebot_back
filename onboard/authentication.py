@@ -42,3 +42,21 @@ def generate_temp_token(temp_user):
     Utility to cryptographically sign a temporary scoped onboarding token.
     """
     return signing.dumps({"temp_user_id": str(temp_user.id)}, key=settings.SECRET_KEY)
+
+
+try:
+    from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
+    class TempUserAuthenticationScheme(OpenApiAuthenticationExtension):
+        target_class = "onboard.authentication.TempUserAuthentication"
+        name = "TempUserTokenAuth"
+
+        def get_security_definition(self, auto_schema):
+            return {
+                "type": "apiKey",
+                "in": "header",
+                "name": "Authorization",
+                "description": "Scoped temporary onboarding token prefixed with 'Bearer '"
+            }
+except ImportError:
+    pass

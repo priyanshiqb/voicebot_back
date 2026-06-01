@@ -235,3 +235,7 @@ EMAIL_USE_TLS = env.str("EMAIL_USE_TLS", "")
 EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", "")
 EMAIL_SENDER_NAME = env.str("EMAIL_SENDER_NAME", "VoiceBot")
+
+# Razorpay Credentials
+RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID", "rzp_test_dummykey")
+RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET", "dummysecret")

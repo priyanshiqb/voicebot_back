@@ -20,7 +20,7 @@ sequenceDiagram
 
     Note over Client,Backend: STEP 1: Registration & OTP Verification
     Client->>Backend: POST /register-pending/ (signup credentials + selected initial plan)
-    Note over Backend: Validates names, passwords, duplicates<br/>Saves unverified entry to TempUser<br/>Generates & emails 6-Digit OTP
+    Note over Backend: Validates names, passwords, duplicates<br/>Saves unverified entry to TempUser<br/>Generates & emails 5-Digit OTP
     Backend-->>Client: HTTP 201 Created (temp_registration_id)
 
     Client->>Backend: POST /verify-otp/ (temp_registration_id + otp_code)
@@ -58,7 +58,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 
 | Funnel Stage | Header Requirement | Target User Type | Permitted Actions |
 | :--- | :--- | :--- | :--- |
-| **Step 1 & 1.5** | *None* | Anonymous Public | `/register-pending/`, `/verify-otp/`, `/webhook/` |
+| **Step 1 & 1.5** | *None* | Anonymous Public | `/register-pending/`, `/verify-otp/`, `/change-email/`, `/forgot-password/`, `/reset-password/`, `/webhook/` |
 | **Step 2 to 5** | `Authorization: Bearer <temporary_token>` | Authenticated `TempUser` | `/update-plan/`, `/create-order-just-in-time/`, `/verify/`, `/cancel-order/` |
 | **Active Session** | `Authorization: Bearer <access_jwt_token>` | Authenticated `CustomUser` | Main system dashboard, core user APIs, Voicebot mutations |
 
@@ -69,10 +69,37 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 
 ## 🛠️ 3. Complete Endpoint Reference
 
+### 0. Check Email Availability (`/check-email/`)
+* **Endpoint**: `POST /api/v1/onboard/check-email/`
+* **Auth Level**: Anonymous Public (No Headers)
+* **Description**: High-performance, latency-optimized endpoint to check email availability in real-time as users type on the signup form. Queries database B-Tree indexes using `.exists()` on both active users and pending registrations with zero-latency overhead.
+* **Request Payload**:
+  ```json
+  {
+    "email": "jane.doe@example.com"
+  }
+  ```
+* **Success Output (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Email availability checked.",
+    "data": {
+      "email": "jane.doe@example.com",
+      "available": true,
+      "exists_in_active_users": false,
+      "exists_in_pending_registrations": false
+    },
+    "errors": null
+  }
+  ```
+
+---
+
 ### 1. Register Pending User (`/register-pending/`)
 * **Endpoint**: `POST /api/v1/onboard/register-pending/`
 * **Auth Level**: Anonymous Public (No Headers)
-* **Description**: Performs robust validation on credentials, checks for duplicate email/phone records across both temporary and permanent tables, saves details into `TempUser` table, and sends a 6-digit verification code.
+* **Description**: Performs robust validation on credentials, checks for duplicate email records across both temporary and permanent tables, saves details into `TempUser` table, and sends a 5-digit verification code.
 * **Request Payload**:
   ```json
   {
@@ -81,11 +108,15 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
     "last_name": "Doe",
     "business_name": "Doe Software Solutions",
     "email": "jane.doe@example.com",
-    "phone_number": "919876543210",
     "password": "SecurePassword123!",
-    "confirm_password": "SecurePassword123!"
+    "confirm_password": "SecurePassword123!",
+    "referral_code": "REF12345"
   }
   ```
+  
+  > [!NOTE]
+  > * **`referral_code`** is optional and used to attribute registration rewards. It is validated and saved under the newly created `Tenant` organization upon payment success.
+
 * **Success Output (201 Created)**:
   ```json
   {
@@ -192,6 +223,83 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 
 ---
 
+### 2.1.1 Change Email (`/change-email/`)
+* **Endpoint**: `POST /api/v1/onboard/change-email/`
+* **Auth Level**: Anonymous Public (No Headers)
+* **Description**: Allows the user to update their email address during the OTP stage without losing any entered details (names, business name, password). Generates a fresh **5-digit verification OTP** and emails it to the updated email address.
+* **Request Payload**:
+  ```json
+  {
+    "temp_registration_id": "8645e54d-ebcc-4458-ba20-ea0101b0f16a",
+    "new_email": "jane.newemail@example.com"
+  }
+  ```
+* **Success Output (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Email updated successfully. A new verification OTP has been emailed.",
+    "data": {
+      "temp_registration_id": "8645e54d-ebcc-4458-ba20-ea0101b0f16a",
+      "email": "jane.newemail@example.com"
+    },
+    "errors": null
+  }
+  ```
+
+---
+
+### 2.1.2 Forgot Password (`/forgot-password/`)
+* **Endpoint**: `POST /api/v1/onboard/forgot-password/`
+* **Auth Level**: Anonymous Public (No Headers)
+* **Description**: Initiates a password reset request for unverified onboarding `TempUser` accounts. Cryptographically constructs a **one-time-use secure token** valid for **30 minutes**, and emails a password reset link to the user's registered address.
+
+  > [!TIP]
+  > The reset token is uniquely signed using a hash of the current temporary password. As soon as the password is reset, this hash updates and the token is **immediately and automatically invalidated**, ensuring perfect one-time usability without database bloating.
+
+* **Request Payload**:
+  ```json
+  {
+    "email": "jane.doe@example.com"
+  }
+  ```
+* **Success Output (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "If the email is registered in our temporary signup system, a reset link will be sent shortly.",
+    "data": null,
+    "errors": null
+  }
+  ```
+
+---
+
+### 2.1.3 Reset Password (`/reset-password/`)
+* **Endpoint**: `POST /api/v1/onboard/reset-password/`
+* **Auth Level**: Anonymous Public (No Headers)
+* **Description**: Executes the password reset using the token and user ID parsed from the email reset link's query parameters. Enforces identical mixed-case, numeric, and special character password policies as initial registration.
+* **Request Payload**:
+  ```json
+  {
+    "temp_registration_id": "8645e54d-ebcc-4458-ba20-ea0101b0f16a",
+    "token": "ey...signed_cryptographic_reset_token",
+    "password": "NewSecurePassword123!",
+    "confirm_password": "NewSecurePassword123!"
+  }
+  ```
+* **Success Output (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Password reset successfully. You can now verify OTP or proceed with onboarding.",
+    "data": null,
+    "errors": null
+  }
+  ```
+
+---
+
 ### 2.2 Resume Session (`/resume-session/`)
 * **Endpoint**: `POST /api/v1/onboard/resume-session/`
 * **Auth Level**: Anonymous Public (No Headers)
@@ -293,6 +401,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 * **Request Payload**:
   ```json
   {
+    "phone_number": "919876543210",
     "billing_address": {
       "line1": "Flat 304, IT Park Complex",
       "city": "Bengaluru",
@@ -303,6 +412,9 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
     }
   }
   ```
+  
+  > [!NOTE]
+  > * **`phone_number`** is required here as contact details for billing/invoicing, which is captured and updated on the `TempUser` record (then promoted to the final `CustomUser` account).
 * **Success Output (200 OK)**:
   ```json
   {

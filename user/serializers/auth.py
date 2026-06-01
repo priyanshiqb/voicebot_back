@@ -34,12 +34,6 @@ class LoginSerializer(serializers.Serializer):
                 ]
             })
         
-        if not user.can_login_now():
-            raise serializers.ValidationError({
-                "login_window": [
-                    "Login is not allowed at this time."
-                ]
-            })
         attrs["user"] = user
         return attrs
 

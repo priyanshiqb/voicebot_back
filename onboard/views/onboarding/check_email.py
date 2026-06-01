@@ -1,0 +1,52 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from django.contrib.auth import get_user_model
+
+from onboard.models import TempUser
+from onboard.serializers.onboarding import CheckEmailSerializer, CheckEmailResponseSerializer
+from drf_spectacular.utils import extend_schema
+
+User = get_user_model()
+
+
+@extend_schema(
+    tags=["Onboarding Signup Flow"],
+    summary="Check Email Availability (Unique Check)",
+    description="Asynchronously checks if an email address already exists in either the active CustomUser or pending TempUser tables. Returns availability status with zero latency for interactive typing feedback.",
+    responses={200: CheckEmailResponseSerializer}
+)
+class CheckEmailView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = CheckEmailSerializer
+
+    def post(self, request):
+        serializer = CheckEmailSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "status": False,
+                "message": "Validation failed",
+                "data": None,
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data["email"].strip().lower()
+
+        # Database index-optimized queries
+        exists_in_active = User.objects.filter(email=email).exists()
+        exists_in_pending = TempUser.objects.filter(email=email).exists()
+
+        available = not (exists_in_active or exists_in_pending)
+
+        return Response({
+            "status": True,
+            "message": "Email availability checked.",
+            "data": {
+                "email": email,
+                "available": available,
+                "exists_in_active_users": exists_in_active,
+                "exists_in_pending_registrations": exists_in_pending
+            },
+            "errors": None
+        }, status=status.HTTP_200_OK)

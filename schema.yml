@@ -1,0 +1,1635 @@
+openapi: 3.0.3
+info:
+  title: Voicebot Backend API
+  version: 1.0.0
+  description: Enterprise production REST API for the Voicebot platform.
+paths:
+  /api/v1/auth/login/:
+    post:
+      operationId: v1_auth_login_create
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          description: Login successful
+  /api/v1/auth/logout/:
+    post:
+      operationId: v1_auth_logout_create
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Logout successful
+  /api/v1/auth/refresh/:
+    post:
+      operationId: v1_auth_refresh_create
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+          description: Token refreshed successfully
+  /api/v1/onboard/cancel-order/:
+    post:
+      operationId: v1_onboard_cancel_order_create
+      description: Discards current registration progress, cleans up database records
+        for the temporary user, and cancels the Razorpay order state.
+      summary: 'Step 4 Helper: Cancel Order / Discard Progress'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrder'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CancelOrder'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CancelOrder'
+        required: true
+      security:
+      - TempUserTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/change-email/:
+    post:
+      operationId: v1_onboard_change_email_create
+      description: Updates the email of a temporary unverified onboarding registration,
+        generates a new 5-digit OTP, and sends it to the new email address.
+      summary: 'Step 2 Helper: Change Temp User Email'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeEmail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangeEmail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangeEmail'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterPendingResponse'
+          description: ''
+  /api/v1/onboard/create-order-just-in-time/:
+    post:
+      operationId: v1_onboard_create_order_just_in_time_create
+      description: Captures the billing address, validates the GSTIN number (if provided),
+        and generates a new Razorpay payment gateway order.
+      summary: 'Step 4: Create Razorpay Order Just-In-Time'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderJustInTime'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateOrderJustInTime'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateOrderJustInTime'
+        required: true
+      security:
+      - TempUserTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderJustInTimeResponse'
+          description: ''
+  /api/v1/onboard/forgot-password/:
+    post:
+      operationId: v1_onboard_forgot_password_create
+      description: Initiates password reset for unverified onboarding temporary users.
+        Emails a one-time secure link with a cryptographic token valid for 30 minutes.
+      summary: 'Step 2 Helper: Forgot Temp User Password'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ForgotPassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ForgotPassword'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/plans/:
+    get:
+      operationId: v1_onboard_plans_list
+      description: Get paginated list of plans with optional search, ordering, and
+        filter attributes.
+      summary: List Plans
+      parameters:
+      - in: query
+        name: base_price__gte
+        schema:
+          type: number
+      - in: query
+        name: base_price__lte
+        schema:
+          type: number
+      - in: query
+        name: billing_cycle
+        schema:
+          type: string
+          enum:
+          - monthly
+          - yearly
+        description: |-
+          Billing frequency cycle.
+
+          * `monthly` - Monthly
+          * `yearly` - Yearly
+      - in: query
+        name: code
+        schema:
+          type: string
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: currency
+        schema:
+          type: string
+      - in: query
+        name: discount_percentage__gte
+        schema:
+          type: number
+      - in: query
+        name: discount_percentage__lte
+        schema:
+          type: number
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: plan_type
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: tax_percentage__gte
+        schema:
+          type: number
+      - in: query
+        name: tax_percentage__lte
+        schema:
+          type: number
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPlanListList'
+          description: ''
+    post:
+      operationId: v1_onboard_plans_create
+      description: Create a new subscription plan.
+      summary: Create Plan
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Plan'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Plan'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+          description: ''
+  /api/v1/onboard/plans/{id}/:
+    get:
+      operationId: v1_onboard_plans_retrieve
+      description: Get specific plan details by ID.
+      summary: Get Plan
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Plan.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+          description: ''
+    put:
+      operationId: v1_onboard_plans_update
+      description: Completely update an existing plan by ID.
+      summary: Update Plan
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Plan.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Plan'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Plan'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+          description: ''
+    patch:
+      operationId: v1_onboard_plans_partial_update
+      description: Partially update an existing plan by ID.
+      summary: Partial Update Plan
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Plan.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPlan'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPlan'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPlan'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+          description: ''
+    delete:
+      operationId: v1_onboard_plans_destroy
+      description: Soft-delete an existing plan by ID.
+      summary: Delete Plan
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Plan.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/onboard/plans/bulk_delete/:
+    post:
+      operationId: v1_onboard_plans_bulk_delete_create
+      description: |-
+        Plan ViewSet.
+        Provides robust, production-grade endpoints for managing billing and subscription plans.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/onboard/plans/dropdown/:
+    get:
+      operationId: v1_onboard_plans_dropdown_retrieve
+      description: Get lightweight label/value selection pairs representing all active
+        plans.
+      summary: Get Dropdown Options
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/onboard/register-pending/:
+    post:
+      operationId: v1_onboard_register_pending_create
+      description: Captures initial signup details (name, email, business name, password,
+        optional referral code) and emails a 5-digit OTP code.
+      summary: 'Step 1: User Signup Registration'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TempUserSignup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TempUserSignup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TempUserSignup'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterPendingResponse'
+          description: ''
+  /api/v1/onboard/resend-otp/:
+    post:
+      operationId: v1_onboard_resend_otp_create
+      description: Resends a new 5-digit OTP to the registrant's email, subject to
+        a 30-second cooldown period.
+      summary: 'Step 2 Helper: Resend Verification OTP'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResendOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResendOTP'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterPendingResponse'
+          description: ''
+  /api/v1/onboard/reset-password/:
+    post:
+      operationId: v1_onboard_reset_password_create
+      description: Resets the password of a temporary unverified onboarding registration
+        using a secure one-time-use token.
+      summary: 'Step 2 Helper: Reset Temp User Password'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResetPassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResetPassword'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/resume-session/:
+    post:
+      operationId: v1_onboard_resume_session_create
+      description: Allows a user to resume their onboarding process from their last
+        completed state by providing their email or registration ID.
+      summary: 'Step 2 Helper: Resume Onboarding Session'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeSession'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeSession'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeSession'
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeSessionResponse'
+          description: ''
+  /api/v1/onboard/update-plan/:
+    patch:
+      operationId: v1_onboard_update_plan_partial_update
+      description: Updates the user's selected subscription plan and returns a dynamic
+        breakdown of the new pricing.
+      summary: 'Step 3: Update Selected Plan'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdatePlan'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdatePlan'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUpdatePlan'
+      security:
+      - TempUserTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePlanResponse'
+          description: ''
+  /api/v1/onboard/verify/:
+    post:
+      operationId: v1_onboard_verify_create
+      description: Verifies the payment gateway signature. Upon success, registers
+        a Tenant, maps the user, deletes the TempUser, and issues standard JWT tokens.
+      summary: 'Step 5: Verify Payment & Complete Onboarding'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPayment'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifyPayment'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifyPayment'
+        required: true
+      security:
+      - TempUserTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyPaymentResponse'
+          description: ''
+  /api/v1/onboard/verify-otp/:
+    post:
+      operationId: v1_onboard_verify_otp_create
+      description: Verifies the emailed 5-digit OTP. Upon success, returns a temporary
+        scoped token and the initial pricing breakdown.
+      summary: 'Step 2: Email OTP Verification'
+      tags:
+      - Onboarding Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifyOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifyOTP'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyOTPResponse'
+          description: ''
+  /api/v1/onboard/webhook/:
+    post:
+      operationId: v1_onboard_webhook_create
+      description: Receives and processes server-to-server transaction status update
+        webhooks from Razorpay.
+      summary: Razorpay Webhook Handler
+      tags:
+      - Onboarding Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RazorpayWebhook'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RazorpayWebhook'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RazorpayWebhook'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+components:
+  schemas:
+    BillingAddress:
+      type: object
+      properties:
+        line1:
+          type: string
+          description: Address Line 1 (Street, Building, Suite).
+          maxLength: 255
+        city:
+          type: string
+          description: City name.
+          maxLength: 100
+        state:
+          type: string
+          description: State or Province name.
+          maxLength: 100
+        zip_code:
+          type: string
+          description: ZIP or Postal Code.
+          maxLength: 20
+        country:
+          type: string
+          description: Country name or ISO country code.
+          maxLength: 100
+        gstin:
+          type: string
+      required:
+      - city
+      - line1
+      - state
+      - zip_code
+    BillingBreakdownResponse:
+      type: object
+      properties:
+        base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        net_base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        currency:
+          type: string
+      required:
+      - base_price
+      - currency
+      - discount_amount
+      - net_base_price
+      - tax_amount
+      - tax_percentage
+      - total_price
+    BillingCycleEnum:
+      enum:
+      - monthly
+      - yearly
+      type: string
+      description: |-
+        * `monthly` - Monthly
+        * `yearly` - Yearly
+    CancelOrder:
+      type: object
+      properties:
+        razorpay_order_id:
+          type: string
+      required:
+      - razorpay_order_id
+    ChangeEmail:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        new_email:
+          type: string
+          format: email
+      required:
+      - new_email
+      - temp_registration_id
+    CreateOrderJustInTime:
+      type: object
+      properties:
+        billing_address:
+          $ref: '#/components/schemas/BillingAddress'
+      required:
+      - billing_address
+    CreateOrderJustInTimeResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/CreateOrderJustInTimeResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    CreateOrderJustInTimeResponseData:
+      type: object
+      properties:
+        razorpay_order_id:
+          type: string
+        amount:
+          type: integer
+          description: Amount in Paisa
+        currency:
+          type: string
+        razorpay_key_id:
+          type: string
+      required:
+      - amount
+      - currency
+      - razorpay_key_id
+      - razorpay_order_id
+    CurrencyEnum:
+      enum:
+      - INR
+      type: string
+      description: '* `INR` - Indian Rupee'
+    ForgotPassword:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    GeneralResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          nullable: true
+      required:
+      - message
+      - status
+    Login:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+      - email
+      - password
+    LoginResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          type: object
+          additionalProperties: {}
+      required:
+      - access
+      - refresh
+      - user
+    Logout:
+      type: object
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
+    PaginatedPlanListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanList'
+    PatchedPlan:
+      type: object
+      description: |-
+        Main Plan Serializer for detail, create, and update operations.
+        Exposes all configuration fields and returns computed financial values as read-only.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        code:
+          type: string
+          description: Unique machine-readable code identifier for the plan.
+          maxLength: 50
+        name:
+          type: string
+          description: Unique name identifier for the subscription plan.
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          description: Detailed description of features included in this plan.
+        base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Original gross base price of the plan before discount and tax.
+        discount_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Discount percentage rate (e.g., 10.00 for 10% off).
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        net_base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        tax_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Tax percentage rate (e.g., 18.00 for 18%).
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        total_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          description: |-
+            Three-letter ISO currency code.
+
+            * `INR` - Indian Rupee
+        currency_display:
+          type: string
+          readOnly: true
+        billing_cycle:
+          allOf:
+          - $ref: '#/components/schemas/BillingCycleEnum'
+          description: |-
+            Billing frequency cycle.
+
+            * `monthly` - Monthly
+            * `yearly` - Yearly
+        billing_cycle_display:
+          type: string
+          readOnly: true
+        plan_type:
+          allOf:
+          - $ref: '#/components/schemas/PlanTypeEnum'
+          description: |-
+            The classification type of the plan.
+
+            * `paid` - Paid
+            * `free` - Free
+            * `pay_as_you_go` - Pay As You Go
+        plan_type_display:
+          type: string
+          readOnly: true
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort display order for the plan.
+        is_active:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedUpdatePlan:
+      type: object
+      properties:
+        plan_id:
+          type: string
+          format: uuid
+    Plan:
+      type: object
+      description: |-
+        Main Plan Serializer for detail, create, and update operations.
+        Exposes all configuration fields and returns computed financial values as read-only.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        code:
+          type: string
+          description: Unique machine-readable code identifier for the plan.
+          maxLength: 50
+        name:
+          type: string
+          description: Unique name identifier for the subscription plan.
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          description: Detailed description of features included in this plan.
+        base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Original gross base price of the plan before discount and tax.
+        discount_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Discount percentage rate (e.g., 10.00 for 10% off).
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        net_base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        tax_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Tax percentage rate (e.g., 18.00 for 18%).
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        total_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          description: |-
+            Three-letter ISO currency code.
+
+            * `INR` - Indian Rupee
+        currency_display:
+          type: string
+          readOnly: true
+        billing_cycle:
+          allOf:
+          - $ref: '#/components/schemas/BillingCycleEnum'
+          description: |-
+            Billing frequency cycle.
+
+            * `monthly` - Monthly
+            * `yearly` - Yearly
+        billing_cycle_display:
+          type: string
+          readOnly: true
+        plan_type:
+          allOf:
+          - $ref: '#/components/schemas/PlanTypeEnum'
+          description: |-
+            The classification type of the plan.
+
+            * `paid` - Paid
+            * `free` - Free
+            * `pay_as_you_go` - Pay As You Go
+        plan_type_display:
+          type: string
+          readOnly: true
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort display order for the plan.
+        is_active:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - billing_cycle_display
+      - code
+      - created_at
+      - currency_display
+      - discount_amount
+      - id
+      - is_active
+      - name
+      - net_base_price
+      - plan_type_display
+      - tax_amount
+      - total_price
+      - updated_at
+    PlanList:
+      type: object
+      description: |-
+        Plan List Serializer.
+        Tailored representation for listing plans on administrative dashboards.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        code:
+          type: string
+          description: Unique machine-readable code identifier for the plan.
+          maxLength: 50
+        name:
+          type: string
+          description: Unique name identifier for the subscription plan.
+          maxLength: 100
+        base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Original gross base price of the plan before discount and tax.
+        discount_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Discount percentage rate (e.g., 10.00 for 10% off).
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        net_base_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        tax_percentage:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          description: Tax percentage rate (e.g., 18.00 for 18%).
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        total_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyEnum'
+          description: |-
+            Three-letter ISO currency code.
+
+            * `INR` - Indian Rupee
+        billing_cycle:
+          allOf:
+          - $ref: '#/components/schemas/BillingCycleEnum'
+          description: |-
+            Billing frequency cycle.
+
+            * `monthly` - Monthly
+            * `yearly` - Yearly
+        billing_cycle_display:
+          type: string
+          readOnly: true
+        plan_type:
+          allOf:
+          - $ref: '#/components/schemas/PlanTypeEnum'
+          description: |-
+            The classification type of the plan.
+
+            * `paid` - Paid
+            * `free` - Free
+            * `pay_as_you_go` - Pay As You Go
+        plan_type_display:
+          type: string
+          readOnly: true
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sort display order for the plan.
+        is_active:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - billing_cycle_display
+      - code
+      - created_at
+      - discount_amount
+      - id
+      - is_active
+      - name
+      - net_base_price
+      - plan_type_display
+      - tax_amount
+      - total_price
+    PlanResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        code:
+          type: string
+      required:
+      - code
+      - id
+      - name
+    PlanTypeEnum:
+      enum:
+      - paid
+      - free
+      - pay_as_you_go
+      type: string
+      description: |-
+        * `paid` - Paid
+        * `free` - Free
+        * `pay_as_you_go` - Pay As You Go
+    RazorpayWebhook:
+      type: object
+      properties:
+        id:
+          type: string
+        event:
+          type: string
+        payload: {}
+      required:
+      - event
+      - id
+      - payload
+    RegisterPendingResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/RegisterPendingResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    RegisterPendingResponseData:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+      required:
+      - email
+      - temp_registration_id
+    ResendOTP:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+      required:
+      - temp_registration_id
+    ResetPassword:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        token:
+          type: string
+        password:
+          type: string
+          maxLength: 32
+          minLength: 8
+        confirm_password:
+          type: string
+      required:
+      - confirm_password
+      - password
+      - temp_registration_id
+      - token
+    ResumeSession:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+        temp_registration_id:
+          type: string
+          format: uuid
+          nullable: true
+    ResumeSessionResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/ResumeSessionResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    ResumeSessionResponseData:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        step:
+          type: string
+        temporary_token:
+          type: string
+          nullable: true
+        plan:
+          allOf:
+          - $ref: '#/components/schemas/PlanResponse'
+          nullable: true
+        billing_breakdown:
+          allOf:
+          - $ref: '#/components/schemas/BillingBreakdownResponse'
+          nullable: true
+      required:
+      - email
+      - step
+      - temp_registration_id
+    TempUserSignup:
+      type: object
+      properties:
+        plan_id:
+          type: string
+          format: uuid
+        first_name:
+          type: string
+          pattern: ^[A-Za-z]+$
+          maxLength: 30
+          minLength: 2
+        last_name:
+          type: string
+          pattern: ^[A-Za-z]+$
+          maxLength: 30
+          minLength: 2
+        business_name:
+          type: string
+          maxLength: 255
+          minLength: 2
+        email:
+          type: string
+          format: email
+          maxLength: 100
+          minLength: 6
+        phone_number:
+          type: string
+          nullable: true
+          pattern: ^\d{7,15}$
+        referral_code:
+          type: string
+          nullable: true
+          maxLength: 50
+        password:
+          type: string
+          maxLength: 32
+          minLength: 8
+        confirm_password:
+          type: string
+      required:
+      - business_name
+      - confirm_password
+      - email
+      - first_name
+      - last_name
+      - password
+      - plan_id
+    TokenDetailResponse:
+      type: object
+      properties:
+        refresh:
+          type: string
+        access:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshResponse:
+      type: object
+      properties:
+        access:
+          type: string
+      required:
+      - access
+    UpdatePlanResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/UpdatePlanResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    UpdatePlanResponseData:
+      type: object
+      properties:
+        plan:
+          $ref: '#/components/schemas/PlanResponse'
+        billing_breakdown:
+          $ref: '#/components/schemas/BillingBreakdownResponse'
+      required:
+      - billing_breakdown
+      - plan
+    UserDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        is_active:
+          type: boolean
+      required:
+      - email
+      - id
+      - is_active
+    VerifyOTP:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        otp_code:
+          type: string
+          maxLength: 5
+          minLength: 5
+      required:
+      - otp_code
+      - temp_registration_id
+    VerifyOTPResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/VerifyOTPResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    VerifyOTPResponseData:
+      type: object
+      properties:
+        temporary_token:
+          type: string
+        email:
+          type: string
+          format: email
+        plan:
+          $ref: '#/components/schemas/PlanResponse'
+        billing_breakdown:
+          $ref: '#/components/schemas/BillingBreakdownResponse'
+      required:
+      - billing_breakdown
+      - email
+      - plan
+      - temporary_token
+    VerifyPayment:
+      type: object
+      properties:
+        razorpay_order_id:
+          type: string
+        razorpay_payment_id:
+          type: string
+        razorpay_signature:
+          type: string
+      required:
+      - razorpay_order_id
+      - razorpay_payment_id
+      - razorpay_signature
+    VerifyPaymentResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/VerifyPaymentResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    VerifyPaymentResponseData:
+      type: object
+      properties:
+        tokens:
+          $ref: '#/components/schemas/TokenDetailResponse'
+        user:
+          $ref: '#/components/schemas/UserDetailResponse'
+      required:
+      - tokens
+      - user
+  securitySchemes:
+    TempUserTokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Scoped temporary onboarding token prefixed with 'Bearer '
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

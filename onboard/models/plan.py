@@ -1,6 +1,6 @@
 from django.db import models
 from utils.models.base_model_core import BaseModelCore
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 
 class Plan(BaseModelCore):
@@ -96,25 +96,29 @@ class Plan(BaseModelCore):
         """Calculates the absolute discount value dynamically."""
         base_price = Decimal(str(self.base_price or 0.0))
         discount_percentage = Decimal(str(self.discount_percentage or 0.0))
-        return (base_price * discount_percentage) / Decimal("100.00")
+        val = (base_price * discount_percentage) / Decimal("100.00")
+        return val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @property
     def net_base_price(self):
         """Calculates the net price after discount (before tax)."""
         base_price = Decimal(str(self.base_price or 0.0))
-        return base_price - self.discount_amount
+        val = base_price - self.discount_amount
+        return val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @property
     def tax_amount(self):
         """Calculates tax on the discounted net base price."""
         net_base_price = self.net_base_price
         tax_percentage = Decimal(str(self.tax_percentage or 0.0))
-        return (net_base_price * tax_percentage) / Decimal("100.00")
+        val = (net_base_price * tax_percentage) / Decimal("100.00")
+        return val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @property
     def total_price(self):
         """Calculates the final absolute total price (net base + tax)."""
-        return self.net_base_price + self.tax_amount
+        val = self.net_base_price + self.tax_amount
+        return val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def __str__(self):
         return self.name
