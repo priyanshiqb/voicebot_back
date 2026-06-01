@@ -17,6 +17,7 @@ from onboard.views.onboarding.base import (
     create_tenant_and_mapping,
 )
 from drf_spectacular.utils import extend_schema
+from user.serializers.custom_user import UserRefSerializer
 
 User = get_user_model()
 
@@ -101,7 +102,15 @@ class VerifyPaymentView(APIView):
         user.save()
 
         # Create Tenant and Tenant User Mapping cleanly
-        create_tenant_and_mapping(temp_user, user)
+        tenant = create_tenant_and_mapping(temp_user, user)
+
+        # Create Subscription record for the new tenant with a plan snapshot
+        from onboard.models import Subscription
+        Subscription.objects.create(
+            tenant=tenant,
+            plan=temp_user.selected_plan,
+            status=Subscription.SubscriptionStatusChoices.ACTIVE
+        )
 
         # Link BillingAddress and Transaction to the new active CustomUser
         BillingAddress.objects.filter(temp_user=temp_user).update(user=user, temp_user=None)
@@ -116,21 +125,15 @@ class VerifyPaymentView(APIView):
 
         # Generate permanent simplejwt access and refresh tokens
         refresh = RefreshToken.for_user(user)
-        tokens = {
-            "refresh": str(refresh),
-            "access": str(refresh.access_token)
-        }
+        access = refresh.access_token
 
         return Response({
             "status": True,
             "message": "Payment verified. Welcome onboard!",
             "data": {
-                "tokens": tokens,
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "is_active": user.is_active
-                }
+                "access": str(access),
+                "refresh": str(refresh),
+                "user": UserRefSerializer(user).data
             },
             "errors": None
         }, status=status.HTTP_200_OK)

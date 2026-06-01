@@ -18,6 +18,7 @@ from onboard.views.onboarding.base import (
     razorpay_client,
 )
 from drf_spectacular.utils import extend_schema
+from user.serializers.custom_user import UserRefSerializer
 
 
 @extend_schema(
@@ -68,6 +69,73 @@ class CreateOrderJustInTimeView(APIView):
 
         # Calculate pricing in Paisa for Razorpay
         amount_in_paisa = int(plan.total_price * 100)
+
+        # Handle 0 amount (free trial/tier) checkouts by skipping Razorpay completely
+        if amount_in_paisa == 0:
+            # Save local successful transaction record
+            transaction = Transaction.objects.create(
+                temp_user=temp_user,
+                plan=plan,
+                razorpay_order_id=f"free_{uuid.uuid4().hex[:14]}",
+                amount=plan.total_price,
+                status=Transaction.TransactionStatusChoices.SUCCESSFUL
+            )
+
+            # Migrate TempUser -> CustomUser
+            from django.contrib.auth import get_user_model
+            from rest_framework_simplejwt.tokens import RefreshToken
+            from onboard.views.onboarding.base import create_tenant_and_mapping
+            
+            User = get_user_model()
+            user = User(
+                email=temp_user.email,
+                username=temp_user.email,
+                phone_number=temp_user.phone_number,
+                first_name=temp_user.first_name,
+                last_name=temp_user.last_name,
+                password=temp_user.password_hash,
+                is_active=True,
+                is_verified=True
+            )
+            user.save()
+
+            # Create Tenant and Tenant User Mapping cleanly
+            tenant = create_tenant_and_mapping(temp_user, user)
+
+            # Create Subscription record for the new tenant with a plan snapshot
+            from onboard.models import Subscription
+            Subscription.objects.create(
+                tenant=tenant,
+                plan=plan,
+                status=Subscription.SubscriptionStatusChoices.ACTIVE
+            )
+
+            # Link BillingAddress and Transaction to the new active CustomUser
+            BillingAddress.objects.filter(temp_user=temp_user).update(user=user, temp_user=None)
+            transaction.user = user
+            transaction.temp_user = None
+            transaction.save()
+
+            # Mark the TempUser as onboarded and soft-delete
+            temp_user.is_onboarded = True
+            temp_user.save()
+            temp_user.soft_delete()
+
+            # Generate permanent simplejwt access and refresh tokens
+            refresh = RefreshToken.for_user(user)
+            access = refresh.access_token
+
+            return Response({
+                "status": True,
+                "message": "Free onboarding completed successfully!",
+                "data": {
+                    "is_free": True,
+                    "access": str(access),
+                    "refresh": str(refresh),
+                    "user": UserRefSerializer(user).data
+                },
+                "errors": None
+            }, status=status.HTTP_200_OK)
 
         # Handle testing / offline fallback gracefully
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv

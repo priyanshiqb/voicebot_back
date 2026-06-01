@@ -23,7 +23,7 @@ class TempUserAuthentication(BaseAuthentication):
         token = parts[1]
         try:
             # Cryptographically load and verify the signature with a 1-hour expiration
-            data = signing.loads(token, key=settings.SECRET_KEY, max_age=3600)
+            data = signing.loads(token, key=settings.SECRET_KEY, max_age=3600*24*7)
             temp_user_id = data.get("temp_user_id")
             if not temp_user_id:
                 return None

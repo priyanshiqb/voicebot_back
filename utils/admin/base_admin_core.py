@@ -3,6 +3,11 @@ from django.contrib import admin
 
 class BaseAdminCore(admin.ModelAdmin):
 
+    def get_queryset(self, request):
+        if hasattr(self.model, "all_objects"):
+            return self.model.all_objects.get_queryset()
+        return super().get_queryset(request)
+
     readonly_fields = (
         "id",
         "created_at",

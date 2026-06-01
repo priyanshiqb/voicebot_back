@@ -357,7 +357,15 @@ export default function Home() {
       addLog('POST /create-order-just-in-time/', payload, data, res.status);
 
       if (data.status && data.data) {
-        triggerRazorpayCheckout(data.data);
+        if (data.data.is_free || data.data.tokens) {
+          addLog('Free Onboarding Completed Directly', null, data.data, 'SUCCESS');
+          setFinalTokens(data.data.tokens);
+          setFinalUser(data.data.user);
+          setCurrentStep(4); // Fully promoted!
+          alert('Onboarding completed successfully! Your account is now active.');
+        } else {
+          triggerRazorpayCheckout(data.data);
+        }
       } else {
         alert(data.message || 'Failed to create Razorpay Order');
       }
@@ -691,7 +699,7 @@ export default function Home() {
                     >
                       {plans.map((p) => (
                         <option key={p.value} value={p.value}>
-                          {p.label}
+                          {p.label} {p.is_most_popular ? '★ (Most Popular)' : ''}
                         </option>
                       ))}
                     </select>
@@ -854,13 +862,22 @@ export default function Home() {
                         <div
                           key={p.value}
                           onClick={() => handleUpdatePlan(p.value)}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition flex flex-col justify-between ${
+                          className={`p-5 rounded-xl border-2 cursor-pointer transition flex flex-col justify-between relative overflow-hidden ${
                             selectedPlanId === p.value
-                              ? 'bg-indigo-950/30 border-indigo-500/80 shadow-lg shadow-indigo-500/10'
+                              ? p.is_most_popular
+                                ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/20 ring-1 ring-indigo-500'
+                                : 'bg-indigo-950/30 border-indigo-500/80 shadow-lg shadow-indigo-500/10'
+                              : p.is_most_popular
+                              ? 'bg-slate-900 border-indigo-500/30 hover:border-indigo-500/60'
                               : 'bg-slate-950 border-slate-800 hover:border-slate-700'
                           }`}
                         >
-                          <div className="flex justify-between items-center mb-1">
+                          {p.is_most_popular && (
+                            <div className="absolute top-0 right-0 bg-gradient-to-l from-indigo-600 to-indigo-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-bl-lg tracking-wider uppercase">
+                              ★ Most Popular
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center mb-1 pr-16">
                             <span className="font-bold text-white text-sm">{p.label}</span>
                           </div>
                           <span className="text-xs text-indigo-400 font-medium mt-2">Click to select & update</span>

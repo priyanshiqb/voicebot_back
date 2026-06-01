@@ -14,6 +14,7 @@ api_v1_patterns = [
     # Include user registration and JWT auth endpoints
     path("auth/", include("user.urls")),
     path("onboard/", include("onboard.urls")),
+    path("core/", include("core.urls")),
 ]
 
 urlpatterns = [

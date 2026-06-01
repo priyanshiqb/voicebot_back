@@ -23,6 +23,7 @@ class PlanAdmin(BaseAdminCore):
         "total_price_display",
         "billing_cycle",
         "sort_order",
+        "is_most_popular",
         "is_active",
         "created_at",
     )
@@ -31,6 +32,7 @@ class PlanAdmin(BaseAdminCore):
         "plan_type",
         "currency",
         "billing_cycle",
+        "is_most_popular",
     ) + BaseAdminCore.list_filter
 
     search_fields = (
@@ -56,6 +58,7 @@ class PlanAdmin(BaseAdminCore):
                 "name",
                 "description",
                 "plan_type",
+                "is_most_popular",
                 "is_active",
                 "sort_order",
             )

@@ -69,18 +69,6 @@ class UpdatePlanResponseSerializer(BaseEnvelopeSerializer):
     data = UpdatePlanResponseDataSerializer(allow_null=True)
 
 
-# --- Create Order JIT ---
-class CreateOrderJustInTimeResponseDataSerializer(serializers.Serializer):
-    razorpay_order_id = serializers.CharField(required=True)
-    amount = serializers.IntegerField(required=True, help_text="Amount in Paisa")
-    currency = serializers.CharField(required=True)
-    razorpay_key_id = serializers.CharField(required=True)
-
-
-class CreateOrderJustInTimeResponseSerializer(BaseEnvelopeSerializer):
-    data = CreateOrderJustInTimeResponseDataSerializer(allow_null=True)
-
-
 # --- Verify Payment ---
 class TokenDetailResponseSerializer(serializers.Serializer):
     refresh = serializers.CharField(required=True)
@@ -91,6 +79,21 @@ class UserDetailResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(required=True)
     email = serializers.EmailField(required=True)
     is_active = serializers.BooleanField(required=True)
+
+
+# --- Create Order JIT ---
+class CreateOrderJustInTimeResponseDataSerializer(serializers.Serializer):
+    razorpay_order_id = serializers.CharField(required=False)
+    amount = serializers.IntegerField(required=False, help_text="Amount in Paisa")
+    currency = serializers.CharField(required=False)
+    razorpay_key_id = serializers.CharField(required=False)
+    is_free = serializers.BooleanField(required=False, default=False)
+    tokens = TokenDetailResponseSerializer(required=False, allow_null=True)
+    user = UserDetailResponseSerializer(required=False, allow_null=True)
+
+
+class CreateOrderJustInTimeResponseSerializer(BaseEnvelopeSerializer):
+    data = CreateOrderJustInTimeResponseDataSerializer(allow_null=True)
 
 
 class VerifyPaymentResponseDataSerializer(serializers.Serializer):

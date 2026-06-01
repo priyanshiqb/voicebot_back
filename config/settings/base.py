@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "user",
     "tenant",
     "onboard",
+    "core",
 ]
 
 CORS_ALLOW_HEADERS = [

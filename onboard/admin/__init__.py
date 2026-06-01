@@ -3,6 +3,7 @@ from .billing_address import BillingAddressAdmin
 from .temp_user import TempUserAdmin
 from .transaction import TransactionAdmin
 from .webhook_log import RazorpayWebhookLogAdmin
+from .subscription import SubscriptionAdmin
 
 __all__ = [
     "PlanAdmin",
@@ -10,4 +11,5 @@ __all__ = [
     "TempUserAdmin",
     "TransactionAdmin",
     "RazorpayWebhookLogAdmin",
+    "SubscriptionAdmin",
 ]

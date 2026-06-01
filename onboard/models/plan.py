@@ -85,6 +85,10 @@ class Plan(BaseModelCore):
         default=0,
         help_text="Sort display order for the plan."
     )
+    is_most_popular = models.BooleanField(
+        default=False,
+        help_text="Flag indicating whether this plan is marked as the most popular choice."
+    )
 
     class Meta(BaseModelCore.Meta):
         verbose_name = "Plan"

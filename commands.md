@@ -1,116 +1,131 @@
-# Quick-Copy Developer Commands Cheatsheet
+# 🐳 Unified Developer Commands Cheatsheet
 
-This cheatsheet provides all standard developer commands in quick-copy format. **Every code block contains exactly one line**, allowing you to double-click or click "Copy" to instantly execute them.
+This cheatsheet provides all standard developer commands in a quick-copy format. Every code block is optimized to contain exactly one line for ease of copy-pasting, grouped logically by environment.
 
 ---
 
-## 1. Local Development (Outside Docker on Host Machine)
+## 💡 Quick Overview of Docker Compose Files
+* **`docker-compose.yml`**: Defines the single core unified Daphne backend application.
+* **`docker-compose.override.yml`**: Extends the configuration for local development. By default, running `docker compose` loads **both** files together, spinning up the backend plus local PostgreSQL, PGAdmin, Redis, and RedisInsight.
+* **To Bypass Override (Remote/Cloud DBs)**: Pass the `-f docker-compose.yml` flag to start *only* the Daphne application.
+
+---
+
+## 💻 1. Local Development (Outside Docker on Host Machine)
+Use these commands when running Django locally directly on your system using Python/uv.
 
 ### Run Django System Check
-Verify that all settings, middlewares, and dependencies compile cleanly:
 ```bash
 uv run python manage.py check --settings=config.settings.local
 ```
 
 ### Make Django Migrations
-Scan your models for updates and create database migration files:
 ```bash
 uv run python manage.py makemigrations --settings=config.settings.local
 ```
 
 ### Run Django Migrations
-Apply pending database migrations to your PostgreSQL engine:
 ```bash
 uv run python manage.py migrate --settings=config.settings.local
 ```
 
-### Create a Superuser
-Create an administrative account to access the Django Admin console:
+### Create Django Superuser
 ```bash
 uv run python manage.py createsuperuser --settings=config.settings.local
 ```
 
-### Start the Local Server (Daphne)
-Launch the unified Daphne server locally for HTTP and WebSockets:
+### Start Local ASGI Server (Daphne)
 ```bash
 uv run daphne -b 127.0.0.1 -p 8000 config.asgi:application
 ```
 
+### Run Django Unit Tests Locally
+```bash
+uv run python manage.py test onboard --settings=config.settings.local
+```
+
 ---
 
-## 2. Docker Compose Commands
+## 🚢 2. Docker Compose Commands
 
-### Boot Local Development (Local DBs ON)
-Start Daphne, PostgreSQL, Redis, pgAdmin, and RedisInsight collectively:
+### Boot Local Development (Backend + Local PostgreSQL + Caching)
+Loads both `docker-compose.yml` and `docker-compose.override.yml` collectively:
 ```bash
 docker compose --env-file .env.django.docker up --build
 ```
 
-### Boot Local Development in Background
-Start all containers in detached mode to keep your terminal free:
+### Boot Local Development in Background (Detached Mode)
 ```bash
 docker compose --env-file .env.django.docker up -d --build
 ```
 
-### Boot with Cloud/Remote DBs (Local DBs OFF)
-Start only the Daphne server, bypassing local database containers:
+### Boot Daphne ONLY (Bypassing Local DBs / Using Remote Cloud DBs)
+Loads *only* the primary compose file to disable Postgres/Redis containers:
 ```bash
 docker compose --env-file .env.django.docker -f docker-compose.yml up --build
 ```
 
-### Stop All Containers
-Stop all active services:
+### Stop All Active Containers
 ```bash
 docker compose --env-file .env.django.docker stop
 ```
 
-### Tear Down and Delete Volumes
-Stop all active services and completely wipe local database/Redis volumes:
+### Tear Down Containers & Delete Local Volumes (Wipe Databases)
+Stops containers and deletes local pgAdmin, Postgres, and Redis volumes to start fresh:
 ```bash
 docker compose --env-file .env.django.docker down -v
 ```
 
-### View Live Logs
-View real-time console print statements and server logs:
+### View Live Backend and DB Logs
 ```bash
 docker compose --env-file .env.django.docker logs -f
 ```
 
 ---
 
-## 3. Operations Inside Running Docker Containers
+## 📥 3. Operations Inside Running Docker Containers
 
-### Run Database Migrations in Container
-Apply database migrations inside the running API container:
+### Scan for Model Changes inside Container (Makemigrations)
 ```bash
-docker compose --env-file .env.django.docker exec api python manage.py migrate
+docker compose --env-file .env.django.docker exec backend python manage.py makemigrations
 ```
 
-### Create a Django Superuser in Container
-Create an admin user inside the running API container:
+### Apply Database Migrations inside Container (Migrate)
 ```bash
-docker compose --env-file .env.django.docker exec api python manage.py createsuperuser
+docker compose --env-file .env.django.docker exec backend python manage.py migrate
 ```
 
-### Access PostgreSQL Shell (psql)
-Open an interactive database command line inside the Postgres container:
+### Create a Superuser inside Container
+```bash
+docker compose --env-file .env.django.docker exec backend python manage.py createsuperuser
+```
+
+### Run Django Unit Tests inside Container
+```bash
+docker compose --env-file .env.django.docker exec backend python manage.py test onboard
+```
+
+### Access PostgreSQL Shell (psql) inside Database Container
 ```bash
 docker compose --env-file .env.django.docker exec postgres psql -U voicebot_user -d voicebot_db
 ```
 
-### Access Redis Command Line (redis-cli)
-Open an interactive caching command line inside the Redis container:
+### Access Redis Command Line (redis-cli) inside Redis Container
 ```bash
 docker compose --env-file .env.django.docker exec redis redis-cli
 ```
 
 ---
 
-## 4. Troubleshooting & Root Access
+## 🛠️ 4. Container Access & Diagnostics
 
-### Gain ROOT Access Inside the API Container
-Our containers run as a non-root system user (`django`) for production security. Use this command to bypass password prompts and enter the container as `root`:
+### Gain Root Access inside the Daphne Container
+Enter the backend container as `root` for administrative operations (installs, configs, etc.):
 ```bash
-docker compose --env-file .env.django.docker exec -u root api bash
+docker compose --env-file .env.django.docker exec -u root backend bash
 ```
 
+### Gain Standard User Access inside the Daphne Container
+```bash
+docker compose --env-file .env.django.docker exec backend bash
+```

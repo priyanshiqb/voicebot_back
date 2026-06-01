@@ -60,6 +60,7 @@ class PlanSerializer(BaseModelCoreSerializer):
             "plan_type",
             "plan_type_display",
             "sort_order",
+            "is_most_popular",
             "is_active",
             "created_at",
             "updated_at",
@@ -104,6 +105,7 @@ class PlanListSerializer(BaseModelCoreSerializer):
             "plan_type",
             "plan_type_display",
             "sort_order",
+            "is_most_popular",
             "is_active",
             "created_at",
         )
@@ -122,6 +124,7 @@ class PlanDropdownSerializer(serializers.ModelSerializer):
         fields = (
             "label",
             "value",
+            "is_most_popular",
         )
         read_only_fields = fields
 
