@@ -11,7 +11,6 @@ class TenantBaseModelCoreSerializer(BaseModelCoreSerializer):
     while keeping the tenant relation protected as read-only for incoming validations.
     """
     tenant = HybridRelatedField(
-        queryset=Tenant.objects.all(),
         serializer=TenantRefSerializer,
         read_only=True,
     )

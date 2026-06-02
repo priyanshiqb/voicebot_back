@@ -1,1 +1,1 @@
-test new commit
+"Please read AGENTS.md at the root of the project to review our architectural standards, and then proceed with [your task description]."

@@ -515,8 +515,8 @@ class OnboardingTests(APITestCase):
     def test_forgot_and_reset_password_temp_user_flow(self):
         """
         Verify that unverified TempUsers can successfully request a password reset,
-        receive a cryptographically signed token, use it once to reset the password,
-        and verify that the token is immediately invalidated (one-time usability).
+        receive an OTP verification code, verify the OTP, receive a signed token,
+        use that token to update password, and verify OTP/token invalidation scopes.
         """
         # Step 1: POST register-pending
         signup_payload = {
@@ -541,10 +541,55 @@ class OnboardingTests(APITestCase):
         forgot_payload = {"email": "bob.builder@example.com"}
         response = self.client.post(forgot_url, data=forgot_payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
-        # Token is returned in the debug payload
+        self.assertEqual(response.data["data"]["temp_registration_id"], temp_id)
+
+        # Retrieve OTP from database
+        temp_user.refresh_from_db()
+        otp = temp_user.otp_code
+        self.assertIsNotNone(otp)
+
+        # Step 2.5: POST forgot-password/verify/ (Fail with invalid OTP)
+        verify_url = "/api/v1/onboard/forgot-password/verify/"
+        verify_payload_invalid = {
+            "temp_registration_id": temp_id,
+            "otp_code": "000000"
+        }
+        response = self.client.post(verify_url, data=verify_payload_invalid, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data["status"])
+        self.assertIn("INVALID_OTP", response.data["errors"])
+
+        # Step 2.6: POST forgot-password/verify/ (Fail with expired OTP)
+        from django.utils import timezone
+        temp_user.otp_created_at = timezone.now() - timezone.timedelta(minutes=3)
+        temp_user.save()
+        verify_payload_good = {
+            "temp_registration_id": temp_id,
+            "otp_code": otp
+        }
+        response = self.client.post(verify_url, data=verify_payload_good, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("OTP_EXPIRED", response.data["errors"])
+
+        # Reset OTP and set valid time
+        temp_user.otp_code = otp
+        temp_user.otp_created_at = timezone.now()
+        temp_user.save()
+
+        # Step 2.7: POST forgot-password/verify/ (Success)
+        response = self.client.post(verify_url, data=verify_payload_good, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["status"])
         token = response.data["data"]["token"]
         self.assertIsNotNone(token)
+
+        # Verify OTP is invalidated in DB
+        temp_user.refresh_from_db()
+        self.assertIsNone(temp_user.otp_code)
+
+        # Step 2.8: POST forgot-password/verify/ again (Fail since already invalidated)
+        response = self.client.post(verify_url, data=verify_payload_good, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Step 3: POST reset-password (Success)
         reset_url = "/api/v1/onboard/reset-password/"

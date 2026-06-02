@@ -1,6 +1,8 @@
-from django.urls import path
+from django.urls import path, include
 
 app_name = "core"
 
 # Consolidated core app patterns
-urlpatterns = []
+urlpatterns = [
+    path("", include("core.urls.knowledge_base")),
+]

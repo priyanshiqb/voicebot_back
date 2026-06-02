@@ -4,7 +4,7 @@ from django.contrib import admin
 class BaseAdminCore(admin.ModelAdmin):
 
     def get_queryset(self, request):
-        if hasattr(self.model, "all_objects"):
+        if request.user.is_superuser and hasattr(self.model, "all_objects"):
             return self.model.all_objects.get_queryset()
         return super().get_queryset(request)
 
@@ -40,27 +40,17 @@ class BaseAdminCore(admin.ModelAdmin):
     )
 
     def delete_model(self, request, obj):
-
-        if hasattr(obj, "soft_delete"):
-            obj.soft_delete()
-        else:
-            super().delete_model(
-                request,
-                obj
-            )
+        super().delete_model(
+            request,
+            obj
+        )
 
     def delete_queryset(
         self,
         request,
         queryset
     ):
-
-        for obj in queryset:
-
-            if hasattr(obj, "soft_delete"):
-                obj.soft_delete()
-            else:
-                obj.delete()
+        queryset.delete()
 
     @admin.action(
         description="Soft delete selected items"

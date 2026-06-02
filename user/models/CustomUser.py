@@ -56,6 +56,17 @@ class CustomUser(AbstractUser, BaseModelCore):
     email = models.EmailField(unique=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_verified = models.BooleanField(default=False)
+    otp_code = models.CharField(
+        max_length=6,
+        blank=True,
+        null=True,
+        help_text="6-digit numeric verification OTP for active user password reset."
+    )
+    otp_created_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Timestamp of OTP generation for active user."
+    )
 
     created_by = models.ForeignKey(
         'self',
@@ -86,8 +97,14 @@ class CustomUser(AbstractUser, BaseModelCore):
 
     objects = UserManager()
 
-    
-
+    def is_otp_expired(self):
+        """
+        Check if the generated OTP code is older than 2 minutes.
+        """
+        if not self.otp_created_at:
+            return True
+        expiry_limit = timezone.now() - timezone.timedelta(minutes=2)
+        return self.otp_created_at < expiry_limit
 
     def save(self, *args, **kwargs):
         if self.email:

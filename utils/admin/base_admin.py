@@ -20,31 +20,17 @@ class BaseAdmin(BaseAdminCore):
     )
 
     def delete_model(self, request, obj):
-
-        if hasattr(obj, "soft_delete"):
-            obj.soft_delete(
-                user=request.user
-            )
-        else:
-            super().delete_model(
-                request,
-                obj
-            )
+        super().delete_model(
+            request,
+            obj
+        )
 
     def delete_queryset(
         self,
         request,
         queryset
     ):
-
-        for obj in queryset:
-
-            if hasattr(obj, "soft_delete"):
-                obj.soft_delete(
-                    user=request.user
-                )
-            else:
-                obj.delete()
+        queryset.delete()
 
     def soft_delete_selected(
         self,

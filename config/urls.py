@@ -18,6 +18,7 @@ api_v1_patterns = [
 ]
 
 urlpatterns = [
+    path('admin/defender/', include('defender.urls')),
     path("admin/", admin.site.path if hasattr(admin.site, "path") else admin.site.urls),
     
     # API endpoints grouped under v1 namespace

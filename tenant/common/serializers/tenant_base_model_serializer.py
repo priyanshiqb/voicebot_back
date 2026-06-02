@@ -11,7 +11,6 @@ class TenantBaseModelSerializer(BaseModelSerializer):
     audited user tracking nested lists (created_by, updated_by, deleted_by).
     """
     tenant = HybridRelatedField(
-        queryset=Tenant.objects.all(),
         serializer=TenantRefSerializer,
         read_only=True,
     )

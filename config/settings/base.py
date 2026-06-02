@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "corsheaders",
     "django_filters",
+    "defender",
     
     # Local custom apps
     "user",
@@ -102,6 +103,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "defender.middleware.FailedLoginMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -213,17 +215,32 @@ SIMPLE_JWT = {
     "CHECK_USER_IS_ACTIVE": True,
 }
 
+REDIS_HOST = env("REDIS_HOST")
+REDIS_PORT = env("REDIS_PORT")
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [
                 (
-                    str(env("REDIS_HOST")),
-                    int(env("REDIS_PORT")),
+                    str(REDIS_HOST),
+                    int(REDIS_PORT),
                 )
             ],
             "expiry": 120
+        },
+    }
+}
+
+CACHE_REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": CACHE_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
     }
 }
@@ -240,3 +257,11 @@ EMAIL_SENDER_NAME = env.str("EMAIL_SENDER_NAME", "VoiceBot")
 # Razorpay Credentials
 RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID", "rzp_test_dummykey")
 RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET", "dummysecret")
+
+# Django Defender Configuration (Brute Force Protection)
+DEFENDER_REDIS_URL = CACHE_REDIS_URL
+DEFENDER_LOGIN_LOCKOUT_LIMIT = 5
+DEFENDER_COOLOFF_TIME = 3600  # 1 hour lockout
+DEFENDER_BEHIND_REVERSE_PROXY = True
+DEFENDER_STORE_USER_AGENT = True
+DEFENDER_ACCESS_ATTEMPT_EXPIRY = 24

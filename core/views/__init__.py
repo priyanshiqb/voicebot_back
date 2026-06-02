@@ -1,1 +1,5 @@
-# Core app controllers and views package.
+from core.views.knowledge_base import KnowledgeBaseViewSet
+
+__all__ = [
+    "KnowledgeBaseViewSet",
+]

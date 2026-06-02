@@ -37,3 +37,9 @@ class ResetPasswordSerializer(serializers.Serializer):
         if data["password"] != data["confirm_password"]:
             raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
         return data
+
+
+class ForgotPasswordVerifyOTPSerializer(serializers.Serializer):
+    temp_registration_id = serializers.UUIDField(required=True)
+    otp_code = serializers.CharField(max_length=6, min_length=5, required=True)
+

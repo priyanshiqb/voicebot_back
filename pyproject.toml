@@ -19,5 +19,7 @@ dependencies = [
     "channels-redis>=4.2.0",
     "psycopg2-binary>=2.9.9",
     "razorpay>=2.0.1",
+    "django-defender>=0.9.8",
+    "django-redis>=6.0.0",
 ]
 

@@ -3,6 +3,9 @@ from user.views.auth import (
     LoginAPIView,
     LogoutAPIView,
     TokenRefreshAPIView,
+    UserForgotPasswordAPIView,
+    UserForgotPasswordVerifyOTPAPIView,
+    UserResetPasswordAPIView,
 )
 
 urlpatterns = [
@@ -23,5 +26,23 @@ urlpatterns = [
         "refresh/",
         TokenRefreshAPIView.as_view(),
         name="token_refresh"
+    ),
+
+    path(
+        "forgot-password/",
+        UserForgotPasswordAPIView.as_view(),
+        name="user-forgot-password"
+    ),
+
+    path(
+        "forgot-password/verify/",
+        UserForgotPasswordVerifyOTPAPIView.as_view(),
+        name="user-forgot-password-verify"
+    ),
+
+    path(
+        "reset-password/",
+        UserResetPasswordAPIView.as_view(),
+        name="user-reset-password"
     ),
 ]
