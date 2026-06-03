@@ -1,10 +1,10 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.conf import settings
 from django.core import signing
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import ForgotPasswordVerifyOTPSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -19,19 +19,18 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class ForgotPasswordVerifyOTPView(APIView):
+class ForgotPasswordVerifyOTPView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ForgotPasswordVerifyOTPSerializer
 
     def post(self, request):
         serializer = ForgotPasswordVerifyOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         temp_id = serializer.validated_data["temp_registration_id"]
         otp_code = serializer.validated_data["otp_code"]
@@ -39,28 +38,25 @@ class ForgotPasswordVerifyOTPView(APIView):
         try:
             temp_user = TempUser.objects.get(id=temp_id)
         except (TempUser.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Invalid registration ID",
-                "data": None,
-                "errors": ["REGISTRATION_NOT_FOUND"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid registration ID",
+                errors=["REGISTRATION_NOT_FOUND"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.otp_code != otp_code:
-            return Response({
-                "status": False,
-                "message": "Invalid OTP code",
-                "data": None,
-                "errors": ["INVALID_OTP"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid OTP code",
+                errors=["INVALID_OTP"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.is_otp_expired():
-            return Response({
-                "status": False,
-                "message": "Verification code has expired",
-                "data": None,
-                "errors": ["OTP_EXPIRED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Verification code has expired",
+                errors=["OTP_EXPIRED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Invalidate the OTP code in the database
         temp_user.otp_code = None
@@ -73,11 +69,11 @@ class ForgotPasswordVerifyOTPView(APIView):
             "password_hash": temp_user.password_hash
         }, key=settings.SECRET_KEY)
 
-        return Response({
-            "status": True,
-            "message": "OTP verified successfully",
-            "data": {
+        return self.success(
+            data={
                 "token": token
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="OTP verified successfully",
+            status_code=status.HTTP_200_OK
+        )
+

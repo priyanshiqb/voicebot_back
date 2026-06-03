@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
@@ -7,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import ResendOTPSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -21,7 +21,7 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class ResendOTPView(APIView):
+class ResendOTPView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ResendOTPSerializer
 
@@ -31,20 +31,18 @@ class ResendOTPView(APIView):
         try:
             temp_user = TempUser.objects.get(id=temp_id)
         except (TempUser.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Invalid registration ID",
-                "data": None,
-                "errors": ["REGISTRATION_NOT_FOUND"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid registration ID",
+                errors=["REGISTRATION_NOT_FOUND"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.is_email_verified:
-            return Response({
-                "status": False,
-                "message": "Email is already verified",
-                "data": None,
-                "errors": ["EMAIL_ALREADY_VERIFIED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Email is already verified",
+                errors=["EMAIL_ALREADY_VERIFIED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Resend OTP cooldown calculation (30 seconds limit)
         now = timezone.now()
@@ -52,12 +50,12 @@ class ResendOTPView(APIView):
             elapsed = (now - temp_user.otp_created_at).total_seconds()
             if elapsed < 30:
                 cooldown_remaining = int(30 - elapsed)
-                return Response({
-                    "status": False,
-                    "message": "Please wait before resending OTP.",
-                    "data": {"cooldown_remaining": cooldown_remaining},
-                    "errors": ["OTP_COOLDOWN_ACTIVE"]
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return self.error(
+                    message="Please wait before resending OTP.",
+                    data={"cooldown_remaining": cooldown_remaining},
+                    errors=["OTP_COOLDOWN_ACTIVE"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
 
         # Generate a new 5-digit verification OTP code
         otp_code = f"{random.randint(10000, 99999)}"
@@ -77,12 +75,12 @@ class ResendOTPView(APIView):
         except Exception as e:
             print(f"OTP Email delivery skipped/failed: {e}. OTP Code is: {otp_code}")
 
-        return Response({
-            "status": True,
-            "message": "A new verification OTP has been emailed.",
-            "data": {
+        return self.success(
+            data={
                 "temp_registration_id": str(temp_user.id),
                 "email": temp_user.email
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="A new verification OTP has been emailed.",
+            status_code=status.HTTP_200_OK
+        )
+

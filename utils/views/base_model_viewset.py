@@ -51,13 +51,14 @@ class ResponseMixin:
             "errors": None
         }, status=status_code)
 
-    def error(self, message="error", errors=None, status_code=400):
+    def error(self, message="error", errors=None, status_code=400, data=None):
         return Response({
             "status": False,
             "message": message,
-            "data": None,
+            "data": data,
             "errors": errors
         }, status=status_code)
+
 
 
 class BaseViewSet(ResponseMixin, ModelViewSet):

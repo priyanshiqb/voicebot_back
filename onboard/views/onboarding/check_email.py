@@ -1,9 +1,9 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.contrib.auth import get_user_model
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import CheckEmailSerializer, CheckEmailResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -20,19 +20,18 @@ User = get_user_model()
         400: GeneralResponseSerializer
     }
 )
-class CheckEmailView(APIView):
+class CheckEmailView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = CheckEmailSerializer
 
     def post(self, request):
         serializer = CheckEmailSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         email = serializer.validated_data["email"].strip().lower()
 
@@ -42,14 +41,14 @@ class CheckEmailView(APIView):
 
         available = not (exists_in_active or exists_in_pending)
 
-        return Response({
-            "status": True,
-            "message": "Email availability checked.",
-            "data": {
+        return self.success(
+            data={
                 "email": email,
                 "available": available,
                 "exists_in_active_users": exists_in_active,
                 "exists_in_pending_registrations": exists_in_pending
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Email availability checked.",
+            status_code=status.HTTP_200_OK
+        )
+

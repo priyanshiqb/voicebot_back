@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import Plan
 from onboard.authentication import TempUserAuthentication
 from onboard.views.onboarding.base import IsTempUserAuthenticated
@@ -20,7 +20,7 @@ from drf_spectacular.utils import extend_schema
         403: GeneralResponseSerializer
     }
 )
-class UpdatePlanView(APIView):
+class UpdatePlanView(ResponseMixin, APIView):
     authentication_classes = [TempUserAuthentication]
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = UpdatePlanSerializer
@@ -32,12 +32,11 @@ class UpdatePlanView(APIView):
         try:
             plan = Plan.objects.get(id=plan_id, is_active=True)
         except (Plan.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Plan not found or inactive",
-                "data": None,
-                "errors": ["PLAN_NOT_FOUND"]
-            }, status=status.HTTP_404_NOT_FOUND)
+            return self.error(
+                message="Plan not found or inactive",
+                errors=["PLAN_NOT_FOUND"],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         # Update the selected plan in the TempUser record
         temp_user.selected_plan = plan
@@ -54,10 +53,8 @@ class UpdatePlanView(APIView):
             "currency": plan.currency
         }
 
-        return Response({
-            "status": True,
-            "message": "Plan updated successfully",
-            "data": {
+        return self.success(
+            data={
                 "plan": {
                     "id": str(plan.id),
                     "name": plan.name,
@@ -65,5 +62,7 @@ class UpdatePlanView(APIView):
                 },
                 "billing_breakdown": billing_breakdown
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Plan updated successfully",
+            status_code=status.HTTP_200_OK
+        )
+

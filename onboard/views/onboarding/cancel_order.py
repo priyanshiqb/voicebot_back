@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser, BillingAddress, Transaction
 from onboard.authentication import TempUserAuthentication
 from onboard.views.onboarding.base import IsTempUserAuthenticated
@@ -20,7 +20,7 @@ from drf_spectacular.utils import extend_schema
         403: GeneralResponseSerializer
     }
 )
-class CancelOrderView(APIView):
+class CancelOrderView(ResponseMixin, APIView):
     authentication_classes = [TempUserAuthentication]
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = CancelOrderSerializer
@@ -38,9 +38,8 @@ class CancelOrderView(APIView):
         except Transaction.DoesNotExist:
             pass
 
-        return Response({
-            "status": True,
-            "message": "Order cancelled and deactivated successfully",
-            "data": None,
-            "errors": None
-        }, status=status.HTTP_200_OK)
+        return self.success(
+            message="Order cancelled and deactivated successfully",
+            status_code=status.HTTP_200_OK
+        )
+

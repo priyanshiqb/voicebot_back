@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
@@ -7,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import ForgotPasswordResendOTPSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -21,31 +21,29 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class ForgotPasswordResendOTPView(APIView):
+class ForgotPasswordResendOTPView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ForgotPasswordResendOTPSerializer
 
     def post(self, request):
         serializer = ForgotPasswordResendOTPSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         temp_id = serializer.validated_data["temp_registration_id"]
 
         try:
             temp_user = TempUser.objects.get(id=temp_id)
         except (TempUser.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Invalid registration ID",
-                "data": None,
-                "errors": ["REGISTRATION_NOT_FOUND"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid registration ID",
+                errors=["REGISTRATION_NOT_FOUND"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Resend OTP cooldown calculation (30 seconds limit)
         now = timezone.now()
@@ -53,12 +51,12 @@ class ForgotPasswordResendOTPView(APIView):
             elapsed = (now - temp_user.otp_created_at).total_seconds()
             if elapsed < 30:
                 cooldown_remaining = int(30 - elapsed)
-                return Response({
-                    "status": False,
-                    "message": "Please wait before resending OTP.",
-                    "data": {"cooldown_remaining": cooldown_remaining},
-                    "errors": ["OTP_COOLDOWN_ACTIVE"]
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return self.error(
+                    message="Please wait before resending OTP.",
+                    data={"cooldown_remaining": cooldown_remaining},
+                    errors=["OTP_COOLDOWN_ACTIVE"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
 
         # Generate a new secure 6-digit verification OTP code
         otp_code = f"{random.randint(100000, 999999)}"
@@ -78,12 +76,12 @@ class ForgotPasswordResendOTPView(APIView):
         except Exception as e:
             print(f"ForgotPassword OTP Email delivery skipped/failed: {e}. OTP Code is: {otp_code}")
 
-        return Response({
-            "status": True,
-            "message": "A new verification OTP has been emailed.",
-            "data": {
+        return self.success(
+            data={
                 "temp_registration_id": str(temp_user.id),
                 "email": temp_user.email
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="A new verification OTP has been emailed.",
+            status_code=status.HTTP_200_OK
+        )
+

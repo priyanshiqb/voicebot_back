@@ -1,10 +1,10 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 import uuid
 import sys
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import BillingAddress, Transaction
 from onboard.serializers.onboarding import (
     BillingAddressSerializer,
@@ -33,7 +33,7 @@ from user.serializers.custom_user import UserRefSerializer
         403: GeneralResponseSerializer
     }
 )
-class CreateOrderJustInTimeView(APIView):
+class CreateOrderJustInTimeView(ResponseMixin, APIView):
     authentication_classes = [TempUserAuthentication]
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = CreateOrderJustInTimeSerializer
@@ -43,22 +43,20 @@ class CreateOrderJustInTimeView(APIView):
         plan = temp_user.selected_plan
 
         if not plan:
-            return Response({
-                "status": False,
-                "message": "No plan selected",
-                "data": None,
-                "errors": ["PLAN_SELECTION_REQUIRED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="No plan selected",
+                errors=["PLAN_SELECTION_REQUIRED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Validate and save Billing Address and phone_number
         serializer = CreateOrderJustInTimeSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         phone_number = serializer.validated_data["phone_number"]
         billing_address_data = serializer.validated_data["billing_address"]
@@ -131,17 +129,16 @@ class CreateOrderJustInTimeView(APIView):
             refresh = RefreshToken.for_user(user)
             access = refresh.access_token
 
-            return Response({
-                "status": True,
-                "message": "Free onboarding completed successfully!",
-                "data": {
+            return self.success(
+                data={
                     "is_free": True,
                     "access": str(access),
                     "refresh": str(refresh),
                     "user": UserRefSerializer(user).data
                 },
-                "errors": None
-            }, status=status.HTTP_200_OK)
+                message="Free onboarding completed successfully!",
+                status_code=status.HTTP_200_OK
+            )
 
         # Handle testing / offline fallback gracefully
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
@@ -157,12 +154,11 @@ class CreateOrderJustInTimeView(APIView):
                 })
                 razorpay_order_id = razorpay_order["id"]
             except Exception as e:
-                return Response({
-                    "status": False,
-                    "message": f"Razorpay connection error: {str(e)}",
-                    "data": None,
-                    "errors": ["RAZORPAY_ERROR"]
-                }, status=status.HTTP_502_BAD_GATEWAY)
+                return self.error(
+                    message=f"Razorpay connection error: {str(e)}",
+                    errors=["RAZORPAY_ERROR"],
+                    status_code=status.HTTP_502_BAD_GATEWAY
+                )
 
         # Save Transaction record locally
         Transaction.objects.create(
@@ -173,14 +169,14 @@ class CreateOrderJustInTimeView(APIView):
             status=Transaction.TransactionStatusChoices.PENDING
         )
 
-        return Response({
-            "status": True,
-            "message": "Razorpay order initiated",
-            "data": {
+        return self.success(
+            data={
                 "razorpay_order_id": razorpay_order_id,
                 "amount": amount_in_paisa,
                 "currency": "INR",
                 "razorpay_key_id": RAZORPAY_KEY_ID
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Razorpay order initiated",
+            status_code=status.HTTP_200_OK
+        )
+

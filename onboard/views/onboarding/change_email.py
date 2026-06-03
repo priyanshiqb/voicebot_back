@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
@@ -7,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import ChangeEmailSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -21,19 +21,18 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class ChangeEmailView(APIView):
+class ChangeEmailView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ChangeEmailSerializer
 
     def post(self, request):
         serializer = ChangeEmailSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         temp_id = serializer.validated_data["temp_registration_id"]
         new_email = serializer.validated_data["new_email"]
@@ -41,44 +40,40 @@ class ChangeEmailView(APIView):
         try:
             temp_user = TempUser.objects.get(id=temp_id)
         except (TempUser.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Invalid registration ID",
-                "data": None,
-                "errors": ["REGISTRATION_NOT_FOUND"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid registration ID",
+                errors=["REGISTRATION_NOT_FOUND"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.is_email_verified:
-            return Response({
-                "status": False,
-                "message": "Email is already verified",
-                "data": None,
-                "errors": ["EMAIL_ALREADY_VERIFIED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Email is already verified",
+                errors=["EMAIL_ALREADY_VERIFIED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Ensure new_email is unique among active CustomUsers
         from django.contrib.auth import get_user_model
         User = get_user_model()
         if User.objects.filter(email=new_email).exists():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": {
+            return self.error(
+                message="Validation failed",
+                errors={
                     "new_email": ["An active user account is already registered with this email address."]
-                }
-            }, status=status.HTTP_400_BAD_REQUEST)
+                },
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Ensure new_email is unique among other TempUsers
         if TempUser.objects.filter(email=new_email).exclude(id=temp_user.id).exists():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": {
+            return self.error(
+                message="Validation failed",
+                errors={
                     "new_email": ["A pending registration already exists for this email address."]
-                }
-            }, status=status.HTTP_400_BAD_REQUEST)
+                },
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # 1. Update the email on the TempUser record
         temp_user.email = new_email
@@ -101,12 +96,12 @@ class ChangeEmailView(APIView):
         except Exception as e:
             print(f"OTP Email delivery skipped/failed: {e}. OTP Code for {new_email} is: {otp_code}")
 
-        return Response({
-            "status": True,
-            "message": "Email updated successfully. A new verification OTP has been emailed.",
-            "data": {
+        return self.success(
+            data={
                 "temp_registration_id": str(temp_user.id),
                 "email": temp_user.email
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Email updated successfully. A new verification OTP has been emailed.",
+            status_code=status.HTTP_200_OK
+        )
+

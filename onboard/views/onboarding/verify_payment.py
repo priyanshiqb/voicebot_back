@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -7,6 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 import sys
 import razorpay
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser, BillingAddress, Transaction
 from onboard.serializers.onboarding import VerifyPaymentSerializer, VerifyPaymentResponseSerializer, GeneralResponseSerializer
 from onboard.authentication import TempUserAuthentication
@@ -33,7 +33,7 @@ User = get_user_model()
         403: GeneralResponseSerializer
     }
 )
-class VerifyPaymentView(APIView):
+class VerifyPaymentView(ResponseMixin, APIView):
     authentication_classes = [TempUserAuthentication]
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = VerifyPaymentSerializer
@@ -42,12 +42,11 @@ class VerifyPaymentView(APIView):
         temp_user = request.user
         serializer = VerifyPaymentSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         order_id = serializer.validated_data["razorpay_order_id"]
         payment_id = serializer.validated_data["razorpay_payment_id"]
@@ -56,12 +55,11 @@ class VerifyPaymentView(APIView):
         try:
             transaction = Transaction.objects.get(razorpay_order_id=order_id, temp_user=temp_user)
         except Transaction.DoesNotExist:
-            return Response({
-                "status": False,
-                "message": "Transaction not found for this user",
-                "data": None,
-                "errors": ["TRANSACTION_NOT_FOUND"]
-            }, status=status.HTTP_404_NOT_FOUND)
+            return self.error(
+                message="Transaction not found for this user",
+                errors=["TRANSACTION_NOT_FOUND"],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         # Verify signature securely
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
@@ -81,12 +79,11 @@ class VerifyPaymentView(APIView):
         if not signature_valid:
             transaction.status = Transaction.TransactionStatusChoices.FAILED
             transaction.save()
-            return Response({
-                "status": False,
-                "message": "Payment signature verification failed",
-                "data": None,
-                "errors": ["SIGNATURE_VERIFICATION_FAILED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Payment signature verification failed",
+                errors=["SIGNATURE_VERIFICATION_FAILED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Complete payment transaction locally
         transaction.razorpay_payment_id = payment_id
@@ -132,13 +129,13 @@ class VerifyPaymentView(APIView):
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
 
-        return Response({
-            "status": True,
-            "message": "Payment verified. Welcome onboard!",
-            "data": {
+        return self.success(
+            data={
                 "access": str(access),
                 "refresh": str(refresh),
                 "user": UserRefSerializer(user).data
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Payment verified. Welcome onboard!",
+            status_code=status.HTTP_200_OK
+        )
+

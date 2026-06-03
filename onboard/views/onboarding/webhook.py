@@ -1,11 +1,11 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.conf import settings
 from django.contrib.auth import get_user_model
 import sys
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser, BillingAddress, Transaction, RazorpayWebhookLog
 from onboard.views.onboarding.base import RAZORPAY_KEY_ID, razorpay_client, create_tenant_and_mapping
 from onboard.serializers.onboarding import RazorpayWebhookSerializer, GeneralResponseSerializer
@@ -23,7 +23,7 @@ User = get_user_model()
         400: GeneralResponseSerializer
     }
 )
-class RazorpayWebhookView(APIView):
+class RazorpayWebhookView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = RazorpayWebhookSerializer
 
@@ -59,7 +59,11 @@ class RazorpayWebhookView(APIView):
         if not signature_valid:
             log_entry.error_message = "Cryptographic webhook signature check failed."
             log_entry.save()
-            return Response({"status": "unauthorized"}, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="unauthorized",
+                errors=["SIGNATURE_CHECK_FAILED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Process event details safely with Try/Except to log internal processing failures
         try:
@@ -128,4 +132,8 @@ class RazorpayWebhookView(APIView):
             log_entry.save()
             raise e
 
-        return Response({"status": "success"}, status=status.HTTP_200_OK)
+        return self.success(
+            message="success",
+            status_code=status.HTTP_200_OK
+        )
+

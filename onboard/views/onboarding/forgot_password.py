@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.core.mail import send_mail
@@ -8,6 +7,7 @@ from django.core import signing
 from django.utils import timezone
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.serializers.onboarding import ForgotPasswordSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
@@ -22,31 +22,28 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class ForgotPasswordView(APIView):
+class ForgotPasswordView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ForgotPasswordSerializer
 
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         email = serializer.validated_data["email"].strip().lower()
 
         try:
             temp_user = TempUser.objects.get(email=email)
         except TempUser.DoesNotExist:
-            return Response({
-                "status": True,
-                "message": "If the email is registered in our temporary signup system, a verification OTP code will be sent shortly.",
-                "data": None,
-                "errors": None
-            }, status=status.HTTP_200_OK)
+            return self.success(
+                message="If the email is registered in our temporary signup system, a verification OTP code will be sent shortly.",
+                status_code=status.HTTP_200_OK
+            )
 
         # 1. Generate a secure 6-digit numeric OTP code
         otp_code = f"{random.randint(100000, 999999)}"
@@ -66,12 +63,12 @@ class ForgotPasswordView(APIView):
         except Exception as e:
             print(f"Password reset OTP email delivery skipped/failed: {e}. OTP Code: {otp_code}")
 
-        return Response({
-            "status": True,
-            "message": "If the email is registered in our temporary signup system, a verification OTP code will be sent shortly.",
-            "data": {
+        return self.success(
+            data={
                 "temp_registration_id": str(temp_user.id)
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="If the email is registered in our temporary signup system, a verification OTP code will be sent shortly.",
+            status_code=status.HTTP_200_OK
+        )
+
 

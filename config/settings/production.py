@@ -3,15 +3,6 @@ import environ
 
 DEBUG = False
 
-DATABASES = {
-    "default": env.db("DATABASE_URL")
-}
-
-ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
-
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
-CORS_ALLOW_CREDENTIALS = True
-
 
 SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000)

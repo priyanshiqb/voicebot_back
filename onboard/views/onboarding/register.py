@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
@@ -7,6 +6,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.serializers.onboarding import TempUserSignupSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
@@ -20,19 +20,18 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class TempUserRegisterView(APIView):
+class TempUserRegisterView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = TempUserSignupSerializer
 
     def post(self, request):
         serializer = TempUserSignupSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "status": False,
-                "message": "Validation failed",
-                "data": None,
-                "errors": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         temp_user = serializer.save()
 
@@ -55,12 +54,12 @@ class TempUserRegisterView(APIView):
             # Safe fallback log in development/testing environments
             print(f"OTP Email delivery skipped/failed: {e}. OTP Code for {temp_user.email} is: {otp_code}")
 
-        return Response({
-            "status": True,
-            "message": "Registration initiated. Verification OTP has been emailed.",
-            "data": {
+        return self.success(
+            data={
                 "temp_registration_id": str(temp_user.id),
                 "email": temp_user.email
             },
-            "errors": None
-        }, status=status.HTTP_201_CREATED)
+            message="Registration initiated. Verification OTP has been emailed.",
+            status_code=status.HTTP_201_CREATED
+        )
+

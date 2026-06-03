@@ -1,8 +1,8 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.authentication import generate_temp_token
 from onboard.serializers.onboarding import VerifyOTPSerializer, VerifyOTPResponseSerializer, GeneralResponseSerializer
@@ -18,7 +18,7 @@ from drf_spectacular.utils import extend_schema
         400: GeneralResponseSerializer
     }
 )
-class VerifyOTPView(APIView):
+class VerifyOTPView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = VerifyOTPSerializer
 
@@ -29,28 +29,25 @@ class VerifyOTPView(APIView):
         try:
             temp_user = TempUser.objects.get(id=temp_id)
         except (TempUser.DoesNotExist, ValueError):
-            return Response({
-                "status": False,
-                "message": "Invalid registration ID",
-                "data": None,
-                "errors": ["REGISTRATION_NOT_FOUND"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid registration ID",
+                errors=["REGISTRATION_NOT_FOUND"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.otp_code != otp_code:
-            return Response({
-                "status": False,
-                "message": "Invalid OTP code",
-                "data": None,
-                "errors": ["INVALID_OTP"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Invalid OTP code",
+                errors=["INVALID_OTP"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         if temp_user.is_otp_expired():
-            return Response({
-                "status": False,
-                "message": "Verification code has expired",
-                "data": None,
-                "errors": ["OTP_EXPIRED"]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return self.error(
+                message="Verification code has expired",
+                errors=["OTP_EXPIRED"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         temp_user.is_email_verified = True
         temp_user.save()
@@ -70,10 +67,8 @@ class VerifyOTPView(APIView):
             "currency": plan.currency
         }
 
-        return Response({
-            "status": True,
-            "message": "Email verified successfully",
-            "data": {
+        return self.success(
+            data={
                 "temporary_token": temp_token,
                 "email": temp_user.email,
                 "plan": {
@@ -83,5 +78,7 @@ class VerifyOTPView(APIView):
                 },
                 "billing_breakdown": billing_breakdown
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Email verified successfully",
+            status_code=status.HTTP_200_OK
+        )
+

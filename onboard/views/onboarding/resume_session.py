@@ -1,5 +1,4 @@
 from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
@@ -8,6 +7,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 import random
 
+from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser, BillingAddress, Transaction
 from onboard.serializers.onboarding import (
     BillingAddressSerializer,
@@ -30,7 +30,7 @@ User = get_user_model()
         400: GeneralResponseSerializer
     }
 )
-class ResumeSessionView(APIView):
+class ResumeSessionView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     serializer_class = ResumeSessionSerializer
 
@@ -51,19 +51,17 @@ class ResumeSessionView(APIView):
             # If temp user does not exist, let's see if they are already fully onboarded in CustomUser!
             email_check = email.strip().lower() if email else None
             if email_check and User.objects.filter(email=email_check).exists():
-                return Response({
-                    "status": False,
-                    "message": "User is already fully registered and onboarded. Please log in.",
-                    "data": {"onboarded": True},
-                    "errors": ["USER_ALREADY_ONBOARDED"]
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return self.error(
+                    message="User is already fully registered and onboarded. Please log in.",
+                    errors=["USER_ALREADY_ONBOARDED"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
 
-            return Response({
-                "status": False,
-                "message": "No active registration session found. Please sign up first.",
-                "data": None,
-                "errors": ["SESSION_NOT_FOUND"]
-            }, status=status.HTTP_404_NOT_FOUND)
+            return self.error(
+                message="No active registration session found. Please sign up first.",
+                errors=["SESSION_NOT_FOUND"],
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         # Case 1: Registration exists but email is not verified yet
         if not temp_user.is_email_verified:
@@ -84,16 +82,15 @@ class ResumeSessionView(APIView):
             except Exception as e:
                 print(f"OTP Email delivery failed/skipped: {e}. OTP: {otp_code}")
 
-            return Response({
-                "status": True,
-                "message": "Registration is pending email verification. A new OTP has been emailed.",
-                "data": {
+            return self.success(
+                data={
                     "temp_registration_id": str(temp_user.id),
                     "email": temp_user.email,
                     "step": "OTP_VERIFICATION_REQUIRED"
                 },
-                "errors": None
-            }, status=status.HTTP_200_OK)
+                message="Registration is pending email verification. A new OTP has been emailed.",
+                status_code=status.HTTP_200_OK
+            )
 
         # Case 2: Email is verified. Reissue Temporary Scoped Token and resume from where they left off!
         temp_token = generate_temp_token(temp_user)
@@ -129,10 +126,8 @@ class ResumeSessionView(APIView):
         else:
             step = "PAYMENT_VERIFICATION_REQUIRED"
 
-        return Response({
-            "status": True,
-            "message": "Session resumed successfully.",
-            "data": {
+        return self.success(
+            data={
                 "temporary_token": temp_token,
                 "email": temp_user.email,
                 "step": step,
@@ -145,5 +140,7 @@ class ResumeSessionView(APIView):
                 "billing_address": billing_address_data,
                 "razorpay_order_id": pending_transaction.razorpay_order_id if pending_transaction else None
             },
-            "errors": None
-        }, status=status.HTTP_200_OK)
+            message="Session resumed successfully.",
+            status_code=status.HTTP_200_OK
+        )
+

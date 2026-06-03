@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Leverage super-fast 'uv' package installer
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 
 # 4. Install project dependencies securely using uv sync (Frozen & reproducible)
 COPY pyproject.toml uv.lock ./
@@ -38,8 +38,14 @@ RUN groupadd -r django && useradd -r -g django -s /bin/false django \
 # 7. Copy remaining project files securely
 COPY --chown=django:django . .
 
-# 8. Run as the non-privileged user
+# 8. Configure entrypoint permissions
+RUN chmod +x /app/entrypoint.sh
+
+# 9. Run as the non-privileged user
 USER django
 
 # Expose ports for Daphne unified HTTP/WS server
 EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+
