@@ -10,6 +10,7 @@ from onboard.serializers.onboarding import (
     BillingAddressSerializer,
     CreateOrderJustInTimeSerializer,
     CreateOrderJustInTimeResponseSerializer,
+    GeneralResponseSerializer,
 )
 from onboard.authentication import TempUserAuthentication
 from onboard.views.onboarding.base import (
@@ -25,7 +26,12 @@ from user.serializers.custom_user import UserRefSerializer
     tags=["Onboarding - Signup Flow"],
     summary="Step 4: Create Razorpay Order Just-In-Time",
     description="Captures the billing address, validates the GSTIN number (if provided), and generates a new Razorpay payment gateway order.",
-    responses={200: CreateOrderJustInTimeResponseSerializer}
+    responses={
+        200: CreateOrderJustInTimeResponseSerializer,
+        400: GeneralResponseSerializer,
+        401: GeneralResponseSerializer,
+        403: GeneralResponseSerializer
+    }
 )
 class CreateOrderJustInTimeView(APIView):
     authentication_classes = [TempUserAuthentication]

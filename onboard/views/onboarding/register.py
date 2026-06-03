@@ -7,7 +7,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 import random
 
-from onboard.serializers.onboarding import TempUserSignupSerializer, RegisterPendingResponseSerializer
+from onboard.serializers.onboarding import TempUserSignupSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 
@@ -15,7 +15,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 1: User Signup Registration",
     description="Captures initial signup details (name, email, business name, password, optional referral code) and emails a 5-digit OTP code.",
-    responses={201: RegisterPendingResponseSerializer}
+    responses={
+        201: RegisterPendingResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class TempUserRegisterView(APIView):
     permission_classes = [AllowAny]

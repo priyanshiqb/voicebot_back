@@ -17,7 +17,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Password Reset"],
     summary="Step 1: Forgot Temp User Password",
     description="Initiates password reset for unverified onboarding temporary users by emailing a 6-digit OTP verification code valid for 2 minutes.",
-    responses={200: GeneralResponseSerializer}
+    responses={
+        200: GeneralResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]

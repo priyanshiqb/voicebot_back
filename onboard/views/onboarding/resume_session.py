@@ -13,6 +13,7 @@ from onboard.serializers.onboarding import (
     BillingAddressSerializer,
     ResumeSessionSerializer,
     ResumeSessionResponseSerializer,
+    GeneralResponseSerializer,
 )
 from onboard.authentication import generate_temp_token
 from drf_spectacular.utils import extend_schema
@@ -24,7 +25,10 @@ User = get_user_model()
     tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Resume Onboarding Session",
     description="Allows a user to resume their onboarding process from their last completed state by providing their email or registration ID.",
-    responses={200: ResumeSessionResponseSerializer}
+    responses={
+        200: ResumeSessionResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ResumeSessionView(APIView):
     permission_classes = [AllowAny]

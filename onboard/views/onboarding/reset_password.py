@@ -14,7 +14,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Password Reset"],
     summary="Step 3: Reset Temp User Password",
     description="Resets the password of a temporary unverified onboarding registration using a secure one-time-use token.",
-    responses={200: GeneralResponseSerializer}
+    responses={
+        200: GeneralResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]

@@ -8,7 +8,7 @@ from django.conf import settings
 import random
 
 from onboard.models import TempUser
-from onboard.serializers.onboarding import ChangeEmailSerializer, RegisterPendingResponseSerializer
+from onboard.serializers.onboarding import ChangeEmailSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 
@@ -16,7 +16,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Change Temp User Email",
     description="Updates the email of a temporary unverified onboarding registration, generates a new 5-digit OTP, and sends it to the new email address.",
-    responses={200: RegisterPendingResponseSerializer}
+    responses={
+        200: RegisterPendingResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ChangeEmailView(APIView):
     permission_classes = [AllowAny]

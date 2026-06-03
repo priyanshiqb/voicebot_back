@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
 from user.serializers.auth import TokenRefreshResponseSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")
 
@@ -19,6 +20,10 @@ logger = logging.getLogger("django")
         200: OpenApiResponse(
             response=TokenRefreshResponseSerializer,
             description="Token refreshed successfully"
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Invalid or missing refresh token, or inactive/deleted user account."
         )
     }
 )       

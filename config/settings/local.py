@@ -1,4 +1,22 @@
+import sys
 from .base import *
+
+# Override MEDIA_ROOT during testing to prevent cluttering the media folder
+if 'test' in sys.argv:
+    import tempfile
+    import shutil
+    import atexit
+
+    TEST_MEDIA_ROOT = tempfile.mkdtemp(prefix="django_test_media_")
+    MEDIA_ROOT = TEST_MEDIA_ROOT
+
+    def cleanup_test_media():
+        try:
+            shutil.rmtree(TEST_MEDIA_ROOT)
+        except Exception:
+            pass
+
+    atexit.register(cleanup_test_media)
 
 # Logging Configuration for Local Development
 LOGGING = {

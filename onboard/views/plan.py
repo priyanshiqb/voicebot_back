@@ -12,7 +12,9 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiParameter,
     OpenApiTypes,
+    OpenApiResponse,
 )
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 
 @extend_schema(tags=["Onboarding - Plans"])
@@ -42,30 +44,66 @@ from drf_spectacular.utils import (
                 location=OpenApiParameter.QUERY,
             ),
         ],
+        responses={
+            200: PlanListSerializer(many=True),
+        }
     ),
     create=extend_schema(
         summary="Create Plan",
-        description="Create a new subscription plan."
+        description="Create a new subscription plan.",
+        responses={
+            201: PlanSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied (superuser required).")
+        }
     ),
     retrieve=extend_schema(
         summary="Get Plan",
-        description="Get specific plan details by ID."
+        description="Get specific plan details by ID.",
+        responses={
+            200: PlanSerializer,
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Plan not found.")
+        }
     ),
     update=extend_schema(
         summary="Update Plan",
-        description="Completely update an existing plan by ID."
+        description="Completely update an existing plan by ID.",
+        responses={
+            200: PlanSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied (superuser required)."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Plan not found.")
+        }
     ),
     partial_update=extend_schema(
         summary="Partial Update Plan",
-        description="Partially update an existing plan by ID."
+        description="Partially update an existing plan by ID.",
+        responses={
+            200: PlanSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied (superuser required)."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Plan not found.")
+        }
     ),
     destroy=extend_schema(
         summary="Delete Plan",
-        description="Soft-delete an existing plan by ID."
+        description="Soft-delete an existing plan by ID.",
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="Plan deleted successfully."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied (superuser required)."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Plan not found.")
+        }
     ),
     dropdown=extend_schema(
         summary="Get Dropdown Options",
-        description="Get lightweight label/value selection pairs representing all active plans."
+        description="Get lightweight label/value selection pairs representing all active plans.",
+        responses={
+            200: PlanDropdownSerializer(many=True)
+        }
     )
 )
 class PlanViewSet(BaseViewSet):

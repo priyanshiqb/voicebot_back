@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
 from user.serializers.auth import UserForgotPasswordSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")
 
@@ -20,8 +21,14 @@ logger = logging.getLogger("django")
     description="Initiates password reset for active onboarded users by emailing a 6-digit verification OTP valid for 2 minutes.",
     request=UserForgotPasswordSerializer,
     responses={
-        200: OpenApiResponse(description="OTP sent successfully"),
-        400: OpenApiResponse(description="Validation error")
+        200: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="OTP generation flow initiated successfully."
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Validation error."
+        )
     }
 )
 class UserForgotPasswordAPIView(ResponseMixin, APIView):

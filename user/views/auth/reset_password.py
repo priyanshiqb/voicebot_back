@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
 from user.serializers.auth import UserResetPasswordSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 
 @extend_schema(
@@ -15,8 +16,14 @@ from user.serializers.auth import UserResetPasswordSerializer
     description="Accepts the temporary signed reset token and user ID to perform password updates, guaranteeing single-use token lifecycle.",
     request=UserResetPasswordSerializer,
     responses={
-        200: OpenApiResponse(description="Password reset successfully"),
-        400: OpenApiResponse(description="Validation or Token error")
+        200: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Password reset successfully."
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Validation or Token error."
+        )
     }
 )
 class UserResetPasswordAPIView(ResponseMixin, APIView):

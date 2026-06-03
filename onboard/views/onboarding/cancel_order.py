@@ -13,7 +13,12 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 4 Helper: Cancel Order / Discard Progress",
     description="Discards current registration progress, cleans up database records for the temporary user, and cancels the Razorpay order state.",
-    responses={200: GeneralResponseSerializer}
+    responses={
+        200: GeneralResponseSerializer,
+        400: GeneralResponseSerializer,
+        401: GeneralResponseSerializer,
+        403: GeneralResponseSerializer
+    }
 )
 class CancelOrderView(APIView):
     authentication_classes = [TempUserAuthentication]

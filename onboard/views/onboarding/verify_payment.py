@@ -8,7 +8,7 @@ import sys
 import razorpay
 
 from onboard.models import TempUser, BillingAddress, Transaction
-from onboard.serializers.onboarding import VerifyPaymentSerializer, VerifyPaymentResponseSerializer
+from onboard.serializers.onboarding import VerifyPaymentSerializer, VerifyPaymentResponseSerializer, GeneralResponseSerializer
 from onboard.authentication import TempUserAuthentication
 from onboard.views.onboarding.base import (
     IsTempUserAuthenticated,
@@ -26,7 +26,12 @@ User = get_user_model()
     tags=["Onboarding - Signup Flow"],
     summary="Step 5: Verify Payment & Complete Onboarding",
     description="Verifies the payment gateway signature. Upon success, registers a Tenant, maps the user, deletes the TempUser, and issues standard JWT tokens.",
-    responses={200: VerifyPaymentResponseSerializer}
+    responses={
+        200: VerifyPaymentResponseSerializer,
+        400: GeneralResponseSerializer,
+        401: GeneralResponseSerializer,
+        403: GeneralResponseSerializer
+    }
 )
 class VerifyPaymentView(APIView):
     authentication_classes = [TempUserAuthentication]

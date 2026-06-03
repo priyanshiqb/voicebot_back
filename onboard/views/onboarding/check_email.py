@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny
 from django.contrib.auth import get_user_model
 
 from onboard.models import TempUser
-from onboard.serializers.onboarding import CheckEmailSerializer, CheckEmailResponseSerializer
+from onboard.serializers.onboarding import CheckEmailSerializer, CheckEmailResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 User = get_user_model()
@@ -15,7 +15,10 @@ User = get_user_model()
     tags=["Onboarding - Signup Flow"],
     summary="Check Email Availability (Unique Check)",
     description="Asynchronously checks if an email address already exists in either the active CustomUser or pending TempUser tables. Returns availability status with zero latency for interactive typing feedback.",
-    responses={200: CheckEmailResponseSerializer}
+    responses={
+        200: CheckEmailResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class CheckEmailView(APIView):
     permission_classes = [AllowAny]

@@ -11,14 +11,17 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiParameter,
     OpenApiTypes,
+    OpenApiResponse,
 )
+from onboard.serializers.onboarding import GeneralResponseSerializer
 from rest_framework.decorators import action
 
 
+@extend_schema(tags=["Users"])
 @extend_schema_view(
     list=extend_schema(
         summary="List Users",
-        description="Get paginated list of users",
+        description="Get paginated list of users.",
         parameters=[
             OpenApiParameter(
                 name="is_active",
@@ -31,26 +34,71 @@ from rest_framework.decorators import action
                 location=OpenApiParameter.QUERY,
             ),
         ],
+        responses={
+            200: UserListSerializer(many=True),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
     ),
     create=extend_schema(
         summary="Create User",
-        description="Create a new user"
+        description="Create a new user.",
+        responses={
+            201: UserSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
     ),
     retrieve=extend_schema(
-        summary="Get User"
+        summary="Get User",
+        description="Get specific user details by ID.",
+        responses={
+            200: UserSerializer,
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="User not found.")
+        }
     ),
     update=extend_schema(
-        summary="Update User"
+        summary="Update User",
+        description="Completely update an existing user by ID.",
+        responses={
+            200: UserSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="User not found.")
+        }
     ),
     partial_update=extend_schema(
-        summary="Partial Update User"
+        summary="Partial Update User",
+        description="Partially update an existing user by ID.",
+        responses={
+            200: UserSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="User not found.")
+        }
     ),
     destroy=extend_schema(
-        summary="Delete User"
+        summary="Delete User",
+        description="Soft-delete an existing user by ID.",
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="User deleted successfully."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="User not found.")
+        }
     ),
     me=extend_schema(
         summary="Get Current User",
-        description="Get details of the currently authenticated user"
+        description="Get details of the currently authenticated user.",
+        responses={
+            200: UserSerializer,
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request.")
+        }
     )
 )
 class CustomUserViewSet(BaseViewSet):

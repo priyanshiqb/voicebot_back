@@ -14,7 +14,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Password Reset"],
     summary="Step 2: Verify Forgot Password OTP",
     description="Verifies the emailed 6-digit OTP. Upon successful verification, invalidates the OTP and returns a secure temporary signed reset token.",
-    responses={200: GeneralResponseSerializer}
+    responses={
+        200: GeneralResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ForgotPasswordVerifyOTPView(APIView):
     permission_classes = [AllowAny]

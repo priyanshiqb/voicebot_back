@@ -8,7 +8,7 @@ from django.conf import settings
 import random
 
 from onboard.models import TempUser
-from onboard.serializers.onboarding import ResendOTPSerializer, RegisterPendingResponseSerializer
+from onboard.serializers.onboarding import ResendOTPSerializer, RegisterPendingResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 
@@ -16,7 +16,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Resend Verification OTP",
     description="Resends a new 5-digit OTP to the registrant's email, subject to a 30-second cooldown period.",
-    responses={200: RegisterPendingResponseSerializer}
+    responses={
+        200: RegisterPendingResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]

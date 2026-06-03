@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
 from user.serializers.auth import UserForgotPasswordResendOTPSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")
 
@@ -20,8 +21,14 @@ logger = logging.getLogger("django")
     description="Resends a new 6-digit OTP to the active onboarded user's email, subject to a 30-second cooldown period.",
     request=UserForgotPasswordResendOTPSerializer,
     responses={
-        200: OpenApiResponse(description="A new verification OTP has been emailed."),
-        400: OpenApiResponse(description="Validation, User not found, or OTP Cooldown active")
+        200: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="A new verification OTP has been emailed."
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Validation, User not found, or OTP Cooldown active."
+        )
     }
 )
 class UserForgotPasswordResendOTPAPIView(ResponseMixin, APIView):

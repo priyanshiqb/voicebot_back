@@ -5,7 +5,7 @@ from rest_framework.permissions import AllowAny
 
 from onboard.models import TempUser
 from onboard.authentication import generate_temp_token
-from onboard.serializers.onboarding import VerifyOTPSerializer, VerifyOTPResponseSerializer
+from onboard.serializers.onboarding import VerifyOTPSerializer, VerifyOTPResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 
@@ -13,7 +13,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 2: Email OTP Verification",
     description="Verifies the emailed 5-digit OTP. Upon success, returns a temporary scoped token and the initial pricing breakdown.",
-    responses={200: VerifyOTPResponseSerializer}
+    responses={
+        200: VerifyOTPResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]

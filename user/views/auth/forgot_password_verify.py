@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
 from user.serializers.auth import UserForgotPasswordVerifyOTPSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 
 @extend_schema(
@@ -15,8 +16,14 @@ from user.serializers.auth import UserForgotPasswordVerifyOTPSerializer
     description="Verifies the emailed 6-digit OTP. Upon successful verification, invalidates the OTP and returns a secure temporary signed reset token.",
     request=UserForgotPasswordVerifyOTPSerializer,
     responses={
-        200: OpenApiResponse(description="OTP verified successfully"),
-        400: OpenApiResponse(description="Validation or OTP error")
+        200: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="OTP verified successfully."
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Validation or OTP error."
+        )
     }
 )
 class UserForgotPasswordVerifyOTPAPIView(ResponseMixin, APIView):

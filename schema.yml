@@ -4,11 +4,116 @@ info:
   version: 1.0.0
   description: Enterprise production REST API for the Voicebot platform.
 paths:
+  /api/v1/auth/forgot-password/:
+    post:
+      operationId: v1_auth_forgot_password_create
+      description: Initiates password reset for active onboarded users by emailing
+        a 6-digit verification OTP valid for 2 minutes.
+      summary: 'Step 1: Forgot Onboarded User Password'
+      tags:
+      - Auth - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserForgotPassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserForgotPassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserForgotPassword'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: OTP generation flow initiated successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation error.
+  /api/v1/auth/forgot-password/resend/:
+    post:
+      operationId: v1_auth_forgot_password_resend_create
+      description: Resends a new 6-digit OTP to the active onboarded user's email,
+        subject to a 30-second cooldown period.
+      summary: 'Step 1 Helper: Resend Onboarded User Forgot Password OTP'
+      tags:
+      - Auth - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordResendOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordResendOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordResendOTP'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: A new verification OTP has been emailed.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation, User not found, or OTP Cooldown active.
+  /api/v1/auth/forgot-password/verify/:
+    post:
+      operationId: v1_auth_forgot_password_verify_create
+      description: Verifies the emailed 6-digit OTP. Upon successful verification,
+        invalidates the OTP and returns a secure temporary signed reset token.
+      summary: 'Step 2: Verify Onboarded User OTP'
+      tags:
+      - Auth - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordVerifyOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordVerifyOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserForgotPasswordVerifyOTP'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: OTP verified successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation or OTP error.
   /api/v1/auth/login/:
     post:
       operationId: v1_auth_login_create
       tags:
-      - Authentication
+      - Auth - Access
       requestBody:
         content:
           application/json:
@@ -30,11 +135,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
           description: Login successful
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed, invalid email/password.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Account or IP locked due to too many failed login attempts.
   /api/v1/auth/logout/:
     post:
       operationId: v1_auth_logout_create
       tags:
-      - Authentication
+      - Auth - Access
       requestBody:
         content:
           application/json:
@@ -51,12 +168,22 @@ paths:
       - jwtAuth: []
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
           description: Logout successful
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid or missing refresh token.
   /api/v1/auth/refresh/:
     post:
       operationId: v1_auth_refresh_create
       tags:
-      - Authentication
+      - Auth - Access
       requestBody:
         content:
           application/json:
@@ -78,6 +205,606 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenRefreshResponse'
           description: Token refreshed successfully
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid or missing refresh token, or inactive/deleted user
+            account.
+  /api/v1/auth/reset-password/:
+    post:
+      operationId: v1_auth_reset_password_create
+      description: Accepts the temporary signed reset token and user ID to perform
+        password updates, guaranteeing single-use token lifecycle.
+      summary: 'Step 3: Reset Onboarded User Password'
+      tags:
+      - Auth - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserResetPassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserResetPassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserResetPassword'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Password reset successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation or Token error.
+  /api/v1/core/knowledge-base/:
+    get:
+      operationId: v1_core_knowledge_base_list
+      description: Get paginated list of knowledge bases under the active tenant context.
+      summary: List Knowledge Bases
+      parameters:
+      - in: query
+        name: is_processed
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: processing_status
+        schema:
+          type: string
+          enum:
+          - COMPLETED
+          - FAILED
+          - PENDING
+          - PROCESSING
+        description: |-
+          Ingestion status of this individual object
+
+          * `PENDING` - Pending Ingestion
+          * `PROCESSING` - Currently Processing
+          * `COMPLETED` - Successfully Processed
+          * `FAILED` - Processing Failed
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Knowledge Base
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedKnowledgeBaseListList'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+    post:
+      operationId: v1_core_knowledge_base_create
+      description: "\n        ### Complete payload schemas & constraints per component
+        type:\n        \n        1. **Texts (`texts` array)**:\n           * `title`
+        (string, **Required**): The main heading/title for this text block (Max 255
+        characters).\n           * `description` (string, Optional): The detailed
+        text content or guidelines body.\n        \n        2. **Files (`files` array)**:\n
+        \          * `id` (UUID, **Required**): The UUID of the pre-uploaded document
+        file (uploaded via `POST /api/v1/core/knowledge-base/upload_file/`).\n        \n
+        \       3. **Websites (`websites` array)**:\n           * `url` (string, **Required**):
+        Valid domain crawling target webpage URL. Scoped uniquely per tenant to prevent
+        crawlers duplication.\n        \n        4. **Question Answers (`question_answers`
+        array)**:\n           * `answer` (string, **Required**): The primary answer
+        block to return for associated queries.\n           * `questions` (array of
+        dicts, Optional): List of associated trigger question variations.\n             *
+        `question` (string, **Required**): Individual variation phrasing of the question.\n
+        \       "
+      summary: Create a new Knowledge Base
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+            examples:
+              NestedCreationPayloadExample:
+                value:
+                  name: Acme Setup Guides
+                  texts:
+                  - title: Config Instructions
+                    description: Configure API credentials.
+                  files:
+                  - id: uuid-preuploaded-file-id
+                  websites:
+                  - url: https://acme-setup.org/faq
+                  question_answers:
+                  - answer: Yes, standard deep nested structures are supported.
+                    questions:
+                    - question: Is nested creation supported?
+                summary: Nested Creation Payload Example
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeBase'
+              examples:
+                SuccessfulCreationResponseExample:
+                  value:
+                    status: true
+                    message: Created successfully
+                    data:
+                      id: e4b2d561-71fb-48eb-bf2e-0a5682855cf8
+                      tenant: uuid-tenant-id
+                      name: Acme Setup Guides
+                      texts:
+                      - id: uuid-text-1
+                        title: Config Instructions
+                        description: Configure API credentials.
+                      files:
+                      - id: uuid-preuploaded-file-id
+                        original_name: setup.pdf
+                      websites:
+                      - id: uuid-web-1
+                        url: https://acme-setup.org/faq
+                      question_answers:
+                      - id: uuid-qa-1
+                        answer: Yes, standard deep nested structures are supported.
+                        questions:
+                        - id: uuid-q-1
+                          question: Is nested creation supported?
+                      is_processed: false
+                      processing_status: PENDING
+                    errors: null
+                  summary: Successful Creation Response Example
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/knowledge-base/{id}/:
+    get:
+      operationId: v1_core_knowledge_base_retrieve
+      description: Get specific knowledge base details by ID.
+      summary: Get Knowledge Base
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Knowledge Base.
+        required: true
+      tags:
+      - Knowledge Base
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeBase'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Knowledge base not found.
+    put:
+      operationId: v1_core_knowledge_base_update
+      description: "\n        Performs a full update on the Knowledge Base.\n        Supports
+        explicit, granular transactional operations on M2M lists using the `\"flag\"`
+        parameter:\n        * **`create`**: Instantiates and links a new record (requires
+        necessary fields).\n        * **`update`**: Updates the existing record in-place
+        by `id`.\n        * **`delete`**: Safely soft-deletes and disassociates the
+        record by `id`.\n        * **No Flag Fallback**: Keeps the record associated
+        and unchanged.\n        "
+      summary: Update a Knowledge Base (PUT)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Knowledge Base.
+        required: true
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+            examples:
+              PUTFlag-basedUpdatePayloadExample:
+                value:
+                  name: Acme Updated Guides
+                  texts:
+                  - id: uuid-text-1
+                    flag: update
+                    description: Updated creds configurations.
+                  - flag: create
+                    title: CLI Guide
+                    description: Command line interface instructions.
+                  - id: uuid-text-2
+                    flag: delete
+                  files:
+                  - id: uuid-another-preuploaded-file-id
+                    flag: create
+                  - id: uuid-old-file-id
+                    flag: delete
+                summary: PUT Flag-based Update Payload Example
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBase'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeBase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Knowledge base not found.
+    patch:
+      operationId: v1_core_knowledge_base_partial_update
+      description: "\n        Performs a partial update on the Knowledge Base.\n        Supports
+        explicit, granular transactional operations on M2M lists using the `\"flag\"`
+        parameter:\n        * **`create`**: Instantiates and links a new record (requires
+        necessary fields).\n        * **`update`**: Updates the existing record in-place
+        by `id`.\n        * **`delete`**: Safely soft-deletes and disassociates the
+        record by `id`.\n        * **No Flag Fallback**: Keeps the record associated
+        and unchanged.\n        "
+      summary: Partial Update a Knowledge Base (PATCH)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Knowledge Base.
+        required: true
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedKnowledgeBase'
+            examples:
+              PATCHFlag-basedUpdatePayloadExample:
+                value:
+                  name: Acme Updated Guides
+                  texts:
+                  - id: uuid-text-1
+                    flag: update
+                    description: Updated creds configurations.
+                  - flag: create
+                    title: CLI Guide
+                    description: Command line interface instructions.
+                  - id: uuid-text-2
+                    flag: delete
+                  files:
+                  - id: uuid-another-preuploaded-file-id
+                    flag: create
+                  - id: uuid-old-file-id
+                    flag: delete
+                summary: PATCH Flag-based Update Payload Example
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedKnowledgeBase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedKnowledgeBase'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeBase'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Knowledge base not found.
+    delete:
+      operationId: v1_core_knowledge_base_destroy
+      description: Soft-delete an existing knowledge base by ID.
+      summary: Delete Knowledge Base
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Knowledge Base.
+        required: true
+      tags:
+      - Knowledge Base
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Knowledge base soft-deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Knowledge base not found.
+  /api/v1/core/knowledge-base/bulk_delete/:
+    post:
+      operationId: v1_core_knowledge_base_bulk_delete_create
+      description: |-
+        Knowledge Base Management API.
+        Provides complete row-level isolation and multi-tenant scoping for aggregate Knowledge Bases.
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/core/knowledge-base/dropdown/:
+    get:
+      operationId: v1_core_knowledge_base_dropdown_list
+      description: Get lightweight label/value selection pairs representing active
+        knowledge bases.
+      summary: Get Dropdown Options
+      parameters:
+      - in: query
+        name: is_processed
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: processing_status
+        schema:
+          type: string
+          enum:
+          - COMPLETED
+          - FAILED
+          - PENDING
+          - PROCESSING
+        description: |-
+          Ingestion status of this individual object
+
+          * `PENDING` - Pending Ingestion
+          * `PROCESSING` - Currently Processing
+          * `COMPLETED` - Successfully Processed
+          * `FAILED` - Processing Failed
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Knowledge Base
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedKnowledgeBaseDropdownList'
+          description: ''
+  /api/v1/core/knowledge-base/upload_file/:
+    post:
+      operationId: v1_core_knowledge_base_upload_file_create
+      description: "\n        Uploads a raw binary document file scoped under the
+        caller's tenant.\n        This represents the first step of the **Two-Step
+        Ingestion Pattern**:\n        1. **Upload File**: Call this endpoint with
+        a multipart form payload (`file`).\n        2. **Response**: Capture the returned
+        `\"id\"` (UUID).\n        3. **Link File**: Pass the captured `\"id\"` in
+        the `files` array when creating or updating a Knowledge Base.\n        "
+      summary: Upload a Knowledge Base document file
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KBFiles'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KBFiles'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KBFiles'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed, file parameter missing or invalid.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
   /api/v1/onboard/cancel-order/:
     post:
       operationId: v1_onboard_cancel_order_create
@@ -85,7 +812,7 @@ paths:
         for the temporary user, and cancels the Razorpay order state.
       summary: 'Step 4 Helper: Cancel Order / Discard Progress'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -107,6 +834,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/change-email/:
     post:
       operationId: v1_onboard_change_email_create
@@ -114,7 +859,7 @@ paths:
         generates a new 5-digit OTP, and sends it to the new email address.
       summary: 'Step 2 Helper: Change Temp User Email'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -137,6 +882,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/RegisterPendingResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/check-email/:
+    post:
+      operationId: v1_onboard_check_email_create
+      description: Asynchronously checks if an email address already exists in either
+        the active CustomUser or pending TempUser tables. Returns availability status
+        with zero latency for interactive typing feedback.
+      summary: Check Email Availability (Unique Check)
+      tags:
+      - Onboarding - Signup Flow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckEmail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CheckEmail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CheckEmail'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckEmailResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/create-order-just-in-time/:
     post:
       operationId: v1_onboard_create_order_just_in_time_create
@@ -144,7 +932,7 @@ paths:
         and generates a new Razorpay payment gateway order.
       summary: 'Step 4: Create Razorpay Order Just-In-Time'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -166,14 +954,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreateOrderJustInTimeResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/forgot-password/:
     post:
       operationId: v1_onboard_forgot_password_create
-      description: Initiates password reset for unverified onboarding temporary users.
-        Emails a one-time secure link with a cryptographic token valid for 30 minutes.
-      summary: 'Step 2 Helper: Forgot Temp User Password'
+      description: Initiates password reset for unverified onboarding temporary users
+        by emailing a 6-digit OTP verification code valid for 2 minutes.
+      summary: 'Step 1: Forgot Temp User Password'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Password Reset
       requestBody:
         content:
           application/json:
@@ -191,6 +997,84 @@ paths:
       - {}
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/forgot-password/resend/:
+    post:
+      operationId: v1_onboard_forgot_password_resend_create
+      description: Resends a new 6-digit OTP to the temporary user's email, subject
+        to a 30-second cooldown period.
+      summary: 'Step 1 Helper: Resend Forgot Password OTP'
+      tags:
+      - Onboarding - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordResendOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordResendOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordResendOTP'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/forgot-password/verify/:
+    post:
+      operationId: v1_onboard_forgot_password_verify_create
+      description: Verifies the emailed 6-digit OTP. Upon successful verification,
+        invalidates the OTP and returns a secure temporary signed reset token.
+      summary: 'Step 2: Verify Forgot Password OTP'
+      tags:
+      - Onboarding - Password Reset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordVerifyOTP'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordVerifyOTP'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordVerifyOTP'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '400':
           content:
             application/json:
               schema:
@@ -293,7 +1177,7 @@ paths:
         schema:
           type: number
       tags:
-      - v1
+      - Onboarding - Plans
       security:
       - jwtAuth: []
       - {}
@@ -309,7 +1193,7 @@ paths:
       description: Create a new subscription plan.
       summary: Create Plan
       tags:
-      - v1
+      - Onboarding - Plans
       requestBody:
         content:
           application/json:
@@ -331,6 +1215,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/Plan'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
   /api/v1/onboard/plans/{id}/:
     get:
       operationId: v1_onboard_plans_retrieve
@@ -345,7 +1247,7 @@ paths:
         description: A UUID string identifying this Plan.
         required: true
       tags:
-      - v1
+      - Onboarding - Plans
       security:
       - jwtAuth: []
       - {}
@@ -356,6 +1258,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Plan'
           description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Plan not found.
     put:
       operationId: v1_onboard_plans_update
       description: Completely update an existing plan by ID.
@@ -369,7 +1277,7 @@ paths:
         description: A UUID string identifying this Plan.
         required: true
       tags:
-      - v1
+      - Onboarding - Plans
       requestBody:
         content:
           application/json:
@@ -391,6 +1299,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Plan'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Plan not found.
     patch:
       operationId: v1_onboard_plans_partial_update
       description: Partially update an existing plan by ID.
@@ -404,7 +1336,7 @@ paths:
         description: A UUID string identifying this Plan.
         required: true
       tags:
-      - v1
+      - Onboarding - Plans
       requestBody:
         content:
           application/json:
@@ -425,6 +1357,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/Plan'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Plan not found.
     delete:
       operationId: v1_onboard_plans_destroy
       description: Soft-delete an existing plan by ID.
@@ -438,12 +1394,34 @@ paths:
         description: A UUID string identifying this Plan.
         required: true
       tags:
-      - v1
+      - Onboarding - Plans
       security:
       - jwtAuth: []
       responses:
-        '204':
-          description: No response body
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Plan deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Plan not found.
   /api/v1/onboard/plans/bulk_delete/:
     post:
       operationId: v1_onboard_plans_bulk_delete_create
@@ -451,7 +1429,7 @@ paths:
         Plan ViewSet.
         Provides robust, production-grade endpoints for managing billing and subscription plans.
       tags:
-      - v1
+      - Onboarding - Plans
       requestBody:
         content:
           application/json:
@@ -467,18 +1445,130 @@ paths:
           description: No response body
   /api/v1/onboard/plans/dropdown/:
     get:
-      operationId: v1_onboard_plans_dropdown_retrieve
+      operationId: v1_onboard_plans_dropdown_list
       description: Get lightweight label/value selection pairs representing all active
         plans.
       summary: Get Dropdown Options
+      parameters:
+      - in: query
+        name: base_price__gte
+        schema:
+          type: number
+      - in: query
+        name: base_price__lte
+        schema:
+          type: number
+      - in: query
+        name: billing_cycle
+        schema:
+          type: string
+          enum:
+          - monthly
+          - yearly
+        description: |-
+          Billing frequency cycle.
+
+          * `monthly` - Monthly
+          * `yearly` - Yearly
+      - in: query
+        name: code
+        schema:
+          type: string
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: currency
+        schema:
+          type: string
+          enum:
+          - INR
+        description: |-
+          Three-letter ISO currency code.
+
+          * `INR` - Indian Rupee
+      - in: query
+        name: discount_percentage__gte
+        schema:
+          type: number
+      - in: query
+        name: discount_percentage__lte
+        schema:
+          type: number
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: plan_type
+        schema:
+          type: string
+          enum:
+          - free
+          - paid
+          - pay_as_you_go
+        description: |-
+          The classification type of the plan.
+
+          * `paid` - Paid
+          * `free` - Free
+          * `pay_as_you_go` - Pay As You Go
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: tax_percentage__gte
+        schema:
+          type: number
+      - in: query
+        name: tax_percentage__lte
+        schema:
+          type: number
       tags:
-      - v1
+      - Onboarding - Plans
       security:
       - jwtAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPlanDropdownList'
+          description: ''
   /api/v1/onboard/register-pending/:
     post:
       operationId: v1_onboard_register_pending_create
@@ -486,7 +1576,7 @@ paths:
         optional referral code) and emails a 5-digit OTP code.
       summary: 'Step 1: User Signup Registration'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -509,6 +1599,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/RegisterPendingResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/resend-otp/:
     post:
       operationId: v1_onboard_resend_otp_create
@@ -516,7 +1612,7 @@ paths:
         a 30-second cooldown period.
       summary: 'Step 2 Helper: Resend Verification OTP'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -539,14 +1635,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/RegisterPendingResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/reset-password/:
     post:
       operationId: v1_onboard_reset_password_create
       description: Resets the password of a temporary unverified onboarding registration
         using a secure one-time-use token.
-      summary: 'Step 2 Helper: Reset Temp User Password'
+      summary: 'Step 3: Reset Temp User Password'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Password Reset
       requestBody:
         content:
           application/json:
@@ -569,6 +1671,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/resume-session/:
     post:
       operationId: v1_onboard_resume_session_create
@@ -576,7 +1684,7 @@ paths:
         completed state by providing their email or registration ID.
       summary: 'Step 2 Helper: Resume Onboarding Session'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -598,6 +1706,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ResumeSessionResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/update-plan/:
     patch:
       operationId: v1_onboard_update_plan_partial_update
@@ -605,7 +1719,7 @@ paths:
         breakdown of the new pricing.
       summary: 'Step 3: Update Selected Plan'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -626,6 +1740,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpdatePlanResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/verify/:
     post:
       operationId: v1_onboard_verify_create
@@ -633,7 +1765,7 @@ paths:
         a Tenant, maps the user, deletes the TempUser, and issues standard JWT tokens.
       summary: 'Step 5: Verify Payment & Complete Onboarding'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -655,6 +1787,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/VerifyPaymentResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/verify-otp/:
     post:
       operationId: v1_onboard_verify_otp_create
@@ -662,7 +1812,7 @@ paths:
         scoped token and the initial pricing breakdown.
       summary: 'Step 2: Email OTP Verification'
       tags:
-      - Onboarding Signup Flow
+      - Onboarding - Signup Flow
       requestBody:
         content:
           application/json:
@@ -685,6 +1835,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/VerifyOTPResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
   /api/v1/onboard/webhook/:
     post:
       operationId: v1_onboard_webhook_create
@@ -692,7 +1848,7 @@ paths:
         webhooks from Razorpay.
       summary: Razorpay Webhook Handler
       tags:
-      - Onboarding Webhooks
+      - Onboarding - Webhooks
       requestBody:
         content:
           application/json:
@@ -710,6 +1866,12 @@ paths:
       - {}
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+        '400':
           content:
             application/json:
               schema:
@@ -811,13 +1973,59 @@ components:
       required:
       - new_email
       - temp_registration_id
+    CheckEmail:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    CheckEmailResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+        message:
+          type: string
+        errors:
+          nullable: true
+        data:
+          allOf:
+          - $ref: '#/components/schemas/CheckEmailResponseData'
+          nullable: true
+      required:
+      - data
+      - message
+      - status
+    CheckEmailResponseData:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        available:
+          type: boolean
+        exists_in_active_users:
+          type: boolean
+        exists_in_pending_registrations:
+          type: boolean
+      required:
+      - available
+      - email
+      - exists_in_active_users
+      - exists_in_pending_registrations
     CreateOrderJustInTime:
       type: object
       properties:
+        phone_number:
+          type: string
+          pattern: ^\d{7,15}$
         billing_address:
           $ref: '#/components/schemas/BillingAddress'
       required:
       - billing_address
+      - phone_number
     CreateOrderJustInTimeResponse:
       type: object
       properties:
@@ -847,16 +2055,32 @@ components:
           type: string
         razorpay_key_id:
           type: string
-      required:
-      - amount
-      - currency
-      - razorpay_key_id
-      - razorpay_order_id
+        is_free:
+          type: boolean
+          default: false
+        tokens:
+          allOf:
+          - $ref: '#/components/schemas/TokenDetailResponse'
+          nullable: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/UserDetailResponse'
+          nullable: true
     CurrencyEnum:
       enum:
       - INR
       type: string
       description: '* `INR` - Indian Rupee'
+    FlagEnum:
+      enum:
+      - create
+      - update
+      - delete
+      type: string
+      description: |-
+        * `create` - create
+        * `update` - update
+        * `delete` - delete
     ForgotPassword:
       type: object
       properties:
@@ -865,6 +2089,27 @@ components:
           format: email
       required:
       - email
+    ForgotPasswordResendOTP:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+      required:
+      - temp_registration_id
+    ForgotPasswordVerifyOTP:
+      type: object
+      properties:
+        temp_registration_id:
+          type: string
+          format: uuid
+        otp_code:
+          type: string
+          maxLength: 6
+          minLength: 5
+      required:
+      - otp_code
+      - temp_registration_id
     GeneralResponse:
       type: object
       properties:
@@ -879,6 +2124,246 @@ components:
       required:
       - message
       - status
+    KBFiles:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        file:
+          type: string
+          format: uri
+        original_name:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Clean original name of the uploaded file
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - file
+      - id
+      - is_processed
+      - last_processed_at
+      - original_name
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - updated_at
+      - updated_by
+    KnowledgeBase:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the knowledge base
+          maxLength: 255
+        texts:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBText'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBFiles'
+        websites:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBWebsite'
+        question_answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBQuestionAnswer'
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - id
+      - is_processed
+      - last_processed_at
+      - name
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - updated_at
+      - updated_by
+    KnowledgeBaseDropdown:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    KnowledgeBaseList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the knowledge base
+          maxLength: 255
+        is_processed:
+          type: boolean
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
     Login:
       type: object
       properties:
@@ -911,6 +2396,523 @@ components:
           type: string
       required:
       - refresh
+    NestedKBFiles:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        file:
+          type: string
+          format: uri
+        original_name:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Clean original name of the uploaded file
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        flag:
+          $ref: '#/components/schemas/FlagEnum'
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - is_processed
+      - last_processed_at
+      - original_name
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - updated_at
+      - updated_by
+    NestedKBQuestionAnswer:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBQuestions'
+        answer:
+          type: string
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        flag:
+          $ref: '#/components/schemas/FlagEnum'
+      required:
+      - answer
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - is_processed
+      - last_processed_at
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - updated_at
+      - updated_by
+    NestedKBQuestions:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        question:
+          type: string
+          description: Standard question text
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        flag:
+          $ref: '#/components/schemas/FlagEnum'
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - is_processed
+      - last_processed_at
+      - processing_error
+      - processing_history
+      - processing_status
+      - question
+      - tenant
+      - updated_at
+      - updated_by
+    NestedKBText:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          description: Title of the text block
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        flag:
+          $ref: '#/components/schemas/FlagEnum'
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - is_processed
+      - last_processed_at
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - title
+      - updated_at
+      - updated_by
+    NestedKBWebsite:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        flag:
+          $ref: '#/components/schemas/FlagEnum'
+      required:
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - is_processed
+      - last_processed_at
+      - processing_error
+      - processing_history
+      - processing_status
+      - tenant
+      - updated_at
+      - updated_by
+      - url
+    PaginatedKnowledgeBaseDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnowledgeBaseDropdown'
+    PaginatedKnowledgeBaseListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/KnowledgeBaseList'
+    PaginatedPlanDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanDropdown'
     PaginatedPlanListList:
       type: object
       required:
@@ -934,6 +2936,95 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlanList'
+    PatchedKnowledgeBase:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the knowledge base
+          maxLength: 255
+        texts:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBText'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBFiles'
+        websites:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBWebsite'
+        question_answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/NestedKBQuestionAnswer'
+        is_processed:
+          type: boolean
+          readOnly: true
+          description: True if the item has been successfully processed/embedded
+        processing_status:
+          allOf:
+          - $ref: '#/components/schemas/ProcessingStatusEnum'
+          readOnly: true
+          description: |-
+            Ingestion status of this individual object
+
+            * `PENDING` - Pending Ingestion
+            * `PROCESSING` - Currently Processing
+            * `COMPLETED` - Successfully Processed
+            * `FAILED` - Processing Failed
+        processing_error:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Error message if the ingestion cycle failed
+        last_processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp when the object was last processed
+        processing_history:
+          readOnly: true
+          description: Historical record of all status changes with timestamps
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
     PatchedPlan:
       type: object
       description: |-
@@ -1029,6 +3120,10 @@ components:
           maximum: 2147483647
           minimum: 0
           description: Sort display order for the plan.
+        is_most_popular:
+          type: boolean
+          description: Flag indicating whether this plan is marked as the most popular
+            choice.
         is_active:
           type: boolean
           readOnly: true
@@ -1141,6 +3236,10 @@ components:
           maximum: 2147483647
           minimum: 0
           description: Sort display order for the plan.
+        is_most_popular:
+          type: boolean
+          description: Flag indicating whether this plan is marked as the most popular
+            choice.
         is_active:
           type: boolean
           readOnly: true
@@ -1166,6 +3265,27 @@ components:
       - tax_amount
       - total_price
       - updated_at
+    PlanDropdown:
+      type: object
+      description: |-
+        Plan Dropdown Serializer.
+        Returns label/value pairs matching unified selection patterns.
+      properties:
+        label:
+          type: string
+          readOnly: true
+        value:
+          type: string
+          format: uuid
+        is_most_popular:
+          type: boolean
+          readOnly: true
+          description: Flag indicating whether this plan is marked as the most popular
+            choice.
+      required:
+      - is_most_popular
+      - label
+      - value
     PlanList:
       type: object
       description: |-
@@ -1254,6 +3374,10 @@ components:
           maximum: 2147483647
           minimum: 0
           description: Sort display order for the plan.
+        is_most_popular:
+          type: boolean
+          description: Flag indicating whether this plan is marked as the most popular
+            choice.
         is_active:
           type: boolean
           readOnly: true
@@ -1297,6 +3421,18 @@ components:
         * `paid` - Paid
         * `free` - Free
         * `pay_as_you_go` - Pay As You Go
+    ProcessingStatusEnum:
+      enum:
+      - PENDING
+      - PROCESSING
+      - COMPLETED
+      - FAILED
+      type: string
+      description: |-
+        * `PENDING` - Pending Ingestion
+        * `PROCESSING` - Currently Processing
+        * `COMPLETED` - Successfully Processed
+        * `FAILED` - Processing Failed
     RazorpayWebhook:
       type: object
       properties:
@@ -1444,10 +3580,6 @@ components:
           format: email
           maxLength: 100
           minLength: 6
-        phone_number:
-          type: string
-          nullable: true
-          pattern: ^\d{7,15}$
         referral_code:
           type: string
           nullable: true
@@ -1536,6 +3668,54 @@ components:
       - email
       - id
       - is_active
+    UserForgotPassword:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    UserForgotPasswordResendOTP:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+      required:
+      - user_id
+    UserForgotPasswordVerifyOTP:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        otp_code:
+          type: string
+          maxLength: 6
+          minLength: 5
+      required:
+      - otp_code
+      - user_id
+    UserResetPassword:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        token:
+          type: string
+        password:
+          type: string
+          maxLength: 32
+          minLength: 8
+        confirm_password:
+          type: string
+      required:
+      - confirm_password
+      - password
+      - token
+      - user_id
     VerifyOTP:
       type: object
       properties:

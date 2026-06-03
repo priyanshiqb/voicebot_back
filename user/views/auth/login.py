@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from utils.views.base_model_viewset import ResponseMixin
 from user.serializers.auth import LoginSerializer, LoginResponseSerializer
 from user.serializers.custom_user import UserRefSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 
 @extend_schema(
@@ -16,6 +17,14 @@ from user.serializers.custom_user import UserRefSerializer
         200: OpenApiResponse(
             response=LoginResponseSerializer,
             description="Login successful"
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Validation failed, invalid email/password."
+        ),
+        403: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Account or IP locked due to too many failed login attempts."
         )
     }
 )

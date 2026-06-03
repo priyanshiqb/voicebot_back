@@ -5,6 +5,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from utils.views.base_model_viewset import ResponseMixin
 from user.serializers.auth import LogoutSerializer
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")
 
@@ -14,7 +15,12 @@ logger = logging.getLogger("django")
     request=LogoutSerializer,
     responses={
         200: OpenApiResponse(
+            response=GeneralResponseSerializer,
             description="Logout successful"
+        ),
+        400: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description="Invalid or missing refresh token."
         )
     }
 )

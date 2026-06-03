@@ -2,7 +2,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiExample, extend_schema_view, OpenApiResponse
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.knowledge_base import KnowledgeBase, KBFiles
 from core.serializers.kb_files import KBFilesSerializer
@@ -11,8 +11,48 @@ from core.serializers.knowledge_base import (
     KnowledgeBaseListSerializer,
     KnowledgeBaseDropdownSerializer
 )
+from onboard.serializers.onboarding import GeneralResponseSerializer
 
-@extend_schema(tags=["knowledgebase"])
+
+@extend_schema(tags=["Knowledge Base"])
+@extend_schema_view(
+    list=extend_schema(
+        summary="List Knowledge Bases",
+        description="Get paginated list of knowledge bases under the active tenant context.",
+        responses={
+            200: KnowledgeBaseListSerializer(many=True),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    ),
+    retrieve=extend_schema(
+        summary="Get Knowledge Base",
+        description="Get specific knowledge base details by ID.",
+        responses={
+            200: KnowledgeBaseSerializer,
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base not found.")
+        }
+    ),
+    destroy=extend_schema(
+        summary="Delete Knowledge Base",
+        description="Soft-delete an existing knowledge base by ID.",
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base soft-deleted successfully."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base not found.")
+        }
+    ),
+    dropdown=extend_schema(
+        summary="Get Dropdown Options",
+        description="Get lightweight label/value selection pairs representing active knowledge bases.",
+        responses={
+            200: KnowledgeBaseDropdownSerializer(many=True)
+        }
+    )
+)
 class KnowledgeBaseViewSet(TenantBaseViewSet):
     """
     Knowledge Base Management API.
@@ -38,7 +78,13 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
         1. **Upload File**: Call this endpoint with a multipart form payload (`file`).
         2. **Response**: Capture the returned `"id"` (UUID).
         3. **Link File**: Pass the captured `"id"` in the `files` array when creating or updating a Knowledge Base.
-        """
+        """,
+        responses={
+            201: KBFilesSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed, file parameter missing or invalid."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
     )
     @action(
         detail=False,
@@ -162,7 +208,13 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
                 },
                 response_only=True
             )
-        ]
+        ],
+        responses={
+            201: KnowledgeBaseSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
@@ -211,7 +263,14 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
                 },
                 request_only=True
             )
-        ]
+        ],
+        responses={
+            200: KnowledgeBaseSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base not found.")
+        }
     )
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
@@ -260,7 +319,14 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
                 },
                 request_only=True
             )
-        ]
+        ],
+        responses={
+            200: KnowledgeBaseSerializer,
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base not found.")
+        }
     )
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)

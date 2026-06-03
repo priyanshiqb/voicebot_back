@@ -16,7 +16,10 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Password Reset"],
     summary="Step 1 Helper: Resend Forgot Password OTP",
     description="Resends a new 6-digit OTP to the temporary user's email, subject to a 30-second cooldown period.",
-    responses={200: GeneralResponseSerializer}
+    responses={
+        200: GeneralResponseSerializer,
+        400: GeneralResponseSerializer
+    }
 )
 class ForgotPasswordResendOTPView(APIView):
     permission_classes = [AllowAny]

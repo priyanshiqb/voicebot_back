@@ -5,7 +5,7 @@ from rest_framework import status
 from onboard.models import Plan
 from onboard.authentication import TempUserAuthentication
 from onboard.views.onboarding.base import IsTempUserAuthenticated
-from onboard.serializers.onboarding import UpdatePlanSerializer, UpdatePlanResponseSerializer
+from onboard.serializers.onboarding import UpdatePlanSerializer, UpdatePlanResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
 
@@ -13,7 +13,12 @@ from drf_spectacular.utils import extend_schema
     tags=["Onboarding - Signup Flow"],
     summary="Step 3: Update Selected Plan",
     description="Updates the user's selected subscription plan and returns a dynamic breakdown of the new pricing.",
-    responses={200: UpdatePlanResponseSerializer}
+    responses={
+        200: UpdatePlanResponseSerializer,
+        400: GeneralResponseSerializer,
+        401: GeneralResponseSerializer,
+        403: GeneralResponseSerializer
+    }
 )
 class UpdatePlanView(APIView):
     authentication_classes = [TempUserAuthentication]
