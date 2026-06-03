@@ -47,5 +47,6 @@ USER django
 # Expose ports for Daphne unified HTTP/WS server
 EXPOSE 8000
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
+
 
