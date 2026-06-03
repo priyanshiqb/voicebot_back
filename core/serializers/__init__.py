@@ -36,6 +36,24 @@ from core.serializers.knowledge_base import (
     KnowledgeBaseListSerializer,
     KnowledgeBaseDropdownSerializer
 )
+from core.serializers.agent_template import (
+    AgentTemplateRefSerializer,
+    AgentTemplateSerializer,
+    AgentTemplateListSerializer,
+    AgentTemplateDropdownSerializer,
+)
+from core.serializers.probing_question import (
+    ProbingQuestionRefSerializer,
+    ProbingQuestionSerializer,
+    ProbingQuestionListSerializer,
+    ProbingQuestionDropdownSerializer,
+)
+from core.serializers.agent import (
+    AgentRefSerializer,
+    AgentSerializer,
+    AgentListSerializer,
+    AgentDropdownSerializer,
+)
 
 __all__ = [
     "KBTextRefSerializer",
@@ -61,5 +79,18 @@ __all__ = [
     "KnowledgeBaseRefSerializer",
     "KnowledgeBaseSerializer",
     "KnowledgeBaseListSerializer",
-    "KnowledgeBaseDropdownSerializer"
+    "KnowledgeBaseDropdownSerializer",
+    "AgentTemplateRefSerializer",
+    "AgentTemplateSerializer",
+    "AgentTemplateListSerializer",
+    "AgentTemplateDropdownSerializer",
+    "ProbingQuestionRefSerializer",
+    "ProbingQuestionSerializer",
+    "ProbingQuestionListSerializer",
+    "ProbingQuestionDropdownSerializer",
+    "AgentRefSerializer",
+    "AgentSerializer",
+    "AgentListSerializer",
+    "AgentDropdownSerializer",
 ]
+

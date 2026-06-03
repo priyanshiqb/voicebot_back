@@ -5,4 +5,7 @@ app_name = "core"
 # Consolidated core app patterns
 urlpatterns = [
     path("", include("core.urls.knowledge_base")),
+    path("", include("core.urls.agent_template")),
+    path("", include("core.urls.probing_question")),
+    path("", include("core.urls.agent")),
 ]

@@ -5,6 +5,9 @@ from core.admin.kb_question_answer_admin import KBQuestionAnswerAdmin
 from core.admin.kb_website_admin import KBWebsiteAdmin
 from core.admin.knowledge_base_admin import KnowledgeBaseAdmin
 from core.admin.kb_etl_tracker_admin import KBETLTrackerAdmin
+from core.admin.agent_template_admin import AgentTemplateAdmin
+from core.admin.probing_question_admin import ProbingQuestionAdmin
+from core.admin.agent_admin import AgentAdmin
 
 __all__ = [
     "KBTextAdmin",
@@ -13,5 +16,10 @@ __all__ = [
     "KBQuestionAnswerAdmin",
     "KBWebsiteAdmin",
     "KnowledgeBaseAdmin",
-    "KBETLTrackerAdmin"
+    "KBETLTrackerAdmin",
+    "AgentTemplateAdmin",
+    "ProbingQuestionAdmin",
+    "AgentAdmin"
 ]
+
+

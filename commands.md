@@ -44,6 +44,16 @@ uv run daphne -b 127.0.0.1 -p 8000 config.asgi:application
 uv run python manage.py test onboard --settings=config.settings.local
 ```
 
+### Seed Database (All Fixtures) Locally
+```bash
+uv run python manage.py load_data all --settings=config.settings.local
+```
+
+### Seed Specific Model Fixture Locally
+```bash
+uv run python manage.py load_data plan --settings=config.settings.local
+```
+
 ---
 
 ## 🚢 2. Docker Compose Commands
@@ -104,6 +114,17 @@ docker compose --env-file .env.django.docker exec backend python manage.py creat
 ```bash
 docker compose --env-file .env.django.docker exec backend python manage.py test onboard
 ```
+
+### Seed Database (All Fixtures) inside Container
+```bash
+docker compose --env-file .env.django.docker exec backend python manage.py load_data all
+```
+
+### Seed Specific Model Fixture inside Container
+```bash
+docker compose --env-file .env.django.docker exec backend python manage.py load_data plan
+```
+
 
 ### Access PostgreSQL Shell (psql) inside Database Container
 ```bash
