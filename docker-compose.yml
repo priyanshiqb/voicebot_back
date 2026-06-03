@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: daphne -b 0.0.0.0 -p ${DAPHNE_PORT} config.asgi:application
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     env_file:
       - .env.shared
       - .env.django.docker
