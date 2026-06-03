@@ -88,6 +88,34 @@ class ActiveUserPasswordResetTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('TOKEN_ALREADY_USED', resp.data['errors'])
 
+    def test_resend_forgot_password_otp(self):
+        resend_url = reverse('api-v1:user-forgot-password-resend')
+        
+        # Step 1: Request OTP
+        response = self.client.post(self.forgot_url, {"email": self.user.email}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user_id = response.data['data']['user_id']
+        
+        # Step 2: Attempt to resend OTP immediately (should fail due to 30-second cooldown)
+        resp = self.client.post(resend_url, {"user_id": user_id}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('OTP_COOLDOWN_ACTIVE', resp.data['errors'])
+        
+        # Step 3: Advance time/timestamp back by 31 seconds
+        self.user.refresh_from_db()
+        self.user.otp_created_at = timezone.now() - timezone.timedelta(seconds=31)
+        self.user.save()
+        
+        # Step 4: Resend OTP (should succeed)
+        resp = self.client.post(resend_url, {"user_id": user_id}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data['status'])
+        
+        # Grab new OTP and verify it has changed (or at least been refreshed)
+        self.user.refresh_from_db()
+        new_otp = self.user.otp_code
+        self.assertIsNotNone(new_otp)
+
     def test_login_lockout_enforced_by_defender(self):
         """Verify custom DRF LoginAPIView lockout when already locked in defender"""
         from defender.utils import block_username, unblock_username

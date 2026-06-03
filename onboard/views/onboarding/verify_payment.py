@@ -23,7 +23,7 @@ User = get_user_model()
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 5: Verify Payment & Complete Onboarding",
     description="Verifies the payment gateway signature. Upon success, registers a Tenant, maps the user, deletes the TempUser, and issues standard JWT tokens.",
     responses={200: VerifyPaymentResponseSerializer}

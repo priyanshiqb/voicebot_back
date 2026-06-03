@@ -14,8 +14,8 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
-    summary="Step 2 Helper: Forgot Temp User Password",
+    tags=["Onboarding - Password Reset"],
+    summary="Step 1: Forgot Temp User Password",
     description="Initiates password reset for unverified onboarding temporary users by emailing a 6-digit OTP verification code valid for 2 minutes.",
     responses={200: GeneralResponseSerializer}
 )

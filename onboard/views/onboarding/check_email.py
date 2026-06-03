@@ -12,7 +12,7 @@ User = get_user_model()
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Check Email Availability (Unique Check)",
     description="Asynchronously checks if an email address already exists in either the active CustomUser or pending TempUser tables. Returns availability status with zero latency for interactive typing feedback.",
     responses={200: CheckEmailResponseSerializer}

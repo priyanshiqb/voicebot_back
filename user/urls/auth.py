@@ -5,6 +5,7 @@ from user.views.auth import (
     TokenRefreshAPIView,
     UserForgotPasswordAPIView,
     UserForgotPasswordVerifyOTPAPIView,
+    UserForgotPasswordResendOTPAPIView,
     UserResetPasswordAPIView,
 )
 
@@ -38,6 +39,12 @@ urlpatterns = [
         "forgot-password/verify/",
         UserForgotPasswordVerifyOTPAPIView.as_view(),
         name="user-forgot-password-verify"
+    ),
+
+    path(
+        "forgot-password/resend/",
+        UserForgotPasswordResendOTPAPIView.as_view(),
+        name="user-forgot-password-resend"
     ),
 
     path(

@@ -22,7 +22,7 @@ from user.serializers.custom_user import UserRefSerializer
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 4: Create Razorpay Order Just-In-Time",
     description="Captures the billing address, validates the GSTIN number (if provided), and generates a new Razorpay payment gateway order.",
     responses={200: CreateOrderJustInTimeResponseSerializer}

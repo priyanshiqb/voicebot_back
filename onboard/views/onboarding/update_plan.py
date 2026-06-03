@@ -10,7 +10,7 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 3: Update Selected Plan",
     description="Updates the user's selected subscription plan and returns a dynamic breakdown of the new pricing.",
     responses={200: UpdatePlanResponseSerializer}

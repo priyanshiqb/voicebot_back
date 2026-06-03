@@ -33,6 +33,7 @@ class NestedKBTextSerializer(KBTextSerializer):
 class NestedKBFilesSerializer(KBFilesSerializer):
     id = serializers.UUIDField(required=False)
     flag = serializers.ChoiceField(choices=["create", "update", "delete"], required=False)
+    file = serializers.FileField(required=False)
 
     class Meta(KBFilesSerializer.Meta):
         fields = KBFilesSerializer.Meta.fields + ("id", "flag")
@@ -51,6 +52,14 @@ class NestedKBFilesSerializer(KBFilesSerializer):
                 except KBFiles.DoesNotExist:
                     pass
         return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        flag = attrs.get('flag')
+        record_id = attrs.get('id')
+        if flag == 'create' or (not record_id and not flag):
+            if 'file' not in attrs:
+                raise serializers.ValidationError({"file": "No file was submitted."})
+        return attrs
 
 class NestedKBWebsiteSerializer(KBWebsiteSerializer):
     id = serializers.UUIDField(required=False)

@@ -15,7 +15,7 @@ User = get_user_model()
 
 
 @extend_schema(
-    tags=["Onboarding Webhooks"],
+    tags=["Onboarding - Webhooks"],
     summary="Razorpay Webhook Handler",
     description="Receives and processes server-to-server transaction status update webhooks from Razorpay.",
     responses={200: GeneralResponseSerializer}

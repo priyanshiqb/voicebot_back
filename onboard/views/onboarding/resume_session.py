@@ -21,7 +21,7 @@ User = get_user_model()
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Resume Onboarding Session",
     description="Allows a user to resume their onboarding process from their last completed state by providing their email or registration ID.",
     responses={200: ResumeSessionResponseSerializer}

@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Resend Verification OTP",
     description="Resends a new 5-digit OTP to the registrant's email, subject to a 30-second cooldown period.",
     responses={200: RegisterPendingResponseSerializer}

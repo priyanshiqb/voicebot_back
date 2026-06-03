@@ -12,7 +12,7 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 1: User Signup Registration",
     description="Captures initial signup details (name, email, business name, password, optional referral code) and emails a 5-digit OTP code.",
     responses={201: RegisterPendingResponseSerializer}

@@ -43,3 +43,7 @@ class ForgotPasswordVerifyOTPSerializer(serializers.Serializer):
     temp_registration_id = serializers.UUIDField(required=True)
     otp_code = serializers.CharField(max_length=6, min_length=5, required=True)
 
+
+class ForgotPasswordResendOTPSerializer(serializers.Serializer):
+    temp_registration_id = serializers.UUIDField(required=True)
+

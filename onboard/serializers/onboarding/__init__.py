@@ -7,7 +7,7 @@ from .order import CreateOrderJustInTimeSerializer, CancelOrderSerializer
 from .payment import VerifyPaymentSerializer
 from .webhook import RazorpayWebhookSerializer
 from .email import ChangeEmailSerializer
-from .password import ForgotPasswordSerializer, ResetPasswordSerializer, ForgotPasswordVerifyOTPSerializer
+from .password import ForgotPasswordSerializer, ResetPasswordSerializer, ForgotPasswordVerifyOTPSerializer, ForgotPasswordResendOTPSerializer
 from .responses import (
     RegisterPendingResponseSerializer,
     VerifyOTPResponseSerializer,
@@ -35,6 +35,7 @@ __all__ = [
     "ForgotPasswordSerializer",
     "ResetPasswordSerializer",
     "ForgotPasswordVerifyOTPSerializer",
+    "ForgotPasswordResendOTPSerializer",
     "RegisterPendingResponseSerializer",
     "VerifyOTPResponseSerializer",
     "ResumeSessionResponseSerializer",

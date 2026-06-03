@@ -11,8 +11,8 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
-    summary="Step 2 Helper: Verify Forgot Password OTP",
+    tags=["Onboarding - Password Reset"],
+    summary="Step 2: Verify Forgot Password OTP",
     description="Verifies the emailed 6-digit OTP. Upon successful verification, invalidates the OTP and returns a secure temporary signed reset token.",
     responses={200: GeneralResponseSerializer}
 )

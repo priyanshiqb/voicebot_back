@@ -102,3 +102,31 @@ class KnowledgeBaseViewTestCase(APITestCase):
         self.assertEqual(file_data["original_name"], "guide.pdf")
         self.assertEqual(file_data["processing_status"], "PENDING")
 
+    def test_kb_create_with_existing_file(self):
+        from core.models.knowledge_base import KBFiles
+        # 1. Create a KBFiles object
+        uploaded_file = SimpleUploadedFile("guide.pdf", b"pdf contents", content_type="application/pdf")
+        kb_file = KBFiles.objects.create(tenant=self.tenant, file=uploaded_file, original_name="guide.pdf")
+
+        # 2. Call knowledge-base create endpoint linking this file
+        payload = {
+            "name": "New KB with existing file",
+            "texts": [],
+            "files": [
+                {"id": str(kb_file.id)}
+            ],
+            "websites": [],
+            "question_answers": []
+        }
+        response = self.client_alex.post(
+            "/api/v1/core/knowledge-base/",
+            payload,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["status"])
+        
+        # Verify the file is associated
+        kb = KnowledgeBase.objects.get(name="New KB with existing file")
+        self.assertIn(kb_file, kb.files.all())
+

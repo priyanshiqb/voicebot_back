@@ -10,7 +10,7 @@ from drf_spectacular.utils import extend_schema
 
 
 @extend_schema(
-    tags=["Onboarding Signup Flow"],
+    tags=["Onboarding - Signup Flow"],
     summary="Step 4 Helper: Cancel Order / Discard Progress",
     description="Discards current registration progress, cleans up database records for the temporary user, and cancels the Razorpay order state.",
     responses={200: GeneralResponseSerializer}

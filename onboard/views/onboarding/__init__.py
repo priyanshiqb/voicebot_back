@@ -11,6 +11,7 @@ from .webhook import RazorpayWebhookView
 from .change_email import ChangeEmailView
 from .forgot_password import ForgotPasswordView
 from .forgot_password_verify import ForgotPasswordVerifyOTPView
+from .forgot_password_resend import ForgotPasswordResendOTPView
 from .reset_password import ResetPasswordView
 from .check_email import CheckEmailView
 
@@ -29,6 +30,7 @@ __all__ = [
     "ChangeEmailView",
     "ForgotPasswordView",
     "ForgotPasswordVerifyOTPView",
+    "ForgotPasswordResendOTPView",
     "ResetPasswordView",
     "CheckEmailView",
 ]

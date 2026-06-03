@@ -659,3 +659,39 @@ class OnboardingTests(APITestCase):
         self.assertFalse(response.data["data"]["available"])
         self.assertFalse(response.data["data"]["exists_in_active_users"])
         self.assertTrue(response.data["data"]["exists_in_pending_registrations"])
+
+    def test_onboarding_forgot_password_resend_otp(self):
+        from onboard.models import TempUser
+        from django.utils import timezone
+        
+        # 1. Create a pending TempUser
+        temp_user = TempUser.objects.create(
+            email="forgot.temp@example.com",
+            first_name="Forgot",
+            last_name="Temp",
+            business_name="Forgot Temp Ltd",
+            password_hash="somehash"
+        )
+        
+        forgot_url = reverse("api-v1:forgot-password")
+        resend_url = reverse("api-v1:forgot-password-resend")
+        
+        # 2. Trigger forgot password OTP
+        response = self.client.post(forgot_url, {"email": temp_user.email}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        temp_id = response.data["data"]["temp_registration_id"]
+        
+        # 3. Resend OTP immediately (should fail due to 30s cooldown)
+        response = self.client.post(resend_url, {"temp_registration_id": temp_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("OTP_COOLDOWN_ACTIVE", response.data["errors"])
+        
+        # 4. Advance cooldown time
+        temp_user.refresh_from_db()
+        temp_user.otp_created_at = timezone.now() - timezone.timedelta(seconds=31)
+        temp_user.save()
+        
+        # 5. Resend OTP (should succeed)
+        response = self.client.post(resend_url, {"temp_registration_id": temp_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["status"])
