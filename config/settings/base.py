@@ -74,6 +74,12 @@ INSTALLED_APPS = [
     "django_filters",
     "defender",
     
+    # OTP & Two-Factor Authentication
+    "django_otp",
+    "django_otp.plugins.otp_static",
+    "django_otp.plugins.otp_totp",
+    "two_factor",
+    
     # Local custom apps
     "user",
     "tenant",
@@ -103,6 +109,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
     "defender.middleware.FailedLoginMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -113,7 +120,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -264,4 +271,9 @@ DEFENDER_LOGIN_LOCKOUT_LIMIT = 5
 DEFENDER_COOLOFF_TIME = 3600  # 1 hour lockout
 DEFENDER_BEHIND_REVERSE_PROXY = True
 DEFENDER_STORE_USER_AGENT = True
-DEFENDER_ACCESS_ATTEMPT_EXPIRY = 24
+DEFENDER_ACCESS_ATTEMPT_EXPIRY = 24
+
+# Django Two-Factor Authentication Settings
+LOGIN_URL = "two_factor:login"
+LOGIN_REDIRECT_URL = "admin:index"
+TWO_FACTOR_PATCH_ADMIN = True

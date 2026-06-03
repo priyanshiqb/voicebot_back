@@ -1,5 +1,9 @@
+from two_factor.admin import AdminSiteOTPRequired
 from django.contrib import admin
 from django.urls import path, include
+from two_factor.urls import urlpatterns as tf_urls
+
+admin.site.__class__ = AdminSiteOTPRequired
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -18,8 +22,9 @@ api_v1_patterns = [
 ]
 
 urlpatterns = [
+    path("", include(tf_urls)),
     path('admin/defender/', include('defender.urls')),
-    path("admin/", admin.site.path if hasattr(admin.site, "path") else admin.site.urls),
+    path("admin/", admin.site.urls),
     
     # API endpoints grouped under v1 namespace
     path("api/v1/", include((api_v1_patterns, "api-v1"))),

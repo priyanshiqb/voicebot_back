@@ -21,5 +21,7 @@ dependencies = [
     "razorpay>=2.0.1",
     "django-defender>=0.9.8",
     "django-redis>=6.0.0",
+    "django-two-factor-auth>=1.17.0",
+    "qrcode>=8.0.1",
 ]
 
