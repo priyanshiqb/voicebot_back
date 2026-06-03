@@ -5,7 +5,7 @@ services:
       - .:/app # Enables instant hot-reloading as you edit code!
       - /app/.venv # Masks/hides the host's Windows .venv directory inside the container!
     ports:
-      - "${DAPHNE_PORT}:${DAPHNE_PORT}"
+      - "${DAPHNE_PORT}:8000"
     depends_on:
       postgres:
         condition: service_healthy
