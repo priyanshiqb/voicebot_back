@@ -241,13 +241,14 @@ This document covers endpoints involved in registering new temporary accounts, v
 * **Path**: `/api/v1/onboard/resume-session/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Resume onboarding process from the last saved state by providing email or registration ID.
+* **Description**: Resume onboarding process from the last saved state by providing email or registration ID, along with the password chosen during signup.
 
 ### Request Payload
 
 ```json
 {
-  "email": "jane@example.com"
+  "email": "jane@example.com",
+  "password": "SecurePassword123"
 }
 ```
 
@@ -273,9 +274,9 @@ This document covers endpoints involved in registering new temporary accounts, v
 ```json
 {
   "status": false,
-  "message": "No pending registration found.",
+  "message": "Incorrect password",
   "data": null,
-  "errors": ["SESSION_NOT_FOUND"]
+  "errors": ["INVALID_CREDENTIALS"]
 }
 ```
 

@@ -8,12 +8,47 @@ import logging
 logger = logging.getLogger("django")  # or your custom logger
 
 
+from rest_framework.exceptions import APIException
+
+
+class OnboardingPendingException(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Your registration is still pending. Please complete your onboarding."
+    default_code = "onboarding_pending"
+
+    def __init__(self, temp_registration_id, email, detail=None, code=None):
+        super().__init__(detail, code)
+        self.temp_registration_id = temp_registration_id
+        self.email = email
+
+
 def custom_exception_handler(exc, context):
-    response = exception_handler(exc, context)
     request = context.get("request")
     request_id = getattr(request, "request_id", "N/A") if request else "N/A"
     log_extra = {"request_id": request_id}
 
+    if isinstance(exc, OnboardingPendingException):
+        logger.warning(
+            "Onboarding pending redirection",
+            extra={
+                "detail": exc.detail,
+                "temp_registration_id": exc.temp_registration_id,
+                **log_extra
+            }
+        )
+        return Response({
+            "status": False,
+            "message": str(exc.detail),
+            "data": None,
+            "errors": {
+                "onboarding_pending": True,
+                "temp_registration_id": exc.temp_registration_id,
+                "email": exc.email
+            },
+            "request_id": request_id
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    response = exception_handler(exc, context)
     if response is not None:
         status_code = response.status_code
 

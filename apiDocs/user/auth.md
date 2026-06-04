@@ -50,8 +50,9 @@ This document covers endpoints related to user login, logout, JWT token refresh,
 }
 ```
 
-#### 400 Bad Request (Validation Error)
+#### 400 Bad Request (Validation Error / Onboarding Pending Redirect)
 
+##### Case A: Standard Validation/Credentials Error
 ```json
 {
   "status": false,
@@ -59,6 +60,21 @@ This document covers endpoints related to user login, logout, JWT token refresh,
   "data": null,
   "errors": {
     "email": ["Enter a valid email address."]
+  }
+}
+```
+
+##### Case B: Onboarding Pending Redirect
+If the supplied email and password match a pending onboarding (`TempUser`) session, the API returns a `400 Bad Request` with an `onboarding_pending` flag and the session ID. The frontend can use this flag to redirect the user back to the signup/onboarding workflow:
+```json
+{
+  "status": false,
+  "message": "Your registration is still pending. Please complete your onboarding.",
+  "data": null,
+  "errors": {
+    "onboarding_pending": true,
+    "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa",
+    "email": "pending.user@example.com"
   }
 }
 ```

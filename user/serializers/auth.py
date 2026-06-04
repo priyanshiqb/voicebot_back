@@ -21,6 +21,18 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
+            # Check if this belongs to a TempUser who is still onboarding
+            from onboard.models import TempUser
+            from django.contrib.auth.hashers import check_password
+            email_lower = email.strip().lower() if email else ""
+            temp_user = TempUser.objects.filter(email=email_lower).first()
+            if temp_user and check_password(password, temp_user.password_hash):
+                from utils.exception import OnboardingPendingException
+                raise OnboardingPendingException(
+                    temp_registration_id=str(temp_user.id),
+                    email=temp_user.email
+                )
+
             raise serializers.ValidationError({
                 "credentials": [
                     "Invalid email or password"

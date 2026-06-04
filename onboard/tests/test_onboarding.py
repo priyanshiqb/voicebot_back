@@ -293,7 +293,7 @@ class OnboardingTests(APITestCase):
         
         # Step 2: POST resume-session (when email is NOT verified yet)
         resume_url = reverse("api-v1:resume-session")
-        resume_payload = {"email": "resume.user@example.com"}
+        resume_payload = {"email": "resume.user@example.com", "password": "SecurePassword123!"}
         response = self.client.post(resume_url, data=resume_payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["step"], "OTP_VERIFICATION_REQUIRED")
@@ -307,6 +307,18 @@ class OnboardingTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.data["data"]["temporary_token"])
         self.assertEqual(response.data["data"]["step"], "BILLING_ADDRESS_REQUIRED")
+
+        # Step 4: POST resume-session with incorrect password (should fail)
+        invalid_payload = {"email": "resume.user@example.com", "password": "WrongPassword!"}
+        response = self.client.post(resume_url, data=invalid_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["errors"], ["INVALID_CREDENTIALS"])
+
+        # Step 5: POST resume-session with missing password (should fail)
+        missing_password_payload = {"email": "resume.user@example.com"}
+        response = self.client.post(resume_url, data=missing_password_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.data["errors"])
 
     def test_strict_gstin_state_validation(self):
         """

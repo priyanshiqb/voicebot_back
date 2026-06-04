@@ -35,8 +35,17 @@ class ResumeSessionView(ResponseMixin, APIView):
     serializer_class = ResumeSessionSerializer
 
     def post(self, request):
-        email = request.data.get("email")
-        temp_id = request.data.get("temp_registration_id")
+        serializer = ResumeSessionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return self.error(
+                message="Validation failed",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        email = serializer.validated_data.get("email")
+        temp_id = serializer.validated_data.get("temp_registration_id")
+        password = serializer.validated_data.get("password")
 
         temp_user = None
         if temp_id:
@@ -61,6 +70,15 @@ class ResumeSessionView(ResponseMixin, APIView):
                 message="No active registration session found. Please sign up first.",
                 errors=["SESSION_NOT_FOUND"],
                 status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        # Enforce password validation to prevent unauthorized session resumption
+        from django.contrib.auth.hashers import check_password
+        if not check_password(password, temp_user.password_hash):
+            return self.error(
+                message="Incorrect password",
+                errors=["INVALID_CREDENTIALS"],
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
         # Case 1: Registration exists but email is not verified yet
