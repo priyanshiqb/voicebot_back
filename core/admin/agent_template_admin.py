@@ -15,15 +15,19 @@ class AgentTemplateAdmin(TenantBaseAdmin):
         "id",
         "name",
         "tenant",
+        "industry",
         "strict_facts",
         "can_user_edit_flow",
+        "is_default",
         "is_active",
         "created_at",
     )
 
     list_filter = (
+        "industry",
         "strict_facts",
         "can_user_edit_flow",
+        "is_default",
     ) + TenantBaseAdmin.list_filter
 
     search_fields = (
@@ -35,6 +39,8 @@ class AgentTemplateAdmin(TenantBaseAdmin):
         "is_deleted",
     )
 
+    filter_horizontal = ("probing_questions",)
+
     ordering = ("-created_at",)
 
     fieldsets = (
@@ -44,6 +50,7 @@ class AgentTemplateAdmin(TenantBaseAdmin):
                 "tenant",
                 "name",
                 "short_description",
+                "is_default",
                 "is_active",
                 "is_deleted",
             )
@@ -57,8 +64,10 @@ class AgentTemplateAdmin(TenantBaseAdmin):
         ("Cognitive Prompt & Behavior", {
             "fields": (
                 "agent_prompt",
+                "industry",
                 "strict_facts",
                 "can_user_edit_flow",
+                "probing_questions",
             )
         }),
 

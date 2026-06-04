@@ -10,6 +10,5 @@ class BaseModelCoreSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "deleted_at",
-            "is_active",
             "is_deleted",
         )

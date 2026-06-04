@@ -22,10 +22,10 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
   - `page` (optional): Page number
   - `page_size` (optional): Items per page
   - `search` (optional): Filter questions by `question` string content
-  - `ordering` (optional): Sort by `priority`, `score`, or `created_at` (prefix with `-` for descending, default: `agent_template, priority, -created_at`)
+  - `ordering` (optional): Sort by `priority`, `score`, or `created_at` (prefix with `-` for descending, default: `priority, -created_at`)
   - `is_active` (optional): Boolean filter
   - `is_mandatory` (optional): Boolean filter
-  - `agent_template` (optional): UUID of the parent Agent Template
+  - `can_user_edit` (optional): Boolean filter
 - **Success Response (200 OK)**:
   ```json
   {
@@ -34,14 +34,13 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
     "data": [
       {
         "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c",
-        "agent_template": {
-          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-          "name": "Wealth Advisory"
-        },
         "question": "What is your primary investment goal?",
         "priority": 1,
         "score": 80,
         "is_mandatory": true,
+        "can_user_edit": true,
+        "is_default": false,
+        "is_active": true,
         "created_at": "2026-06-03T18:00:00Z"
       }
     ],
@@ -63,21 +62,22 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
 - **Request Payload**:
   ```json
   {
-    "agent_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "question": "What is your primary investment goal?",
     "priority": 1,
     "score": 80,
-    "is_mandatory": true
+    "is_mandatory": true,
+    "can_user_edit": false
   }
   ```
 - **Field Validations**:
-  - `agent_template`: Required, valid UUID of an active Agent Template.
-  - `question`: Required, 10-100 characters. Must be unique per parent `agent_template` for active records.
+  - `question`: Required, 10-100 characters. Must be unique per tenant for active records.
   - `priority`: Required, integer >= 1.
   - `score`: Required, integer between 0 and 100.
   - `is_mandatory`: Optional, boolean (default: `false`).
+  - `can_user_edit`: Read-only field. Ignored on write operations. Defaults to `false` on creation. When `false` in database, the probing question cannot be edited or deleted via the API.
+  - `is_default`: Read-only field. Ignored on write operations. Defaults to `false` on creation. When `true` in database, the probing question represents a system-wide default that is visible to all users but cannot be edited or deleted by any user.
 - **Success Response (201 Created)**:
-  *(Returns full detail representation, where `agent_template` resolves to the nested template Ref representation)*
+  *(Returns full detail representation)*
 
 ---
 
@@ -97,5 +97,17 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
     "message": "success",
     "data": null,
     "errors": null
+  }
+  ```
+- **Error Response (400 Bad Request)**:
+  Returned when attempting to update or delete a question where `can_user_edit` is `false`.
+  ```json
+  {
+    "status": false,
+    "message": "validation_error",
+    "data": null,
+    "errors": {
+      "detail": "This probing question is read-only and cannot be deleted."
+    }
   }
   ```

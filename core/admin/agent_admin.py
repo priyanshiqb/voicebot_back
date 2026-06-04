@@ -15,7 +15,6 @@ class AgentAdmin(TenantBaseAdmin):
         "id",
         "bot_name",
         "persona_name",
-        "industry",
         "tone",
         "agent_template",
         "tenant",
@@ -24,7 +23,6 @@ class AgentAdmin(TenantBaseAdmin):
     )
 
     list_filter = (
-        "industry",
         "tone",
         "agent_template",
     ) + TenantBaseAdmin.list_filter
@@ -34,7 +32,10 @@ class AgentAdmin(TenantBaseAdmin):
         "persona_name",
     ) + TenantBaseAdmin.search_fields
 
-    filter_horizontal = ("knowledge_bases",)
+    filter_horizontal = (
+        "knowledge_bases",
+        "probing_questions",
+    )
     raw_id_fields = ("agent_template",)
 
     readonly_fields = TenantBaseAdmin.readonly_fields + (
@@ -58,7 +59,6 @@ class AgentAdmin(TenantBaseAdmin):
             "fields": (
                 "languages",
                 "tone",
-                "industry",
                 "agent_template",
                 "voice_name",
             )
@@ -66,6 +66,7 @@ class AgentAdmin(TenantBaseAdmin):
         ("Cognitive Context", {
             "fields": (
                 "knowledge_bases",
+                "probing_questions",
                 "transfer_destinations",
             )
         }),

@@ -15,15 +15,6 @@ class Agent(TenantBaseModel):
         CASUAL = "CASUAL", "Casual"
         ENTHUSIASTIC = "ENTHUSIASTIC", "Enthusiastic"
 
-    class IndustryChoices(models.TextChoices):
-        CLINIC_RECEPTIONIST = "CLINIC_RECEPTIONIST", "Clinic Receptionist"
-        AGRICULTURAL_SUPPLIER = "AGRICULTURAL_SUPPLIER", "Agricultural Supplier"
-        REAL_ESTATE = "REAL_ESTATE", "Real Estate"
-        E_COMMERCE = "E_COMMERCE", "E-Commerce"
-        RESTAURANT = "RESTAURANT", "Restaurant"
-        GENERAL_ASSISTANT = "GENERAL_ASSISTANT", "General Assistant"
-        OTHER = "OTHER", "Other"
-
     bot_name = models.CharField(
         max_length=100,
         validators=[
@@ -58,12 +49,6 @@ class Agent(TenantBaseModel):
         default=ToneChoices.PROFESSIONAL,
         help_text="Tone of the agent interaction.",
     )
-    industry = models.CharField(
-        max_length=50,
-        choices=IndustryChoices.choices,
-        default=IndustryChoices.GENERAL_ASSISTANT,
-        help_text="Selected industry category for the agent.",
-    )
     agent_template = models.ForeignKey(
         "core.AgentTemplate",
         on_delete=models.SET_NULL,
@@ -83,6 +68,12 @@ class Agent(TenantBaseModel):
         blank=True,
         related_name="agents",
         help_text="Knowledge bases associated directly with this agent.",
+    )
+    probing_questions = models.ManyToManyField(
+        "core.ProbingQuestion",
+        blank=True,
+        related_name="agents",
+        help_text="Probing questions associated directly with this agent.",
     )
     transfer_destinations = models.JSONField(
         blank=True,

@@ -1,3 +1,4 @@
+from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.agent_template import AgentTemplate
@@ -103,10 +104,50 @@ class AgentTemplateViewSet(TenantBaseViewSet):
     list_serializer_class = AgentTemplateListSerializer
     dropdown_serializer_class = AgentTemplateDropdownSerializer
 
-    filterset_fields = ["is_active", "strict_facts", "can_user_edit_flow"]
+    filterset_fields = ["is_active", "strict_facts", "can_user_edit_flow", "is_default", "industry"]
     search_fields = ["name", "short_description"]
     ordering_fields = ["name", "created_at"]
     ordering = ["-created_at"]
 
     select_related_fields = []
-    prefetch_related_fields = []
+    prefetch_related_fields = ["probing_questions"]
+
+    def get_queryset(self):
+        # Retrieve all agent templates bypassing TenantBaseViewSet's single tenant filter
+        queryset = super(TenantBaseViewSet, self).get_queryset()
+        user = self.request.user
+
+        # Django Superusers view all records globally
+        if user.is_superuser:
+            return queryset
+
+        try:
+            active_tenant = user.tenant_mapping.tenant
+            from django.db.models import Q
+            # Return tenant-specific templates OR global default templates
+            return queryset.filter(Q(tenant=active_tenant) | Q(is_default=True))
+        except Exception:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Your user account is not associated with any active tenant.")
+
+    def perform_destroy(self, instance):
+        if instance.is_default:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "This is a default agent template and cannot be deleted."})
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=["post"])
+    def bulk_delete(self, request):
+        ids = request.data.get("ids", [])
+        if not isinstance(ids, list) or not ids:
+            from rest_framework import status
+            from rest_framework.response import Response
+            return Response(
+                {"status": False, "message": "ids must be a non-empty list", "errors": None},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        queryset = self.get_queryset().filter(id__in=ids, is_deleted=False)
+        if queryset.filter(is_default=True).exists():
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "One or more selected agent templates are default and cannot be deleted."})
+        return super().bulk_delete(request)

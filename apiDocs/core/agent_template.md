@@ -28,6 +28,7 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
   - `is_active` (optional): Boolean filter
   - `strict_facts` (optional): Boolean filter
   - `can_user_edit_flow` (optional): Boolean filter
+  - `industry` (optional): Filter templates by industry category. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
 - **Success Response (200 OK)**:
   ```json
   {
@@ -38,8 +39,13 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
         "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         "name": "Wealth Advisory",
         "short_description": "Custom customer support bot for investments.",
+        "visual_icon": "support-icon",
+        "primary_accent": "#00FF00",
+        "industry": "GENERAL_ASSISTANT",
         "strict_facts": true,
-        "can_user_edit_flow": false,
+        "can_user_edit_flow": true,
+        "is_default": false,
+        "is_active": true,
         "created_at": "2026-06-03T18:00:00Z"
       }
     ],
@@ -93,8 +99,16 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
       "visual_icon": "support-icon",
       "primary_accent": "#00FF00",
       "agent_prompt": "You are a customer support agent assisting users with their investments.",
+      "industry": "GENERAL_ASSISTANT",
       "strict_facts": true,
-      "can_user_edit_flow": false,
+      "can_user_edit_flow": true,
+      "is_active": true,
+      "probing_questions": [
+        {
+          "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+          "question": "What is your account number?"
+        }
+      ],
       "created_by": {
         "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         "name": "Emma"
@@ -121,25 +135,128 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
     "visual_icon": "support-icon",
     "primary_accent": "#00FF00",
     "agent_prompt": "You are a customer support agent assisting users with their investments.",
+    "industry": "GENERAL_ASSISTANT",
     "strict_facts": true,
-    "can_user_edit_flow": false
+    "can_user_edit_flow": true,
+    "is_active": true,
+    "add_probing_questions": [
+      "5fa85f64-5717-4562-b3fc-2c963f66afa7"
+    ]
   }
   ```
 - **Field Validations**:
   - `name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only. Must be unique per tenant for active templates.
   - `short_description`: Required, 10-300 characters.
+  - `visual_icon`: Optional, max length 50 characters.
   - `primary_accent`: Optional, valid 6-digit hex color format (e.g. `#00FF00`, matching `^#[0-9A-Fa-f]{6}$`).
   - `agent_prompt`: Required, 30-5000 characters.
+  - `industry`: Required. Selected industry category for the template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`.
+  - `strict_facts`: Optional, boolean (default: `true`).
+  - `can_user_edit_flow`: Optional, boolean (default: `true`).
+  - `is_active`: Optional, boolean (default: `true`).
+  - `probing_questions`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
+  - `add_probing_questions`: Optional list of UUID strings. Used to incrementally add probing questions. Each referenced question must belong to the active tenant's context or be a global default probing question (`is_default = true`).
+  - `remove_probing_questions`: Optional list of UUID strings. Used to incrementally remove probing questions.
+  - `is_default`: Read-only field. Ignored on write operations. Defaults to `false` on creation. When `true` in database, the agent template represents a system-wide default that is visible to all users but cannot be edited or deleted by any user.
 - **Success Response (201 Created)**:
-  *(Returns full detail JSON representation)*
+  ```json
+  {
+    "status": true,
+    "message": "success",
+    "data": {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "tenant": {
+        "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c",
+        "name": "Alpha Corp"
+      },
+      "name": "Wealth Advisory",
+      "short_description": "Custom customer support bot for investments.",
+      "visual_icon": "support-icon",
+      "primary_accent": "#00FF00",
+      "agent_prompt": "You are a customer support agent assisting users with their investments.",
+      "industry": "GENERAL_ASSISTANT",
+      "strict_facts": true,
+      "can_user_edit_flow": true,
+      "is_active": true,
+      "probing_questions": [
+        {
+          "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+          "question": "What is your account number?"
+        }
+      ],
+      "created_by": {
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "name": "Emma"
+      },
+      "updated_by": null,
+      "deleted_by": null,
+      "created_at": "2026-06-03T18:00:00Z",
+      "updated_at": "2026-06-03T18:00:00Z",
+      "deleted_at": null,
+      "is_default": false
+    },
+    "errors": null
+  }
+  ```
 
 ---
 
 ### 5. Update Agent Template
 - **Path**: `PUT /api/v1/core/agent-templates/{id}/`
-- **Request Payload**: *(Same field validations as POST)*
+- **Request Payload (Full Update)**: *(Same field validations as POST)*
+- **Request Payload (Incremental Probing Question Update)**:
+  ```json
+  {
+    "add_probing_questions": [
+      "5fa85f64-5717-4562-b3fc-2c963f66afa7"
+    ],
+    "remove_probing_questions": [
+      "8fa85f64-5717-4562-b3fc-2c963f66afa9"
+    ]
+  }
+  ```
 - **Success Response (200 OK)**:
-  *(Returns full updated detail JSON representation)*
+  ```json
+  {
+    "status": true,
+    "message": "success",
+    "data": {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "tenant": {
+        "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c",
+        "name": "Alpha Corp"
+      },
+      "name": "Wealth Advisory",
+      "short_description": "Updated customer support bot description.",
+      "visual_icon": "support-icon",
+      "primary_accent": "#00FF00",
+      "agent_prompt": "You are a customer support agent assisting users with their investments.",
+      "strict_facts": true,
+      "can_user_edit_flow": true,
+      "is_active": true,
+      "probing_questions": [
+        {
+          "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+          "question": "What is your account number?"
+        }
+      ],
+      "created_by": {
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "name": "Emma"
+      },
+      "updated_by": {
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "name": "Emma"
+      },
+      "deleted_by": null,
+      "created_at": "2026-06-03T18:00:00Z",
+      "updated_at": "2026-06-04T12:00:00Z",
+      "deleted_at": null,
+      "is_default": false
+    },
+    "errors": null
+  }
+  ```
 
 ---
 

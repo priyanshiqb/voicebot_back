@@ -1,4 +1,5 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+import django_filters
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.agent import Agent
 from core.serializers.agent import (
@@ -7,6 +8,14 @@ from core.serializers.agent import (
     AgentDropdownSerializer,
 )
 from onboard.serializers.onboarding import GeneralResponseSerializer
+
+
+class AgentFilter(django_filters.FilterSet):
+    industry = django_filters.CharFilter(field_name="agent_template__industry")
+
+    class Meta:
+        model = Agent
+        fields = ["is_active", "tone", "industry", "agent_template"]
 
 
 @extend_schema(tags=["Agent"])
@@ -103,10 +112,10 @@ class AgentViewSet(TenantBaseViewSet):
     list_serializer_class = AgentListSerializer
     dropdown_serializer_class = AgentDropdownSerializer
 
-    filterset_fields = ["is_active", "tone", "industry", "agent_template"]
+    filterset_class = AgentFilter
     search_fields = ["bot_name", "persona_name"]
     ordering_fields = ["bot_name", "created_at"]
     ordering = ["-created_at"]
 
     select_related_fields = ["agent_template"]
-    prefetch_related_fields = ["knowledge_bases"]
+    prefetch_related_fields = ["knowledge_bases", "probing_questions"]

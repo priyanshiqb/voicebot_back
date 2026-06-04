@@ -100,22 +100,11 @@ class AgentProbingTestCase(TestCase):
             agent_prompt="A prompt description that has more than thirty characters.",
         )
 
-        q = ProbingQuestion.objects.create(
-            tenant=self.tenant,
-            agent_template=t,
-            question="What is the refund deadline?",
-            priority=1,
-            score=50,
-        )
-
         t.soft_delete()
         t.refresh_from_db()
-        q.refresh_from_db()
 
         self.assertTrue(t.is_deleted)
         self.assertIn("-deleted-", t.name)
-        self.assertTrue(q.is_deleted)
-        self.assertIn("-deleted-", q.question)
 
         # Re-creating a template with the same name after deletion is allowed
         new_t = AgentTemplate.objects.create(
@@ -126,39 +115,34 @@ class AgentProbingTestCase(TestCase):
         )
         self.assertEqual(new_t.name, "Standard Bot")
 
-    def test_probing_question_creation(self):
+    def test_agent_template_default_soft_delete(self):
         t = AgentTemplate.objects.create(
-            tenant=self.tenant,
-            name="Finance Bot",
-            short_description="Short desc of bot template.",
+            tenant=None,
+            name="Default standard bot",
+            short_description="Default system-wide agent template.",
             agent_prompt="A prompt description that has more than thirty characters.",
+            is_default=True,
         )
+        with self.assertRaises(ValidationError):
+            t.soft_delete()
+
+    def test_probing_question_creation(self):
         q = ProbingQuestion.objects.create(
             tenant=self.tenant,
-            agent_template=t,
             question="Is your monthly salary above $5000?",
             priority=2,
             score=80,
             is_mandatory=True,
         )
 
-        self.assertEqual(q.agent_template, t)
         self.assertEqual(q.priority, 2)
         self.assertEqual(q.score, 80)
         self.assertTrue(q.is_mandatory)
 
     def test_probing_question_validation(self):
-        t = AgentTemplate.objects.create(
-            tenant=self.tenant,
-            name="Finance Bot",
-            short_description="Short desc of bot template.",
-            agent_prompt="A prompt description that has more than thirty characters.",
-        )
-
         # Question too short (less than 10 chars)
         q1 = ProbingQuestion(
             tenant=self.tenant,
-            agent_template=t,
             question="Short?",
             priority=1,
             score=50,
@@ -169,7 +153,6 @@ class AgentProbingTestCase(TestCase):
         # Priority too small (less than 1)
         q2 = ProbingQuestion(
             tenant=self.tenant,
-            agent_template=t,
             question="Is your monthly salary above $5000?",
             priority=0,
             score=50,
@@ -180,7 +163,6 @@ class AgentProbingTestCase(TestCase):
         # Score out of range (more than 100)
         q3 = ProbingQuestion(
             tenant=self.tenant,
-            agent_template=t,
             question="Is your monthly salary above $5000?",
             priority=1,
             score=101,
@@ -190,47 +172,43 @@ class AgentProbingTestCase(TestCase):
 
 
     def test_probing_question_uniqueness(self):
-        t1 = AgentTemplate.objects.create(
-            tenant=self.tenant,
-            name="Finance Bot",
-            short_description="Short desc of bot template.",
-            agent_prompt="A prompt description that has more than thirty characters.",
-        )
-        t2 = AgentTemplate.objects.create(
-            tenant=self.tenant,
-            name="Marketing Bot",
-            short_description="Short desc of bot template.",
-            agent_prompt="A prompt description that has more than thirty characters.",
-        )
-
         ProbingQuestion.objects.create(
             tenant=self.tenant,
-            agent_template=t1,
             question="Are you looking for short term investments?",
             priority=1,
             score=50,
         )
 
-        # Duplicate question text on same AgentTemplate -> IntegrityError
+        # Duplicate question text on same tenant -> IntegrityError
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 ProbingQuestion.objects.create(
                     tenant=self.tenant,
-                    agent_template=t1,
                     question="Are you looking for short term investments?",
                     priority=2,
                     score=60,
                 )
 
-        # Same question text on different AgentTemplate -> Allowed
+        # Same question text on different tenant -> Allowed
         other_q = ProbingQuestion.objects.create(
-            tenant=self.tenant,
-            agent_template=t2,
+            tenant=self.other_tenant,
             question="Are you looking for short term investments?",
             priority=1,
             score=50,
         )
-        self.assertEqual(other_q.agent_template, t2)
+        self.assertEqual(other_q.tenant, self.other_tenant)
+
+    def test_probing_question_default_soft_delete(self):
+        q = ProbingQuestion.objects.create(
+            tenant=None,
+            question="This default question cannot be deleted.",
+            priority=1,
+            score=50,
+            is_default=True,
+            can_user_edit=False,
+        )
+        with self.assertRaises(ValidationError):
+            q.soft_delete()
 
     def test_agent_creation(self):
         t = AgentTemplate.objects.create(
@@ -238,6 +216,7 @@ class AgentProbingTestCase(TestCase):
             name="Finance Bot Template",
             short_description="Short desc of template.",
             agent_prompt="A prompt description that has more than thirty characters.",
+            industry=AgentTemplate.IndustryChoices.CLINIC_RECEPTIONIST,
         )
         kb = KnowledgeBase.objects.create(
             tenant=self.tenant,
@@ -249,7 +228,6 @@ class AgentProbingTestCase(TestCase):
             persona_name="Emma",
             languages=["en-IN", "hi-IN"],
             tone=Agent.ToneChoices.FRIENDLY,
-            industry=Agent.IndustryChoices.CLINIC_RECEPTIONIST,
             agent_template=t,
             voice_name="Gemma",
             transfer_destinations={"destinations": []}

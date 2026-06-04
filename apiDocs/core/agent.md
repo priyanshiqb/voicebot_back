@@ -24,8 +24,8 @@ Manage configured Voicebot Agents under the active tenant context.
   - `search` (optional): Filter agents by `bot_name` or `persona_name`
   - `ordering` (optional): Sort by `bot_name` or `created_at` (prefix with `-` for descending, default: `-created_at`)
   - `is_active` (optional): Boolean filter
-  - `tone` (optional): Text filter matching tone choices (Professional, Friendly, Formal, etc.)
-  - `industry` (optional): Text filter matching industry choices
+  - `tone` (optional): Filter by agent tone. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`
+  - `industry` (optional): Filter by the industry category of the agent's template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
   - `agent_template` (optional): UUID of the associated template
 - **Success Response (200 OK)**:
   ```json
@@ -37,8 +37,7 @@ Manage configured Voicebot Agents under the active tenant context.
         "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c",
         "bot_name": "Investment Advisor Bot",
         "persona_name": "Oliver",
-        "tone": "Professional",
-        "industry": "Financial Services",
+        "tone": "PROFESSIONAL",
         "agent_template": {
           "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
           "name": "Wealth Advisory"
@@ -67,12 +66,14 @@ Manage configured Voicebot Agents under the active tenant context.
     "bot_name": "Investment Advisor Bot",
     "persona_name": "Oliver",
     "languages": ["en-IN", "en-US"],
-    "tone": "Professional",
-    "industry": "Financial Services",
+    "tone": "PROFESSIONAL",
     "agent_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "voice_name": "en-IN-Wavenet-B",
-    "knowledge_bases": [
+    "add_knowledge_bases": [
       "9734df89-1065-4f40-8458-1c4b81cf738b"
+    ],
+    "add_probing_questions": [
+      "5fa85f64-5717-4562-b3fc-2c963f66afa7"
     ],
     "transfer_destinations": {
       "support_desk": "+1234567890"
@@ -83,11 +84,15 @@ Manage configured Voicebot Agents under the active tenant context.
   - `bot_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only. Must be unique per tenant for active agents.
   - `persona_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only.
   - `languages`: Required, non-empty list of language strings.
-  - `tone`: Required, must match valid tone enum/choice.
-  - `industry`: Required, must match valid industry choice.
+  - `tone`: Required. Tone of the agent interaction. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`.
   - `agent_template`: Optional, valid UUID of an active Agent Template.
   - `voice_name`: Optional string.
-  - `knowledge_bases`: Optional list of active Knowledge Base UUIDs.
+  - `knowledge_bases`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
+  - `add_knowledge_bases`: Optional list of UUID strings. Used to incrementally add knowledge bases. Each referenced KB must belong to the active tenant's context.
+  - `remove_knowledge_bases`: Optional list of UUID strings. Used to incrementally remove knowledge bases.
+  - `probing_questions`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
+  - `add_probing_questions`: Optional list of UUID strings. Used to incrementally add probing questions. Each referenced question must belong to the active tenant's context or be a global default probing question (`is_default = true`).
+  - `remove_probing_questions`: Optional list of UUID strings. Used to incrementally remove probing questions.
   - `transfer_destinations`: Optional dictionary/JSON object mapping labels to destination numbers/URIs.
 - **Success Response (201 Created)**:
   *(Returns full detail representation, with resolved hybrid fields and audit properties)*
@@ -112,3 +117,28 @@ Manage configured Voicebot Agents under the active tenant context.
     "errors": null
   }
   ```
+
+---
+
+### 5. Update Agent
+- **Path**: `PUT /api/v1/core/agents/{id}/`
+- **Request Payload (Full Update)**: *(Same field validations as POST)*
+- **Request Payload (Incremental Update)**:
+  ```json
+  {
+    "add_knowledge_bases": [
+      "9734df89-1065-4f40-8458-1c4b81cf738b"
+    ],
+    "remove_knowledge_bases": [
+      "8734df89-1065-4f40-8458-1c4b81cf738a"
+    ],
+    "add_probing_questions": [
+      "5fa85f64-5717-4562-b3fc-2c963f66afa7"
+    ],
+    "remove_probing_questions": [
+      "8fa85f64-5717-4562-b3fc-2c963f66afa9"
+    ]
+  }
+  ```
+- **Success Response (200 OK)**:
+  *(Returns full detail representation)*

@@ -13,18 +13,20 @@ class ProbingQuestionAdmin(TenantBaseAdmin):
 
     list_display = (
         "id",
-        "agent_template",
         "question",
         "priority",
         "score",
         "is_mandatory",
+        "can_user_edit",
+        "is_default",
         "tenant",
         "is_active",
     )
 
     list_filter = (
         "is_mandatory",
-        "agent_template",
+        "can_user_edit",
+        "is_default",
     ) + TenantBaseAdmin.list_filter
 
     search_fields = (
@@ -35,15 +37,16 @@ class ProbingQuestionAdmin(TenantBaseAdmin):
         "is_deleted",
     )
 
-    ordering = ("agent_template", "priority", "-created_at")
+    ordering = ("priority", "-created_at")
 
     fieldsets = (
         ("General Details & Linkage", {
             "fields": (
                 "id",
                 "tenant",
-                "agent_template",
                 "question",
+                "can_user_edit",
+                "is_default",
                 "is_active",
                 "is_deleted",
             )

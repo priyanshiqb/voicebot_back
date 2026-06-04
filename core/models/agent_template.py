@@ -8,6 +8,14 @@ class AgentTemplate(TenantBaseModel):
     Model representing pre-defined or custom Voicebot Agent Templates.
     Fully multi-tenant and audited.
     """
+    tenant = models.ForeignKey(
+        "tenant.Tenant",
+        on_delete=models.CASCADE,
+        related_name="core_agenttemplate_tenant",
+        null=True,
+        blank=True,
+        help_text="Tenant context partition key for row-level security isolation.",
+    )
     name = models.CharField(
         max_length=100,
         validators=[
@@ -51,8 +59,33 @@ class AgentTemplate(TenantBaseModel):
         help_text="When enabled, the agent avoids hallucinations and sticks strictly to facts.",
     )
     can_user_edit_flow = models.BooleanField(
-        default=False,
+        default=True,
         help_text="When enabled, the user can edit the agent's conversation flow.",
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Determines whether this is a system-wide default agent template.",
+    )
+    class IndustryChoices(models.TextChoices):
+        CLINIC_RECEPTIONIST = "CLINIC_RECEPTIONIST", "Clinic Receptionist"
+        AGRICULTURAL_SUPPLIER = "AGRICULTURAL_SUPPLIER", "Agricultural Supplier"
+        REAL_ESTATE = "REAL_ESTATE", "Real Estate"
+        E_COMMERCE = "E_COMMERCE", "E-Commerce"
+        RESTAURANT = "RESTAURANT", "Restaurant"
+        GENERAL_ASSISTANT = "GENERAL_ASSISTANT", "General Assistant"
+        OTHER = "OTHER", "Other"
+
+    industry = models.CharField(
+        max_length=50,
+        choices=IndustryChoices.choices,
+        default=IndustryChoices.GENERAL_ASSISTANT,
+        help_text="Selected industry category for the template.",
+    )
+    probing_questions = models.ManyToManyField(
+        "core.ProbingQuestion",
+        blank=True,
+        related_name="agent_templates",
+        help_text="Probing questions associated with this template.",
     )
 
     class Meta:
@@ -74,6 +107,10 @@ class AgentTemplate(TenantBaseModel):
         """
         from django.db import transaction
         from django.utils import timezone
+        from django.core.exceptions import ValidationError
+
+        if self.is_default:
+            raise ValidationError("This is a default agent template and cannot be deleted.")
 
         with transaction.atomic():
             template = AgentTemplate.objects.select_for_update().get(pk=self.pk)
@@ -91,10 +128,6 @@ class AgentTemplate(TenantBaseModel):
                 if user
                 else ["is_deleted", "deleted_at", "name"]
             )
-
-            # Cascade soft-delete to linked probing questions
-            for question in template.probing_questions.filter(is_deleted=False):
-                question.soft_delete(user=user)
 
     def __str__(self):
         return self.name
