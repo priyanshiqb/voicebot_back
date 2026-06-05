@@ -111,3 +111,52 @@ class UserTenantIsolationTests(TestCase):
         # Verify the new user's mapping points to tenant_a
         mapping = TenantUserMapping.objects.get(user=new_user)
         self.assertEqual(mapping.tenant, self.tenant_a)
+
+    def test_update_user_permissions_and_fields(self):
+        """Verify that a user can update themselves, other users in the same tenant, but not users in other tenants, and can update timezone & language fields."""
+        from onboard.models import Timezone, Language
+        
+        test_tz, _ = Timezone.objects.get_or_create(
+            timezone="Asia/Kolkata",
+            defaults={"offset": "UTC+05:30"}
+        )
+        test_lang, _ = Language.objects.get_or_create(
+            code="en-IN",
+            defaults={"name": "English (India)", "is_active": True}
+        )
+
+        detail_url_self = reverse("api-v1:customuser-detail", args=[self.manager_a.id])
+        detail_url_same_tenant = reverse("api-v1:customuser-detail", args=[self.employee_a.id])
+        detail_url_other_tenant = reverse("api-v1:customuser-detail", args=[self.manager_b.id])
+
+        # 1. Authenticate as manager_a
+        self.client.force_authenticate(user=self.manager_a)
+
+        # 2. Update himself (should succeed and update timezone & language)
+        payload = {
+            "first_name": "Manager Updated",
+            "timezone": str(test_tz.id),
+            "language": str(test_lang.id)
+        }
+        response = self.client.patch(detail_url_self, payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify changes in DB
+        self.manager_a.refresh_from_db()
+        self.assertEqual(self.manager_a.first_name, "Manager Updated")
+        self.assertEqual(self.manager_a.timezone, test_tz)
+        self.assertEqual(self.manager_a.language, test_lang)
+
+        # 3. Update another user in the same tenant (should succeed)
+        payload_other = {
+            "first_name": "Employee Updated"
+        }
+        response = self.client.patch(detail_url_same_tenant, payload_other)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.employee_a.refresh_from_db()
+        self.assertEqual(self.employee_a.first_name, "Employee Updated")
+
+        # 4. Update a user in a different tenant (should fail with 404)
+        response = self.client.patch(detail_url_other_tenant, payload_other)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

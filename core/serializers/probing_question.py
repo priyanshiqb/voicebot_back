@@ -7,7 +7,7 @@ from core.models.probing_question import ProbingQuestion
 class ProbingQuestionRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProbingQuestion
-        fields = ("id", "question")
+        fields = ("id", "question","score","priority")
 
 
 class ProbingQuestionSerializer(TenantBaseModelSerializer):

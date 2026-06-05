@@ -5,6 +5,10 @@ from django.contrib.auth.password_validation import validate_password
 from drf_spectacular.utils import extend_schema_field
 from tenant.serializers.tenant import TenantRefSerializer
 from onboard.serializers.subscription import SubscriptionSerializer
+from utils.serializers.hybrid_related_field import HybridRelatedField
+from onboard.serializers.timezone import TimezoneRefSerializer
+from onboard.serializers.language import LanguageRefSerializer
+from onboard.models import Timezone, Language
 
 
 class UserRefSerializer(serializers.ModelSerializer):
@@ -28,6 +32,18 @@ class UserSerializer(BaseModelCoreSerializer):
     )
     tenant = serializers.SerializerMethodField()
     subscription = serializers.SerializerMethodField()
+    timezone = HybridRelatedField(
+        serializer=TimezoneRefSerializer,
+        queryset=Timezone.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    language = HybridRelatedField(
+        serializer=LanguageRefSerializer,
+        queryset=Language.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta(BaseModelCoreSerializer.Meta):
         model = CustomUser
@@ -43,6 +59,8 @@ class UserSerializer(BaseModelCoreSerializer):
             "is_verified",
             "tenant",
             "subscription",
+            "timezone",
+            "language",
         )
 
         read_only_fields = (
@@ -99,6 +117,9 @@ class UserSerializer(BaseModelCoreSerializer):
     
 
 class UserListSerializer(BaseModelCoreSerializer):
+    timezone = TimezoneRefSerializer(read_only=True)
+    language = LanguageRefSerializer(read_only=True)
+
     class Meta(BaseModelCoreSerializer.Meta):
         model = CustomUser
 
@@ -111,6 +132,8 @@ class UserListSerializer(BaseModelCoreSerializer):
             "is_active",
             "is_verified",
             "created_at",
+            "timezone",
+            "language",
         )
 
 

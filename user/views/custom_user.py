@@ -152,12 +152,17 @@ class CustomUserViewSet(BaseViewSet):
         if user.is_superuser:
             return queryset
 
+        # Standard users can see and edit their own record
+        q_filter = models.Q(id=user.id)
+
         try:
+            # They can also see and edit other users under the same tenant mapping
             active_tenant = user.tenant_mapping.tenant
-            return queryset.filter(tenant_mapping__tenant=active_tenant)
+            q_filter |= models.Q(tenant_mapping__tenant=active_tenant)
         except Exception:
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Your user account is not associated with any active tenant.")
+            pass
+
+        return queryset.filter(q_filter)
 
     def perform_create(self, serializer):
         user = self.request.user

@@ -138,22 +138,21 @@ class TimezoneTests(APITestCase):
 
     def test_unauthenticated_access_endpoints(self):
         """
-        Test that unauthenticated clients can access list, retrieve, and dropdown,
-        but are blocked from mutating timezones.
+        Test that unauthenticated clients are blocked from accessing any endpoints (401 Unauthorized).
         """
         self.client.force_authenticate(user=None)
 
-        # 1. Test unauthenticated LIST
+        # 1. Test unauthenticated LIST (blocked)
         list_response = self.client.get(self.list_url)
-        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        # 2. Test unauthenticated RETRIEVE
+        # 2. Test unauthenticated RETRIEVE (blocked)
         detail_response = self.client.get(self.detail_url)
-        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        # 3. Test unauthenticated DROPDOWN
+        # 3. Test unauthenticated DROPDOWN (blocked)
         dropdown_response = self.client.get(self.dropdown_url)
-        self.assertEqual(dropdown_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dropdown_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # 4. Test unauthenticated MUTATION (create is blocked)
         payload = {
@@ -166,11 +165,24 @@ class TimezoneTests(APITestCase):
 
     def test_authenticated_standard_user_blocked_mutating(self):
         """
-        Test that authenticated non-superuser standard clients are blocked from mutating timezones (403 Forbidden).
+        Test that authenticated non-superuser standard clients can read timezones,
+        but are blocked from mutating timezones (403 Forbidden).
         """
         self.client.force_authenticate(user=self.user)
 
-        # 1. Test POST creation is blocked
+        # 1. Test GET list is allowed
+        list_response = self.client.get(self.list_url)
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+
+        # 2. Test GET retrieve is allowed
+        detail_response = self.client.get(self.detail_url)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+
+        # 3. Test GET dropdown is allowed
+        dropdown_response = self.client.get(self.dropdown_url)
+        self.assertEqual(dropdown_response.status_code, status.HTTP_200_OK)
+
+        # 4. Test POST creation is blocked
         payload = {
             "offset": "UTC+00:00",
             "region": "UTC",
@@ -179,6 +191,6 @@ class TimezoneTests(APITestCase):
         create_response = self.client.post(self.list_url, data=payload, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
 
-        # 2. Test DELETE is blocked
+        # 5. Test DELETE is blocked
         delete_response = self.client.delete(self.detail_url)
         self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)

@@ -8,7 +8,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 
 * **Path**: `/api/v1/onboard/timezones/`
 * **Method**: `GET`
-* **Authentication**: None (Anonymous)
+* **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Returns a paginated list of global timezones.
 
 ### Query Parameters
@@ -118,7 +118,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 
 * **Path**: `/api/v1/onboard/timezones/{id}/`
 * **Method**: `GET`
-* **Authentication**: None (Anonymous)
+* **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Retrieve detailed profile of a timezone by ID.
 
 ### Responses
@@ -219,7 +219,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 
 * **Path**: `/api/v1/onboard/timezones/dropdown/`
 * **Method**: `GET`
-* **Authentication**: None (Anonymous)
+* **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Returns lightweight label/value selection pairs representing all active timezones to populate picker lists.
 
 ### Responses

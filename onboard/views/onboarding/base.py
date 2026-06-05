@@ -46,7 +46,8 @@ def create_tenant_and_mapping(temp_user, user):
         name=temp_user.business_name,
         subdomain=subdomain,
         referred_by_code=temp_user.referral_code,
-        timezone=temp_user.timezone
+        timezone=temp_user.timezone,
+        language=temp_user.language
     )
 
     # 3. Establish 1:1 mapping between User and Tenant

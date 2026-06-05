@@ -35,14 +35,22 @@ This document covers endpoints related to user listing, details, creation, updat
       {
         "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
         "email": "user@example.com",
-        "username": "user123",
         "first_name": "John",
         "last_name": "Doe",
         "phone_number": "+1234567890",
         "is_active": true,
         "is_verified": true,
         "created_at": "2026-06-03T10:00:00Z",
-        "updated_at": "2026-06-03T10:00:00Z"
+        "timezone": {
+          "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+          "timezone": "Asia/Kolkata",
+          "offset": "UTC+05:30"
+        },
+        "language": {
+          "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
+          "name": "English (India)",
+          "code": "en-IN"
+        }
       }
     ]
   },
@@ -81,7 +89,6 @@ This document covers endpoints related to user listing, details, creation, updat
   "data": {
     "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
     "email": "user@example.com",
-    "username": "user123",
     "first_name": "John",
     "last_name": "Doe",
     "phone_number": "+1234567890",
@@ -89,6 +96,16 @@ This document covers endpoints related to user listing, details, creation, updat
     "is_verified": true,
     "created_at": "2026-06-03T10:00:00Z",
     "updated_at": "2026-06-03T10:00:00Z",
+    "timezone": {
+      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+      "timezone": "Asia/Kolkata",
+      "offset": "UTC+05:30"
+    },
+    "language": {
+      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
+      "name": "English (India)",
+      "code": "en-IN"
+    },
     "tenant": {
       "id": "b0a2c9f4-53c2-4091-9876-fa8b0c29f4a1",
       "name": "Acme Corp",
@@ -174,11 +191,12 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "email": "newuser@example.com",
-  "username": "newuser123",
   "password": "SecurePassword123",
   "first_name": "Jane",
   "last_name": "Smith",
-  "phone_number": "+9876543210"
+  "phone_number": "+9876543210",
+  "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+  "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
 }
 ```
 
@@ -193,14 +211,23 @@ This document covers endpoints related to user listing, details, creation, updat
   "data": {
     "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
     "email": "newuser@example.com",
-    "username": "newuser123",
     "first_name": "Jane",
     "last_name": "Smith",
     "phone_number": "+9876543210",
     "is_active": true,
     "is_verified": false,
     "created_at": "2026-06-03T12:00:00Z",
-    "updated_at": "2026-06-03T12:00:00Z"
+    "updated_at": "2026-06-03T12:00:00Z",
+    "timezone": {
+      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+      "timezone": "Asia/Kolkata",
+      "offset": "UTC+05:30"
+    },
+    "language": {
+      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
+      "name": "English (India)",
+      "code": "en-IN"
+    }
   },
   "errors": null
 }
@@ -211,10 +238,10 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "status": false,
-  "message": "A user with that username already exists.",
+  "message": "A user with that email already exists.",
   "data": null,
   "errors": {
-    "username": ["A user with that username already exists."]
+    "email": ["A user with that email already exists."]
   }
 }
 ```
@@ -232,7 +259,9 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ```json
 {
-  "first_name": "Johnny"
+  "first_name": "Johnny",
+  "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+  "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
 }
 ```
 
@@ -247,14 +276,23 @@ This document covers endpoints related to user listing, details, creation, updat
   "data": {
     "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
     "email": "user@example.com",
-    "username": "user123",
     "first_name": "Johnny",
     "last_name": "Doe",
     "phone_number": "+1234567890",
     "is_active": true,
     "is_verified": true,
     "created_at": "2026-06-03T10:00:00Z",
-    "updated_at": "2026-06-03T12:30:00Z"
+    "updated_at": "2026-06-03T12:30:00Z",
+    "timezone": {
+      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+      "timezone": "Asia/Kolkata",
+      "offset": "UTC+05:30"
+    },
+    "language": {
+      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
+      "name": "English (India)",
+      "code": "en-IN"
+    }
   },
   "errors": null
 }

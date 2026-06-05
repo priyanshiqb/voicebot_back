@@ -5,7 +5,7 @@ from onboard.serializers.timezone import (
     TimezoneDropdownSerializer,
 )
 from utils.views.base_model_viewset import BaseViewSet
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from utils.permissions.is_superuser import IsSuperUser
 from drf_spectacular.utils import (
     extend_schema,
@@ -136,9 +136,9 @@ class TimezoneViewSet(BaseViewSet):
 
     def get_permissions(self):
         """
-        Allows unauthenticated access (AllowAny) for list, retrieve, and dropdown methods.
+        Allows authenticated access (IsAuthenticated) for list, retrieve, and dropdown methods.
         Only superusers (IsSuperUser) can perform timezone mutations (create, update, delete).
         """
         if self.action in ["list", "retrieve", "dropdown"]:
-            return [AllowAny()]
+            return [IsAuthenticated()]
         return [IsSuperUser()]

@@ -74,6 +74,14 @@ class TempUser(BaseModelCore):
         related_name="temp_users",
         help_text="Selected timezone captured during onboarding."
     )
+    language = models.ForeignKey(
+        "onboard.Language",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="temp_users",
+        help_text="Selected language captured during onboarding."
+    )
 
     class Meta:
         db_table = "onboard_temp_user"
@@ -93,6 +101,11 @@ class TempUser(BaseModelCore):
         if not self.timezone_id:
             from onboard.models.timezone import get_default_timezone
             self.timezone_id = get_default_timezone()
+
+        if not self.language_id:
+            from onboard.models.language import get_default_language
+            self.language_id = get_default_language()
+
         super().save(*args, **kwargs)
 
     def is_otp_expired(self):

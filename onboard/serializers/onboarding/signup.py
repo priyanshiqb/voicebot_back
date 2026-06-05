@@ -59,6 +59,7 @@ class TempUserSignupSerializer(serializers.Serializer):
         style={"input_type": "password"}
     )
     timezone_id = serializers.UUIDField(required=False, allow_null=True)
+    language_id = serializers.UUIDField(required=False, allow_null=True)
 
     def validate_email(self, value):
         email_lower = value.strip().lower()
@@ -99,6 +100,14 @@ class TempUserSignupSerializer(serializers.Serializer):
             except Timezone.DoesNotExist:
                 raise serializers.ValidationError({"timezone_id": "Selected timezone is invalid."})
 
+        language_id = attrs.get("language_id")
+        if language_id:
+            from onboard.models.language import Language
+            try:
+                attrs["language_instance"] = Language.objects.get(id=language_id)
+            except Language.DoesNotExist:
+                raise serializers.ValidationError({"language_id": "Selected language is invalid."})
+
         return attrs
 
     def create(self, validated_data):
@@ -111,7 +120,8 @@ class TempUserSignupSerializer(serializers.Serializer):
             last_name=validated_data["last_name"],
             business_name=validated_data["business_name"],
             selected_plan=validated_data["plan_instance"],
-            timezone=validated_data.get("timezone_instance")
+            timezone=validated_data.get("timezone_instance"),
+            language=validated_data.get("language_instance")
         )
 
 

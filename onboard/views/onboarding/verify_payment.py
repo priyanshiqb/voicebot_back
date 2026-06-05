@@ -100,7 +100,8 @@ class VerifyPaymentView(ResponseMixin, APIView):
             password=temp_user.password_hash, # Drop pre-hashed password
             is_active=True,
             is_verified=True,
-            timezone=temp_user.timezone
+            timezone=temp_user.timezone,
+            language=temp_user.language
         )
         user.save()
 

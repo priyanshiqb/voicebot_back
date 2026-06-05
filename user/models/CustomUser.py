@@ -75,6 +75,14 @@ class CustomUser(AbstractUser, BaseModelCore):
         related_name="users",
         help_text="Preferred user timezone for schedules and notifications."
     )
+    language = models.ForeignKey(
+        "onboard.Language",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="users",
+        help_text="Preferred user language."
+    )
 
     created_by = models.ForeignKey(
         'self',
@@ -124,6 +132,11 @@ class CustomUser(AbstractUser, BaseModelCore):
         if not self.timezone_id:
             from onboard.models.timezone import get_default_timezone
             self.timezone_id = get_default_timezone()
+
+        # Populate default language
+        if not self.language_id:
+            from onboard.models.language import get_default_language
+            self.language_id = get_default_language()
 
         super().save(*args, **kwargs)
 

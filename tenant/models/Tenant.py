@@ -34,6 +34,14 @@ class Tenant(BaseModelCore):
         related_name="tenants",
         help_text="Tenant organization base timezone."
     )
+    language = models.ForeignKey(
+        "onboard.Language",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="tenants",
+        help_text="Tenant organization default language."
+    )
 
     class Meta(BaseModelCore.Meta):
         verbose_name = "Tenant"
@@ -46,6 +54,10 @@ class Tenant(BaseModelCore):
         if not self.timezone_id:
             from onboard.models.timezone import get_default_timezone
             self.timezone_id = get_default_timezone()
+
+        if not self.language_id:
+            from onboard.models.language import get_default_language
+            self.language_id = get_default_language()
 
         if not self.tenant_referral_code:
             # Inline import to prevent circular import errors
