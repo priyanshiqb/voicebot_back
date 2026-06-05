@@ -338,3 +338,52 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
   "errors": null
 }
 ```
+
+---
+
+### 9. Check Knowledge Base Name Uniqueness
+* **Path**: `POST /api/v1/core/knowledge-base/check-name/`
+* **Authentication**: Bearer JWT (IsAuthenticated)
+* **Request Payload**:
+```json
+{
+  "name": "Acme Guides",
+  "exclude_id": "optional-uuid-to-exclude"
+}
+```
+* **Response (HTTP 200 OK)**:
+```json
+{
+  "status": true,
+  "message": "Success",
+  "data": {
+    "is_unique": true
+  },
+  "errors": null
+}
+```
+
+---
+
+### 10. Check Website URL Uniqueness
+* **Path**: `POST /api/v1/core/knowledge-base/check-url/`
+* **Authentication**: Bearer JWT (IsAuthenticated)
+* **Request Payload**:
+```json
+{
+  "url": "https://acme-setup-guides.org",
+  "exclude_id": "optional-uuid-to-exclude"
+}
+```
+* **Response (HTTP 200 OK)**:
+```json
+{
+  "status": true,
+  "message": "Success",
+  "data": {
+    "is_unique": false
+  },
+  "errors": null
+}
+```
+

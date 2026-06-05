@@ -4,12 +4,15 @@ from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiExample, extend_schema_view, OpenApiResponse
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
-from core.models.knowledge_base import KnowledgeBase, KBFiles
+from core.models.knowledge_base import KnowledgeBase, KBFiles, KBWebsite
 from core.serializers.kb_files import KBFilesSerializer
 from core.serializers.knowledge_base import (
     KnowledgeBaseSerializer,
     KnowledgeBaseListSerializer,
-    KnowledgeBaseDropdownSerializer
+    KnowledgeBaseDropdownSerializer,
+    KnowledgeBaseNameCheckSerializer,
+    KnowledgeBaseUrlCheckSerializer,
+    UniquenessCheckResponseSerializer,
 )
 from onboard.serializers.onboarding import GeneralResponseSerializer
 
@@ -330,3 +333,76 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Check Name Uniqueness",
+        description="Checks if a knowledge base name is unique under the active tenant context.",
+        request=KnowledgeBaseNameCheckSerializer,
+        responses={
+            200: OpenApiResponse(response=UniquenessCheckResponseSerializer, description="Uniqueness check result."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="check-name", url_name="check-name")
+    def check_name_uniqueness(self, request):
+        serializer = KnowledgeBaseNameCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        name = serializer.validated_data["name"]
+        exclude_id = serializer.validated_data.get("exclude_id")
+
+        user = request.user
+        if user.is_superuser:
+            qs = KnowledgeBase.objects.filter(name=name)
+        else:
+            try:
+                active_tenant = user.tenant_mapping.tenant
+            except Exception:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Your user account is not associated with any active tenant.")
+            qs = KnowledgeBase.objects.filter(name=name, tenant=active_tenant)
+
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+
+        is_unique = not qs.exists()
+        return self.success(data={"is_unique": is_unique})
+
+    @extend_schema(
+        summary="Check URL Uniqueness",
+        description="Checks if a website URL is unique under the active tenant context.",
+        request=KnowledgeBaseUrlCheckSerializer,
+        responses={
+            200: OpenApiResponse(response=UniquenessCheckResponseSerializer, description="Uniqueness check result."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="check-url", url_name="check-url")
+    def check_url_uniqueness(self, request):
+        serializer = KnowledgeBaseUrlCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        url = serializer.validated_data["url"]
+        exclude_id = serializer.validated_data.get("exclude_id")
+
+        user = request.user
+        if user.is_superuser:
+            qs = KBWebsite.objects.filter(url=url)
+        else:
+            try:
+                active_tenant = user.tenant_mapping.tenant
+            except Exception:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Your user account is not associated with any active tenant.")
+            qs = KBWebsite.objects.filter(url=url, tenant=active_tenant)
+
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+
+        is_unique = not qs.exists()
+        return self.success(data={"is_unique": is_unique})
+

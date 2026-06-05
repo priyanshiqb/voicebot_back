@@ -247,6 +247,1321 @@ paths:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
           description: Validation or Token error.
+  /api/v1/auth/users/:
+    get:
+      operationId: v1_auth_users_list
+      description: Get paginated list of users.
+      summary: List Users
+      parameters:
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: is_verified
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserListList'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+    post:
+      operationId: v1_auth_users_create
+      description: Create a new user.
+      summary: Create User
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/auth/users/{id}/:
+    get:
+      operationId: v1_auth_users_retrieve
+      description: Get specific user details by ID.
+      summary: Get User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: User not found.
+    put:
+      operationId: v1_auth_users_update
+      description: Completely update an existing user by ID.
+      summary: Update User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: User not found.
+    patch:
+      operationId: v1_auth_users_partial_update
+      description: Partially update an existing user by ID.
+      summary: Partial Update User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: User not found.
+    delete:
+      operationId: v1_auth_users_destroy
+      description: Soft-delete an existing user by ID.
+      summary: Delete User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: User deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: User not found.
+  /api/v1/auth/users/bulk_delete/:
+    post:
+      operationId: v1_auth_users_bulk_delete_create
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/users/change-password/:
+    post:
+      operationId: v1_auth_users_change_password_create
+      description: Allows an authenticated user to change their password.
+      summary: Change Password
+      tags:
+      - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Password changed successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation errors.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+  /api/v1/auth/users/dropdown/:
+    get:
+      operationId: v1_auth_users_dropdown_retrieve
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/users/me/:
+    get:
+      operationId: v1_auth_users_me_retrieve
+      description: Get details of the currently authenticated user.
+      summary: Get Current User
+      tags:
+      - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+  /api/v1/core/agent-templates/:
+    get:
+      operationId: v1_core_agent_templates_list
+      description: Get paginated list of agent templates under the active tenant context.
+      summary: List Agent Templates
+      parameters:
+      - in: query
+        name: can_user_edit_flow
+        schema:
+          type: boolean
+      - in: query
+        name: industry
+        schema:
+          type: string
+          enum:
+          - AGRICULTURAL_SUPPLIER
+          - CLINIC_RECEPTIONIST
+          - E_COMMERCE
+          - GENERAL_ASSISTANT
+          - OTHER
+          - REAL_ESTATE
+          - RESTAURANT
+        description: |-
+          Selected industry category for the template.
+
+          * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+          * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+          * `REAL_ESTATE` - Real Estate
+          * `E_COMMERCE` - E-Commerce
+          * `RESTAURANT` - Restaurant
+          * `GENERAL_ASSISTANT` - General Assistant
+          * `OTHER` - Other
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: is_default
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: strict_facts
+        schema:
+          type: boolean
+      tags:
+      - Agent Template
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentTemplateListList'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+    post:
+      operationId: v1_core_agent_templates_create
+      description: Create a new agent template under the active tenant context.
+      summary: Create Agent Template
+      tags:
+      - Agent Template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTemplate'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/agent-templates/{id}/:
+    get:
+      operationId: v1_core_agent_templates_retrieve
+      description: Get specific agent template details by ID.
+      summary: Get Agent Template
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent Template.
+        required: true
+      tags:
+      - Agent Template
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTemplate'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent template not found.
+    put:
+      operationId: v1_core_agent_templates_update
+      description: Full update of an existing agent template by ID.
+      summary: Update Agent Template
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent Template.
+        required: true
+      tags:
+      - Agent Template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTemplate'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent template not found.
+    patch:
+      operationId: v1_core_agent_templates_partial_update
+      description: Partial update of an existing agent template by ID.
+      summary: Patch Agent Template
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent Template.
+        required: true
+      tags:
+      - Agent Template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAgentTemplate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAgentTemplate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAgentTemplate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTemplate'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent template not found.
+    delete:
+      operationId: v1_core_agent_templates_destroy
+      description: Soft-delete an existing agent template by ID.
+      summary: Delete Agent Template
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent Template.
+        required: true
+      tags:
+      - Agent Template
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent template soft-deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent template not found.
+  /api/v1/core/agent-templates/bulk_delete/:
+    post:
+      operationId: v1_core_agent_templates_bulk_delete_create
+      description: Soft-delete multiple agent templates by their ID list.
+      summary: Bulk Delete Agent Templates
+      tags:
+      - Agent Template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AgentTemplate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Bulk deleted successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid ID list parameter.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/agent-templates/dropdown/:
+    get:
+      operationId: v1_core_agent_templates_dropdown_list
+      description: Get lightweight label/value selection pairs representing active
+        agent templates.
+      summary: Get Dropdown Options
+      parameters:
+      - in: query
+        name: can_user_edit_flow
+        schema:
+          type: boolean
+      - in: query
+        name: industry
+        schema:
+          type: string
+          enum:
+          - AGRICULTURAL_SUPPLIER
+          - CLINIC_RECEPTIONIST
+          - E_COMMERCE
+          - GENERAL_ASSISTANT
+          - OTHER
+          - REAL_ESTATE
+          - RESTAURANT
+        description: |-
+          Selected industry category for the template.
+
+          * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+          * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+          * `REAL_ESTATE` - Real Estate
+          * `E_COMMERCE` - E-Commerce
+          * `RESTAURANT` - Restaurant
+          * `GENERAL_ASSISTANT` - General Assistant
+          * `OTHER` - Other
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: is_default
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: strict_facts
+        schema:
+          type: boolean
+      tags:
+      - Agent Template
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentTemplateDropdownList'
+          description: ''
+  /api/v1/core/agents/:
+    get:
+      operationId: v1_core_agents_list
+      description: Get paginated list of agents under the active tenant context.
+      summary: List Agents
+      parameters:
+      - in: query
+        name: agent_template
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: industry
+        schema:
+          type: string
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: tone
+        schema:
+          type: string
+          enum:
+          - CASUAL
+          - ENTHUSIASTIC
+          - FORMAL
+          - FRIENDLY
+          - PROFESSIONAL
+        description: |-
+          Tone of the agent interaction.
+
+          * `PROFESSIONAL` - Professional
+          * `FRIENDLY` - Friendly
+          * `FORMAL` - Formal
+          * `CASUAL` - Casual
+          * `ENTHUSIASTIC` - Enthusiastic
+      tags:
+      - Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentListList'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+    post:
+      operationId: v1_core_agents_create
+      description: Create a new agent under the active tenant context.
+      summary: Create Agent
+      tags:
+      - Agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Agent'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Agent'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Agent'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/agents/{id}/:
+    get:
+      operationId: v1_core_agents_retrieve
+      description: Get specific agent details by ID.
+      summary: Get Agent
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent.
+        required: true
+      tags:
+      - Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent not found.
+    put:
+      operationId: v1_core_agents_update
+      description: Full update of an existing agent by ID.
+      summary: Update Agent
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent.
+        required: true
+      tags:
+      - Agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Agent'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Agent'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Agent'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent not found.
+    patch:
+      operationId: v1_core_agents_partial_update
+      description: Partial update of an existing agent by ID.
+      summary: Patch Agent
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent.
+        required: true
+      tags:
+      - Agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAgent'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAgent'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAgent'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent not found.
+    delete:
+      operationId: v1_core_agents_destroy
+      description: Soft-delete an existing agent by ID.
+      summary: Delete Agent
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Agent.
+        required: true
+      tags:
+      - Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent soft-deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Agent not found.
+  /api/v1/core/agents/bulk_delete/:
+    post:
+      operationId: v1_core_agents_bulk_delete_create
+      description: Soft-delete multiple agents by their ID list.
+      summary: Bulk Delete Agents
+      tags:
+      - Agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Bulk deleted successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid ID list parameter.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/agents/dropdown/:
+    get:
+      operationId: v1_core_agents_dropdown_list
+      description: Get lightweight label/value selection pairs representing active
+        agents.
+      summary: Get Dropdown Options
+      parameters:
+      - in: query
+        name: agent_template
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: industry
+        schema:
+          type: string
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: tone
+        schema:
+          type: string
+          enum:
+          - CASUAL
+          - ENTHUSIASTIC
+          - FORMAL
+          - FRIENDLY
+          - PROFESSIONAL
+        description: |-
+          Tone of the agent interaction.
+
+          * `PROFESSIONAL` - Professional
+          * `FRIENDLY` - Friendly
+          * `FORMAL` - Formal
+          * `CASUAL` - Casual
+          * `ENTHUSIASTIC` - Enthusiastic
+      tags:
+      - Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentDropdownList'
+          description: ''
   /api/v1/core/knowledge-base/:
     get:
       operationId: v1_core_knowledge_base_list
@@ -805,6 +2120,425 @@ paths:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
           description: Permission denied.
+  /api/v1/core/probing-questions/:
+    get:
+      operationId: v1_core_probing_questions_list
+      description: Get paginated list of probing questions under the active tenant
+        context.
+      summary: List Probing Questions
+      parameters:
+      - in: query
+        name: can_user_edit
+        schema:
+          type: boolean
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: is_default
+        schema:
+          type: boolean
+      - in: query
+        name: is_mandatory
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Probing Question
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProbingQuestionListList'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+    post:
+      operationId: v1_core_probing_questions_create
+      description: Create a new probing question under the active tenant context.
+      summary: Create Probing Question
+      tags:
+      - Probing Question
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProbingQuestion'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/probing-questions/{id}/:
+    get:
+      operationId: v1_core_probing_questions_retrieve
+      description: Get specific probing question details by ID.
+      summary: Get Probing Question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Probing Question.
+        required: true
+      tags:
+      - Probing Question
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProbingQuestion'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Probing question not found.
+    put:
+      operationId: v1_core_probing_questions_update
+      description: Full update of an existing probing question by ID.
+      summary: Update Probing Question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Probing Question.
+        required: true
+      tags:
+      - Probing Question
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProbingQuestion'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Probing question not found.
+    patch:
+      operationId: v1_core_probing_questions_partial_update
+      description: Partial update of an existing probing question by ID.
+      summary: Patch Probing Question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Probing Question.
+        required: true
+      tags:
+      - Probing Question
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProbingQuestion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProbingQuestion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProbingQuestion'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProbingQuestion'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid input values or validation error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Probing question not found.
+    delete:
+      operationId: v1_core_probing_questions_destroy
+      description: Soft-delete an existing probing question by ID.
+      summary: Delete Probing Question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Probing Question.
+        required: true
+      tags:
+      - Probing Question
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Probing question soft-deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Probing question not found.
+  /api/v1/core/probing-questions/bulk_delete/:
+    post:
+      operationId: v1_core_probing_questions_bulk_delete_create
+      description: Soft-delete multiple probing questions by their ID list.
+      summary: Bulk Delete Probing Questions
+      tags:
+      - Probing Question
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProbingQuestion'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Bulk deleted successfully.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Invalid ID list parameter.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/probing-questions/dropdown/:
+    get:
+      operationId: v1_core_probing_questions_dropdown_list
+      description: Get lightweight label/value selection pairs representing active
+        probing questions.
+      summary: Get Dropdown Options
+      parameters:
+      - in: query
+        name: can_user_edit
+        schema:
+          type: boolean
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: is_default
+        schema:
+          type: boolean
+      - in: query
+        name: is_mandatory
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Probing Question
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProbingQuestionDropdownList'
+          description: ''
   /api/v1/onboard/cancel-order/:
     post:
       operationId: v1_onboard_cancel_order_create
@@ -1696,6 +3430,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/ResumeSession'
+        required: true
       security:
       - jwtAuth: []
       - {}
@@ -1879,6 +3614,404 @@ paths:
           description: ''
 components:
   schemas:
+    Agent:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        bot_name:
+          type: string
+          description: Name of the bot.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        persona_name:
+          type: string
+          description: Name of the persona the bot adopts.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        languages:
+          description: List of languages supported by the agent (e.g., ['en-IN']).
+        tone:
+          allOf:
+          - $ref: '#/components/schemas/ToneEnum'
+          description: |-
+            Tone of the agent interaction.
+
+            * `PROFESSIONAL` - Professional
+            * `FRIENDLY` - Friendly
+            * `FORMAL` - Formal
+            * `CASUAL` - Casual
+            * `ENTHUSIASTIC` - Enthusiastic
+        agent_template:
+          type: string
+          format: uuid
+          nullable: true
+        voice_name:
+          type: string
+          nullable: true
+          description: Identifier for the chosen agent voice.
+          maxLength: 100
+        knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        transfer_destinations:
+          nullable: true
+          description: Upcoming - Transfer configurations and destinations.
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - bot_name
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - id
+      - knowledge_bases
+      - persona_name
+      - probing_questions
+      - tenant
+      - updated_at
+      - updated_by
+    AgentDropdown:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    AgentList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        bot_name:
+          type: string
+          description: Name of the bot.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        persona_name:
+          type: string
+          description: Name of the persona the bot adopts.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        tone:
+          allOf:
+          - $ref: '#/components/schemas/ToneEnum'
+          description: |-
+            Tone of the agent interaction.
+
+            * `PROFESSIONAL` - Professional
+            * `FRIENDLY` - Friendly
+            * `FORMAL` - Formal
+            * `CASUAL` - Casual
+            * `ENTHUSIASTIC` - Enthusiastic
+        agent_template:
+          allOf:
+          - $ref: '#/components/schemas/AgentTemplateRef'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - agent_template
+      - bot_name
+      - created_at
+      - id
+      - persona_name
+    AgentTemplate:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the template (e.g., 'Wealth Management Advisor').
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        short_description:
+          type: string
+          description: Brief description of what the bot does and who it helps.
+          minLength: 10
+          maxLength: 300
+        visual_icon:
+          type: string
+          nullable: true
+          description: Predefined visual icon representing the template.
+          maxLength: 50
+        primary_accent:
+          type: string
+          nullable: true
+          description: Accent color code (hex) for template cards and highlights.
+          maxLength: 7
+        agent_prompt:
+          type: string
+          description: Core instruction prompt defining personality, constraints,
+            and behavior.
+          minLength: 30
+          maxLength: 5000
+        industry:
+          allOf:
+          - $ref: '#/components/schemas/IndustryEnum'
+          description: |-
+            Selected industry category for the template.
+
+            * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+            * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+            * `REAL_ESTATE` - Real Estate
+            * `E_COMMERCE` - E-Commerce
+            * `RESTAURANT` - Restaurant
+            * `GENERAL_ASSISTANT` - General Assistant
+            * `OTHER` - Other
+        strict_facts:
+          type: boolean
+          description: When enabled, the agent avoids hallucinations and sticks strictly
+            to facts.
+        can_user_edit_flow:
+          type: boolean
+          description: When enabled, the user can edit the agent's conversation flow.
+        is_active:
+          type: boolean
+        probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_default:
+          type: boolean
+          readOnly: true
+          description: Determines whether this is a system-wide default agent template.
+      required:
+      - agent_prompt
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - id
+      - is_default
+      - name
+      - probing_questions
+      - short_description
+      - tenant
+      - updated_at
+      - updated_by
+    AgentTemplateDropdown:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    AgentTemplateList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the template (e.g., 'Wealth Management Advisor').
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        short_description:
+          type: string
+          description: Brief description of what the bot does and who it helps.
+          minLength: 10
+          maxLength: 300
+        visual_icon:
+          type: string
+          nullable: true
+          description: Predefined visual icon representing the template.
+          maxLength: 50
+        primary_accent:
+          type: string
+          nullable: true
+          description: Accent color code (hex) for template cards and highlights.
+          maxLength: 7
+        industry:
+          allOf:
+          - $ref: '#/components/schemas/IndustryEnum'
+          description: |-
+            Selected industry category for the template.
+
+            * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+            * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+            * `REAL_ESTATE` - Real Estate
+            * `E_COMMERCE` - E-Commerce
+            * `RESTAURANT` - Restaurant
+            * `GENERAL_ASSISTANT` - General Assistant
+            * `OTHER` - Other
+        strict_facts:
+          type: boolean
+          description: When enabled, the agent avoids hallucinations and sticks strictly
+            to facts.
+        can_user_edit_flow:
+          type: boolean
+          description: When enabled, the user can edit the agent's conversation flow.
+        is_default:
+          type: boolean
+          description: Determines whether this is a system-wide default agent template.
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - short_description
+    AgentTemplateRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the template (e.g., 'Wealth Management Advisor').
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+      required:
+      - id
+      - name
     BillingAddress:
       type: object
       properties:
@@ -1973,6 +4106,21 @@ components:
       required:
       - new_email
       - temp_registration_id
+    ChangePassword:
+      type: object
+      properties:
+        old_password:
+          type: string
+        new_password:
+          type: string
+          maxLength: 32
+          minLength: 8
+        confirm_password:
+          type: string
+      required:
+      - confirm_password
+      - new_password
+      - old_password
     CheckEmail:
       type: object
       properties:
@@ -2124,6 +4272,24 @@ components:
       required:
       - message
       - status
+    IndustryEnum:
+      enum:
+      - CLINIC_RECEPTIONIST
+      - AGRICULTURAL_SUPPLIER
+      - REAL_ESTATE
+      - E_COMMERCE
+      - RESTAURANT
+      - GENERAL_ASSISTANT
+      - OTHER
+      type: string
+      description: |-
+        * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+        * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+        * `REAL_ESTATE` - Real Estate
+        * `E_COMMERCE` - E-Commerce
+        * `RESTAURANT` - Restaurant
+        * `GENERAL_ASSISTANT` - General Assistant
+        * `OTHER` - Other
     KBFiles:
       type: object
       description: |-
@@ -2844,6 +5010,98 @@ components:
       - updated_at
       - updated_by
       - url
+    PaginatedAgentDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentDropdown'
+    PaginatedAgentListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentList'
+    PaginatedAgentTemplateDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentTemplateDropdown'
+    PaginatedAgentTemplateListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentTemplateList'
     PaginatedKnowledgeBaseDropdownList:
       type: object
       required:
@@ -2936,6 +5194,302 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlanList'
+    PaginatedProbingQuestionDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProbingQuestionDropdown'
+    PaginatedProbingQuestionListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProbingQuestionList'
+    PaginatedUserListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserList'
+    PatchedAgent:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        bot_name:
+          type: string
+          description: Name of the bot.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        persona_name:
+          type: string
+          description: Name of the persona the bot adopts.
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        languages:
+          description: List of languages supported by the agent (e.g., ['en-IN']).
+        tone:
+          allOf:
+          - $ref: '#/components/schemas/ToneEnum'
+          description: |-
+            Tone of the agent interaction.
+
+            * `PROFESSIONAL` - Professional
+            * `FRIENDLY` - Friendly
+            * `FORMAL` - Formal
+            * `CASUAL` - Casual
+            * `ENTHUSIASTIC` - Enthusiastic
+        agent_template:
+          type: string
+          format: uuid
+          nullable: true
+        voice_name:
+          type: string
+          nullable: true
+          description: Identifier for the chosen agent voice.
+          maxLength: 100
+        knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_knowledge_bases:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        transfer_destinations:
+          nullable: true
+          description: Upcoming - Transfer configurations and destinations.
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+    PatchedAgentTemplate:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Name of the template (e.g., 'Wealth Management Advisor').
+          pattern: ^[\w\s-]+$
+          maxLength: 100
+          minLength: 2
+        short_description:
+          type: string
+          description: Brief description of what the bot does and who it helps.
+          minLength: 10
+          maxLength: 300
+        visual_icon:
+          type: string
+          nullable: true
+          description: Predefined visual icon representing the template.
+          maxLength: 50
+        primary_accent:
+          type: string
+          nullable: true
+          description: Accent color code (hex) for template cards and highlights.
+          maxLength: 7
+        agent_prompt:
+          type: string
+          description: Core instruction prompt defining personality, constraints,
+            and behavior.
+          minLength: 30
+          maxLength: 5000
+        industry:
+          allOf:
+          - $ref: '#/components/schemas/IndustryEnum'
+          description: |-
+            Selected industry category for the template.
+
+            * `CLINIC_RECEPTIONIST` - Clinic Receptionist
+            * `AGRICULTURAL_SUPPLIER` - Agricultural Supplier
+            * `REAL_ESTATE` - Real Estate
+            * `E_COMMERCE` - E-Commerce
+            * `RESTAURANT` - Restaurant
+            * `GENERAL_ASSISTANT` - General Assistant
+            * `OTHER` - Other
+        strict_facts:
+          type: boolean
+          description: When enabled, the agent avoids hallucinations and sticks strictly
+            to facts.
+        can_user_edit_flow:
+          type: boolean
+          description: When enabled, the user can edit the agent's conversation flow.
+        is_active:
+          type: boolean
+        probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+            nullable: true
+          readOnly: true
+        add_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        remove_probing_questions:
+          type: array
+          items:
+            type: string
+            format: uuid
+          writeOnly: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_default:
+          type: boolean
+          readOnly: true
+          description: Determines whether this is a system-wide default agent template.
     PatchedKnowledgeBase:
       type: object
       description: |-
@@ -3126,6 +5680,64 @@ components:
             choice.
         is_active:
           type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedProbingQuestion:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        question:
+          type: string
+          description: The probing question text to be added.
+          maxLength: 100
+          minLength: 10
+        priority:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+          description: Display and execution priority relative to others.
+        score:
+          type: integer
+          maximum: 100
+          minimum: 0
+          description: Weight/score assigned to this question (0-100).
+        is_mandatory:
+          type: boolean
+          description: Determines whether the agent must ask this question in every
+            interaction.
+        can_user_edit:
+          type: boolean
+          readOnly: true
+          description: When disabled, the probing question cannot be edited or deleted
+            by the user.
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
           readOnly: true
         created_at:
           type: string
@@ -3135,12 +5747,63 @@ components:
           type: string
           format: date-time
           readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_active:
+          type: boolean
+        is_default:
+          type: boolean
+          readOnly: true
+          description: Determines whether this is a system-wide default probing question.
     PatchedUpdatePlan:
       type: object
       properties:
         plan_id:
           type: string
           format: uuid
+    PatchedUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 15
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        is_verified:
+          type: boolean
+          readOnly: true
+        tenant:
+          allOf:
+          - $ref: '#/components/schemas/TenantRef'
+          readOnly: true
+        subscription:
+          allOf:
+          - $ref: '#/components/schemas/Subscription'
+          readOnly: true
     Plan:
       type: object
       description: |-
@@ -3242,7 +5905,6 @@ components:
             choice.
         is_active:
           type: boolean
-          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -3258,7 +5920,6 @@ components:
       - currency_display
       - discount_amount
       - id
-      - is_active
       - name
       - net_base_price
       - plan_type_display
@@ -3380,7 +6041,6 @@ components:
             choice.
         is_active:
           type: boolean
-          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -3391,7 +6051,6 @@ components:
       - created_at
       - discount_amount
       - id
-      - is_active
       - name
       - net_base_price
       - plan_type_display
@@ -3421,6 +6080,146 @@ components:
         * `paid` - Paid
         * `free` - Free
         * `pay_as_you_go` - Pay As You Go
+    ProbingQuestion:
+      type: object
+      description: |-
+        Audited Tenant-scoped Base Model Serializer.
+        Combines TenantBaseModelCoreSerializer's hybrid tenant references with BaseModelSerializer's
+        audited user tracking nested lists (created_by, updated_by, deleted_by).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        tenant:
+          type: string
+          format: uuid
+          readOnly: true
+        question:
+          type: string
+          description: The probing question text to be added.
+          maxLength: 100
+          minLength: 10
+        priority:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+          description: Display and execution priority relative to others.
+        score:
+          type: integer
+          maximum: 100
+          minimum: 0
+          description: Weight/score assigned to this question (0-100).
+        is_mandatory:
+          type: boolean
+          description: Determines whether the agent must ask this question in every
+            interaction.
+        can_user_edit:
+          type: boolean
+          readOnly: true
+          description: When disabled, the probing question cannot be edited or deleted
+            by the user.
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        deleted_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_active:
+          type: boolean
+        is_default:
+          type: boolean
+          readOnly: true
+          description: Determines whether this is a system-wide default probing question.
+      required:
+      - can_user_edit
+      - created_at
+      - created_by
+      - deleted_at
+      - deleted_by
+      - id
+      - is_default
+      - priority
+      - question
+      - score
+      - tenant
+      - updated_at
+      - updated_by
+    ProbingQuestionDropdown:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    ProbingQuestionList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        question:
+          type: string
+          description: The probing question text to be added.
+          maxLength: 100
+          minLength: 10
+        priority:
+          type: integer
+          maximum: 2147483647
+          minimum: 1
+          description: Display and execution priority relative to others.
+        score:
+          type: integer
+          maximum: 100
+          minimum: 0
+          description: Weight/score assigned to this question (0-100).
+        is_mandatory:
+          type: boolean
+          description: Determines whether the agent must ask this question in every
+            interaction.
+        can_user_edit:
+          type: boolean
+          description: When disabled, the probing question cannot be edited or deleted
+            by the user.
+        is_default:
+          type: boolean
+          description: Determines whether this is a system-wide default probing question.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+      required:
+      - created_at
+      - id
+      - priority
+      - question
+      - score
     ProcessingStatusEnum:
       enum:
       - PENDING
@@ -3512,6 +6311,11 @@ components:
           type: string
           format: uuid
           nullable: true
+        password:
+          type: string
+          description: The password chosen during step 1 of onboarding.
+      required:
+      - password
     ResumeSessionResponse:
       type: object
       properties:
@@ -3555,6 +6359,74 @@ components:
       - email
       - step
       - temp_registration_id
+    StatusEnum:
+      enum:
+      - active
+      - cancelled
+      - expired
+      - trialing
+      type: string
+      description: |-
+        * `active` - Active
+        * `cancelled` - Cancelled
+        * `expired` - Expired
+        * `trialing` - Trialing
+    Subscription:
+      type: object
+      description: Main Subscription Serializer for detailed representation.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            Current state of the subscription.
+
+            * `active` - Active
+            * `cancelled` - Cancelled
+            * `expired` - Expired
+            * `trialing` - Trialing
+        status_display:
+          type: string
+          readOnly: true
+        start_date:
+          type: string
+          format: date-time
+          description: Start date and time of the subscription period.
+        end_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: End date and time of the subscription period.
+        plan_snapshot:
+          readOnly: true
+          nullable: true
+          description: A frozen JSON snapshot of the Plan pricing and details at the
+            moment of subscription.
+        plan:
+          allOf:
+          - $ref: '#/components/schemas/Plan'
+          readOnly: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - plan
+      - plan_snapshot
+      - status_display
+      - updated_at
     TempUserSignup:
       type: object
       properties:
@@ -3598,6 +6470,26 @@ components:
       - last_name
       - password
       - plan_id
+    TenantRef:
+      type: object
+      description: |-
+        Reference Serializer for Tenant objects.
+        Enables highly-performant nested read representation of a Tenant context.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        subdomain:
+          type: string
+          maxLength: 100
+      required:
+      - id
+      - name
+      - subdomain
     TokenDetailResponse:
       type: object
       properties:
@@ -3626,6 +6518,20 @@ components:
           type: string
       required:
       - access
+    ToneEnum:
+      enum:
+      - PROFESSIONAL
+      - FRIENDLY
+      - FORMAL
+      - CASUAL
+      - ENTHUSIASTIC
+      type: string
+      description: |-
+        * `PROFESSIONAL` - Professional
+        * `FRIENDLY` - Friendly
+        * `FORMAL` - Formal
+        * `CASUAL` - Casual
+        * `ENTHUSIASTIC` - Enthusiastic
     UpdatePlanResponse:
       type: object
       properties:
@@ -3653,6 +6559,52 @@ components:
       required:
       - billing_breakdown
       - plan
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 15
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        is_verified:
+          type: boolean
+          readOnly: true
+        tenant:
+          allOf:
+          - $ref: '#/components/schemas/TenantRef'
+          readOnly: true
+        subscription:
+          allOf:
+          - $ref: '#/components/schemas/Subscription'
+          readOnly: true
+      required:
+      - email
+      - id
+      - is_verified
+      - subscription
+      - tenant
     UserDetailResponse:
       type: object
       properties:
@@ -3697,6 +6649,42 @@ components:
       required:
       - otp_code
       - user_id
+    UserList:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 15
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        is_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - id
     UserResetPassword:
       type: object
       properties:

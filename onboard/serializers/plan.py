@@ -128,7 +128,7 @@ class PlanDropdownSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
-    def get_label(self, obj):
+    def get_label(self, obj) -> str:
         type_str = obj.get_plan_type_display()
         cycle_str = obj.get_billing_cycle_display()
         return f"{obj.name} ({type_str} - {obj.total_price:.2f} {obj.currency}/{cycle_str})"

@@ -2,6 +2,7 @@ from user.serializers.custom_user import (
     UserSerializer,
     UserListSerializer,
     UserDropdownSerializer,
+    ChangePasswordSerializer,
 )
 from user.models.CustomUser import CustomUser
 from django.db import models
@@ -113,6 +114,13 @@ class CustomUserViewSet(BaseViewSet):
         "created_by",
         "updated_by",
         "deleted_by",
+        "tenant_mapping",
+        "tenant_mapping__tenant",
+    ]
+
+    prefetch_related_fields = [
+        "tenant_mapping__tenant__subscriptions",
+        "tenant_mapping__tenant__subscriptions__plan",
     ]
 
     search_fields = [
@@ -138,9 +146,63 @@ class CustomUserViewSet(BaseViewSet):
     }
 
     def get_queryset(self):
-        return super().get_queryset()
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        if user.is_superuser:
+            return queryset
+
+        try:
+            active_tenant = user.tenant_mapping.tenant
+            return queryset.filter(tenant_mapping__tenant=active_tenant)
+        except Exception:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Your user account is not associated with any active tenant.")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        from django.db import transaction
+
+        with transaction.atomic():
+            new_user = serializer.save()
+
+            if not user.is_superuser:
+                try:
+                    active_tenant = user.tenant_mapping.tenant
+                    from tenant.models.TenantUserMapping import TenantUserMapping
+                    TenantUserMapping.objects.create(
+                        user=new_user,
+                        tenant=active_tenant,
+                        created_by=user,
+                        updated_by=user
+                    )
+                except Exception:
+                    from rest_framework.exceptions import PermissionDenied
+                    raise PermissionDenied("Your user account is not associated with any active tenant.")
 
     @action(detail=False, methods=["get"], url_path="me")
     def me(self, request):
         serializer = self.get_serializer(request.user)
         return self.success(data=serializer.data)
+
+    @extend_schema(
+        summary="Change Password",
+        description="Allows an authenticated user to change their password.",
+        request=ChangePasswordSerializer,
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="Password changed successfully."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation errors."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="change-password")
+    def change_password(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        new_password = serializer.validated_data["new_password"]
+        user.set_password(new_password)
+        user.save()
+
+        return self.success(message="Password changed successfully.")

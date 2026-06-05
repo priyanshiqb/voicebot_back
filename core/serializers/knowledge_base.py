@@ -468,3 +468,18 @@ class KnowledgeBaseListSerializer(serializers.ModelSerializer):
 class KnowledgeBaseDropdownSerializer(serializers.Serializer):
     label = serializers.CharField(source="name")
     value = serializers.UUIDField(source="id")
+
+
+class KnowledgeBaseNameCheckSerializer(serializers.Serializer):
+    name = serializers.CharField(required=True, max_length=255)
+    exclude_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class KnowledgeBaseUrlCheckSerializer(serializers.Serializer):
+    url = serializers.URLField(required=True, max_length=500)
+    exclude_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class UniquenessCheckResponseSerializer(serializers.Serializer):
+    is_unique = serializers.BooleanField()
+

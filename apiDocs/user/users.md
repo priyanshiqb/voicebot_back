@@ -88,7 +88,62 @@ This document covers endpoints related to user listing, details, creation, updat
     "is_active": true,
     "is_verified": true,
     "created_at": "2026-06-03T10:00:00Z",
-    "updated_at": "2026-06-03T10:00:00Z"
+    "updated_at": "2026-06-03T10:00:00Z",
+    "tenant": {
+      "id": "b0a2c9f4-53c2-4091-9876-fa8b0c29f4a1",
+      "name": "Acme Corp",
+      "subdomain": "acme"
+    },
+    "subscription": {
+      "id": "e4f8d2b6-dc94-4ab2-b258-2945a0b7cb2a",
+      "status": "active",
+      "status_display": "Active",
+      "start_date": "2026-06-03T10:00:00Z",
+      "end_date": "2027-06-03T10:00:00Z",
+      "plan_snapshot": {
+        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+        "code": "premium-yearly",
+        "name": "Premium Plan",
+        "description": "Premium annual plan",
+        "base_price": "100.00",
+        "discount_percentage": "0.00",
+        "discount_amount": "0.00",
+        "net_base_price": "100.00",
+        "tax_percentage": "0.00",
+        "tax_amount": "0.00",
+        "total_price": "100.00",
+        "currency": "USD",
+        "billing_cycle": "yearly",
+        "plan_type": "paid"
+      },
+      "plan": {
+        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+        "code": "premium-yearly",
+        "name": "Premium Plan",
+        "description": "Premium annual plan",
+        "base_price": "100.00",
+        "discount_percentage": "0.00",
+        "discount_amount": "0.00",
+        "net_base_price": "100.00",
+        "tax_percentage": "0.00",
+        "tax_amount": "0.00",
+        "total_price": "100.00",
+        "currency": "USD",
+        "currency_display": "USD",
+        "billing_cycle": "yearly",
+        "billing_cycle_display": "Yearly",
+        "plan_type": "paid",
+        "plan_type_display": "Paid",
+        "sort_order": 1,
+        "is_most_popular": false,
+        "is_active": true,
+        "created_at": "2026-06-03T09:00:00Z",
+        "updated_at": "2026-06-03T09:00:00Z"
+      },
+      "is_active": true,
+      "created_at": "2026-06-03T10:00:00Z",
+      "updated_at": "2026-06-03T10:00:00Z"
+    }
   },
   "errors": null
 }
@@ -248,3 +303,55 @@ This document covers endpoints related to user listing, details, creation, updat
   "errors": ["NOT_FOUND"]
 }
 ```
+
+---
+
+## 🔒 6. Change Password
+
+* **Path**: `/api/v1/auth/users/change-password/`
+* **Method**: `POST`
+* **Authentication**: Bearer JWT (IsAuthenticated)
+* **Description**: Allows an authenticated user to change their current password.
+
+### Request Payload
+
+```json
+{
+  "old_password": "SecurePassword123!",
+  "new_password": "NewSecurePassword123!",
+  "confirm_password": "NewSecurePassword123!"
+}
+```
+
+### Responses
+
+#### 200 OK (Success)
+
+```json
+{
+  "status": true,
+  "message": "Password changed successfully.",
+  "data": null,
+  "errors": null
+}
+```
+
+#### 400 Bad Request (Validation Errors)
+
+* **Edge Case 1**: Old password is incorrect.
+* **Edge Case 2**: `new_password` and `confirm_password` do not match.
+* **Edge Case 3**: New password is weak or invalid (e.g. contains spaces, missing numbers/uppercase/lowercase/special character).
+
+```json
+{
+  "status": false,
+  "message": "Validation failed.",
+  "data": null,
+  "errors": {
+    "confirm_password": [
+      "New passwords do not match."
+    ]
+  }
+}
+```
+
