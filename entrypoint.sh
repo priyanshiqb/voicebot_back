@@ -42,10 +42,6 @@ else
     echo "Local development: skipping collectstatic (DJANGO_DEBUG=True)."
 fi
 
-# Change media file ownership to current user 
-chmod 775 /app/media
-
-
 
 # Start server / execute CMD
 exec "$@"

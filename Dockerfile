@@ -38,6 +38,17 @@ RUN groupadd -r django && useradd -r -g django -s /bin/false django \
 # 7. Copy remaining project files securely
 COPY --chown=django:django . .
 
+# Create static and media directories if they don't exist
+RUN mkdir -p /app/static /app/media
+
+# Change static and media file ownership to current user (for local dev)
+RUN if [ "$DJANGO_DEBUG" = "True" ] || [ "$DJANGO_DEBUG" = "1" ]; then \
+    chmod -R 775 /app/static && \
+    chmod -R 775 /app/media; \
+    else \
+    echo "Production mode: skipping permission changes"; \
+    fi
+
 # 8. Configure entrypoint permissions
 RUN chmod +x /app/entrypoint.sh
 
