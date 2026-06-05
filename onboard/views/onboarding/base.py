@@ -45,7 +45,8 @@ def create_tenant_and_mapping(temp_user, user):
     tenant = Tenant.objects.create(
         name=temp_user.business_name,
         subdomain=subdomain,
-        referred_by_code=temp_user.referral_code
+        referred_by_code=temp_user.referral_code,
+        timezone=temp_user.timezone
     )
 
     # 3. Establish 1:1 mapping between User and Tenant

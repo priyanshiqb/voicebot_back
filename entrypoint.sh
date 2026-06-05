@@ -34,6 +34,12 @@ EOF
 echo "Running migrations..."
 python manage.py migrate --noinput
 
+# Load database fixtures
+echo "Loading fixtures..."
+python manage.py load_data all
+
+
+
 # Collect static files (only for production environments where DJANGO_DEBUG is False)
 if [ "$DJANGO_DEBUG" != "True" ] && [ "$DJANGO_DEBUG" != "1" ]; then
     echo "Collecting static files..."

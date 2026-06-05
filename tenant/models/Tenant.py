@@ -26,6 +26,14 @@ class Tenant(BaseModelCore):
         null=True,
         help_text="Unique referral code generated for this tenant to refer others."
     )
+    timezone = models.ForeignKey(
+        "onboard.Timezone",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="tenants",
+        help_text="Tenant organization base timezone."
+    )
 
     class Meta(BaseModelCore.Meta):
         verbose_name = "Tenant"
@@ -35,6 +43,10 @@ class Tenant(BaseModelCore):
         return self.name
 
     def save(self, *args, **kwargs):
+        if not self.timezone_id:
+            from onboard.models.timezone import get_default_timezone
+            self.timezone_id = get_default_timezone()
+
         if not self.tenant_referral_code:
             # Inline import to prevent circular import errors
             from tenant.models.Tenant import Tenant as TenantModel

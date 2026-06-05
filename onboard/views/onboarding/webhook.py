@@ -90,7 +90,8 @@ class RazorpayWebhookView(ResponseMixin, APIView):
                                 last_name=temp_user.last_name,
                                 password=temp_user.password_hash,
                                 is_active=True,
-                                is_verified=True
+                                is_verified=True,
+                                timezone=temp_user.timezone
                             )
                             user.save()
 

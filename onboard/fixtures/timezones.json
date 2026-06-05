@@ -1,0 +1,409 @@
+[
+  {
+    "model": "onboard.timezone",
+    "pk": "36541c41-1e70-5426-a841-1ae6fa934461",
+    "fields": {
+      "offset": "UTC-12:00",
+      "region": "Baker Island, Howland Island",
+      "timezone": "Etc/GMT+12",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "4f53d02a-2bc6-551f-bb1a-e7eb4a73ac35",
+    "fields": {
+      "offset": "UTC-11:00",
+      "region": "Pago Pago, Midway Island",
+      "timezone": "Pacific/Pago_Pago",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "8069d8bc-6943-53ce-8fa4-f97ed7147fcd",
+    "fields": {
+      "offset": "UTC-10:00",
+      "region": "Honolulu, Papeete",
+      "timezone": "Pacific/Honolulu",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "4a322cd1-4ee7-5a7c-bcec-c1b3346d2add",
+    "fields": {
+      "offset": "UTC-09:00",
+      "region": "Anchorage, Juneau",
+      "timezone": "America/Anchorage",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "81fa18cd-1d45-5c52-b858-57ed0101f06f",
+    "fields": {
+      "offset": "UTC-08:00",
+      "region": "Los Angeles, Vancouver, Tijuana",
+      "timezone": "America/Los_Angeles",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "16e173db-ec07-57c1-a9eb-e27345248f0b",
+    "fields": {
+      "offset": "UTC-07:00",
+      "region": "Denver, Phoenix, Calgary",
+      "timezone": "America/Denver",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "ea788a44-d355-54f0-a639-c27ea917ace2",
+    "fields": {
+      "offset": "UTC-06:00",
+      "region": "Chicago, Mexico City, Winnipeg",
+      "timezone": "America/Chicago",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "5fef35ed-3609-5be8-98d9-df085fb46193",
+    "fields": {
+      "offset": "UTC-05:00",
+      "region": "New York, Toronto, Lima, Bogota",
+      "timezone": "America/New_York",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "1c57795f-874c-5c09-be8f-ba081cb6b648",
+    "fields": {
+      "offset": "UTC-04:00",
+      "region": "Halifax, Santiago, Caracas",
+      "timezone": "America/Halifax",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "9fd5fe8d-d605-5b56-9eca-1883b645e20f",
+    "fields": {
+      "offset": "UTC-03:00",
+      "region": "Buenos Aires, Sao Paulo, Montevideo",
+      "timezone": "America/Sao_Paulo",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "6c277d83-4b1e-52cf-a102-f3f495384929",
+    "fields": {
+      "offset": "UTC-02:00",
+      "region": "South Georgia, South Sandwich Islands",
+      "timezone": "Atlantic/South_Georgia",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "5d422c34-e7aa-56d4-8b8d-a68e8ef38466",
+    "fields": {
+      "offset": "UTC-01:00",
+      "region": "Azores, Cape Verde",
+      "timezone": "Atlantic/Azores",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "4388847b-8e09-5cf4-b2a5-1c3adb569d7c",
+    "fields": {
+      "offset": "UTC+00:00",
+      "region": "London, Dublin, Lisbon, Accra",
+      "timezone": "Europe/London",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "db091581-c7b8-5410-a8dc-e004038e053a",
+    "fields": {
+      "offset": "UTC+00:00",
+      "region": "Coordinated Universal Time",
+      "timezone": "UTC",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "8fd15f39-eae9-577e-ad11-b133c548cc8e",
+    "fields": {
+      "offset": "UTC+01:00",
+      "region": "Berlin, Paris, Rome, Madrid, Warsaw",
+      "timezone": "Europe/Berlin",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "eb88ebf9-ec21-52ef-8967-c3d912f8bf01",
+    "fields": {
+      "offset": "UTC+02:00",
+      "region": "Helsinki, Kyiv, Athens, Cairo, Jerusalem",
+      "timezone": "Europe/Helsinki",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "05446c27-b007-5412-a700-76122574c0de",
+    "fields": {
+      "offset": "UTC+03:00",
+      "region": "Moscow, Istanbul, Riyadh, Nairobi",
+      "timezone": "Europe/Moscow",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "cf2701fb-51c0-5fe6-aaaa-747a0038c557",
+    "fields": {
+      "offset": "UTC+03:30",
+      "region": "Tehran",
+      "timezone": "Asia/Tehran",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "55df2cb7-1d0f-545b-9c73-9fedf426200c",
+    "fields": {
+      "offset": "UTC+04:00",
+      "region": "Dubai, Baku, Yerevan, Mauritius",
+      "timezone": "Asia/Dubai",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "d8f3c32d-2acf-5795-beae-b5b29e2620c6",
+    "fields": {
+      "offset": "UTC+04:30",
+      "region": "Kabul",
+      "timezone": "Asia/Kabul",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "7abfb0f9-02c5-5652-ab3a-11d58bd20106",
+    "fields": {
+      "offset": "UTC+05:00",
+      "region": "Karachi, Tashkent, Maldives",
+      "timezone": "Asia/Karachi",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "75cc2d86-dc07-52a9-a43c-896f956a1ec9",
+    "fields": {
+      "offset": "UTC+05:30",
+      "region": "Mumbai, Delhi, Kolkata, Colombo",
+      "timezone": "Asia/Kolkata",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "c6b7a581-edbf-5e12-aeec-d59db810bc62",
+    "fields": {
+      "offset": "UTC+05:45",
+      "region": "Kathmandu",
+      "timezone": "Asia/Kathmandu",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "403690b8-ee22-5a0e-ae18-1f0c5b465ce6",
+    "fields": {
+      "offset": "UTC+06:00",
+      "region": "Dhaka, Almaty, Omsk",
+      "timezone": "Asia/Dhaka",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "a7b00ba2-4cc9-5193-b96e-bcd2470c3ed6",
+    "fields": {
+      "offset": "UTC+06:30",
+      "region": "Yangon, Cocos Islands",
+      "timezone": "Asia/Yangon",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "e14de4af-8962-5274-9e66-c033da39e19e",
+    "fields": {
+      "offset": "UTC+07:00",
+      "region": "Bangkok, Hanoi, Jakarta, Krasnoyarsk",
+      "timezone": "Asia/Bangkok",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "e89c0cf8-fa95-5b77-8195-ec6156c1f2d8",
+    "fields": {
+      "offset": "UTC+08:00",
+      "region": "Beijing, Singapore, Kuala Lumpur, Perth",
+      "timezone": "Asia/Shanghai",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "03f6dc24-5628-5dcf-859e-6620a57f7d6c",
+    "fields": {
+      "offset": "UTC+08:45",
+      "region": "Eucla, Australia",
+      "timezone": "Australia/Eucla",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "e6236608-4a96-591a-8d00-d709fce0b1d2",
+    "fields": {
+      "offset": "UTC+09:00",
+      "region": "Tokyo, Seoul, Pyongyang",
+      "timezone": "Asia/Tokyo",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "0f7eb642-cc7c-545b-ba31-17c2c343fa85",
+    "fields": {
+      "offset": "UTC+09:30",
+      "region": "Darwin, Adelaide",
+      "timezone": "Australia/Darwin",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "e595987a-7e36-5136-b42d-5e493fe0d26f",
+    "fields": {
+      "offset": "UTC+10:00",
+      "region": "Sydney, Melbourne, Guam, Port Moresby",
+      "timezone": "Australia/Sydney",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "eb4bf60e-2d7c-5a38-9ed2-b696df37133c",
+    "fields": {
+      "offset": "UTC+10:30",
+      "region": "Lord Howe Island",
+      "timezone": "Australia/Lord_Howe",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "30e2b36c-14ff-5fad-a5ce-15fd8bd3fde8",
+    "fields": {
+      "offset": "UTC+11:00",
+      "region": "Magadan, Solomon Islands, New Caledonia",
+      "timezone": "Asia/Magadan",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "0ba897cd-3bcf-5417-b871-2de71b17a970",
+    "fields": {
+      "offset": "UTC+12:00",
+      "region": "Auckland, Wellington, Fiji",
+      "timezone": "Pacific/Auckland",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "46c9ece4-0053-55fd-a775-ed4eff44ff95",
+    "fields": {
+      "offset": "UTC+12:45",
+      "region": "Chatham Islands",
+      "timezone": "Pacific/Chatham",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "6f8f029b-a15b-5a9e-a0c4-3e41edd7d212",
+    "fields": {
+      "offset": "UTC+13:00",
+      "region": "Nuku_alofa, Phoenix Islands",
+      "timezone": "Pacific/Tongatapu",
+      "is_active": true,
+      "is_deleted": false
+    }
+  },
+  {
+    "model": "onboard.timezone",
+    "pk": "eb1ed896-7e04-5478-9eff-4c37364cb7ef",
+    "fields": {
+      "offset": "UTC+14:00",
+      "region": "Line Islands, Kiritimati",
+      "timezone": "Pacific/Kiritimati",
+      "is_active": true,
+      "is_deleted": false
+    }
+  }
+]

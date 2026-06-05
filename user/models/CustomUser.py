@@ -67,6 +67,14 @@ class CustomUser(AbstractUser, BaseModelCore):
         null=True,
         help_text="Timestamp of OTP generation for active user."
     )
+    timezone = models.ForeignKey(
+        "onboard.Timezone",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="users",
+        help_text="Preferred user timezone for schedules and notifications."
+    )
 
     created_by = models.ForeignKey(
         'self',
@@ -112,6 +120,10 @@ class CustomUser(AbstractUser, BaseModelCore):
         if not self.username:
             self.username = self.email
         
+        # Populate default timezone
+        if not self.timezone_id:
+            from onboard.models.timezone import get_default_timezone
+            self.timezone_id = get_default_timezone()
 
         super().save(*args, **kwargs)
 

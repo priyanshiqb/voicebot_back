@@ -1,0 +1,194 @@
+{
+  "app_label": "onboard",
+  "model": "timezone",
+  "unique_fields": [
+    "timezone"
+  ],
+  "data": [
+    {
+      "offset": "UTC-12:00",
+      "region": "Baker Island, Howland Island",
+      "timezone": "Etc/GMT+12"
+    },
+    {
+      "offset": "UTC-11:00",
+      "region": "Pago Pago, Midway Island",
+      "timezone": "Pacific/Pago_Pago"
+    },
+    {
+      "offset": "UTC-10:00",
+      "region": "Honolulu, Papeete",
+      "timezone": "Pacific/Honolulu"
+    },
+    {
+      "offset": "UTC-09:00",
+      "region": "Anchorage, Juneau",
+      "timezone": "America/Anchorage"
+    },
+    {
+      "offset": "UTC-08:00",
+      "region": "Los Angeles, Vancouver, Tijuana",
+      "timezone": "America/Los_Angeles"
+    },
+    {
+      "offset": "UTC-07:00",
+      "region": "Denver, Phoenix, Calgary",
+      "timezone": "America/Denver"
+    },
+    {
+      "offset": "UTC-06:00",
+      "region": "Chicago, Mexico City, Winnipeg",
+      "timezone": "America/Chicago"
+    },
+    {
+      "offset": "UTC-05:00",
+      "region": "New York, Toronto, Lima, Bogota",
+      "timezone": "America/New_York"
+    },
+    {
+      "offset": "UTC-04:00",
+      "region": "Halifax, Santiago, Caracas",
+      "timezone": "America/Halifax"
+    },
+    {
+      "offset": "UTC-03:00",
+      "region": "Buenos Aires, Sao Paulo, Montevideo",
+      "timezone": "America/Sao_Paulo"
+    },
+    {
+      "offset": "UTC-02:00",
+      "region": "South Georgia, South Sandwich Islands",
+      "timezone": "Atlantic/South_Georgia"
+    },
+    {
+      "offset": "UTC-01:00",
+      "region": "Azores, Cape Verde",
+      "timezone": "Atlantic/Azores"
+    },
+    {
+      "offset": "UTC+00:00",
+      "region": "London, Dublin, Lisbon, Accra",
+      "timezone": "Europe/London"
+    },
+    {
+      "offset": "UTC+00:00",
+      "region": "Coordinated Universal Time",
+      "timezone": "UTC"
+    },
+    {
+      "offset": "UTC+01:00",
+      "region": "Berlin, Paris, Rome, Madrid, Warsaw",
+      "timezone": "Europe/Berlin"
+    },
+    {
+      "offset": "UTC+02:00",
+      "region": "Helsinki, Kyiv, Athens, Cairo, Jerusalem",
+      "timezone": "Europe/Helsinki"
+    },
+    {
+      "offset": "UTC+03:00",
+      "region": "Moscow, Istanbul, Riyadh, Nairobi",
+      "timezone": "Europe/Moscow"
+    },
+    {
+      "offset": "UTC+03:30",
+      "region": "Tehran",
+      "timezone": "Asia/Tehran"
+    },
+    {
+      "offset": "UTC+04:00",
+      "region": "Dubai, Baku, Yerevan, Mauritius",
+      "timezone": "Asia/Dubai"
+    },
+    {
+      "offset": "UTC+04:30",
+      "region": "Kabul",
+      "timezone": "Asia/Kabul"
+    },
+    {
+      "offset": "UTC+05:00",
+      "region": "Karachi, Tashkent, Maldives",
+      "timezone": "Asia/Karachi"
+    },
+    {
+      "offset": "UTC+05:30",
+      "region": "Mumbai, Delhi, Kolkata, Colombo",
+      "timezone": "Asia/Kolkata"
+    },
+    {
+      "offset": "UTC+05:45",
+      "region": "Kathmandu",
+      "timezone": "Asia/Kathmandu"
+    },
+    {
+      "offset": "UTC+06:00",
+      "region": "Dhaka, Almaty, Omsk",
+      "timezone": "Asia/Dhaka"
+    },
+    {
+      "offset": "UTC+06:30",
+      "region": "Yangon, Cocos Islands",
+      "timezone": "Asia/Yangon"
+    },
+    {
+      "offset": "UTC+07:00",
+      "region": "Bangkok, Hanoi, Jakarta, Krasnoyarsk",
+      "timezone": "Asia/Bangkok"
+    },
+    {
+      "offset": "UTC+08:00",
+      "region": "Beijing, Singapore, Kuala Lumpur, Perth",
+      "timezone": "Asia/Shanghai"
+    },
+    {
+      "offset": "UTC+08:45",
+      "region": "Eucla, Australia",
+      "timezone": "Australia/Eucla"
+    },
+    {
+      "offset": "UTC+09:00",
+      "region": "Tokyo, Seoul, Pyongyang",
+      "timezone": "Asia/Tokyo"
+    },
+    {
+      "offset": "UTC+09:30",
+      "region": "Darwin, Adelaide",
+      "timezone": "Australia/Darwin"
+    },
+    {
+      "offset": "UTC+10:00",
+      "region": "Sydney, Melbourne, Guam, Port Moresby",
+      "timezone": "Australia/Sydney"
+    },
+    {
+      "offset": "UTC+10:30",
+      "region": "Lord Howe Island",
+      "timezone": "Australia/Lord_Howe"
+    },
+    {
+      "offset": "UTC+11:00",
+      "region": "Magadan, Solomon Islands, New Caledonia",
+      "timezone": "Asia/Magadan"
+    },
+    {
+      "offset": "UTC+12:00",
+      "region": "Auckland, Wellington, Fiji",
+      "timezone": "Pacific/Auckland"
+    },
+    {
+      "offset": "UTC+12:45",
+      "region": "Chatham Islands",
+      "timezone": "Pacific/Chatham"
+    },
+    {
+      "offset": "UTC+13:00",
+      "region": "Nuku_alofa, Phoenix Islands",
+      "timezone": "Pacific/Tongatapu"
+    },
+    {
+      "offset": "UTC+14:00",
+      "region": "Line Islands, Kiritimati",
+      "timezone": "Pacific/Kiritimati"
+    }
+  ]
+}

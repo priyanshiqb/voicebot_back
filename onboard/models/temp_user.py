@@ -66,6 +66,14 @@ class TempUser(BaseModelCore):
         related_name="pending_registrations",
         help_text="The subscription plan selected during signup."
     )
+    timezone = models.ForeignKey(
+        "onboard.Timezone",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="temp_users",
+        help_text="Selected timezone captured during onboarding."
+    )
 
     class Meta:
         db_table = "onboard_temp_user"
@@ -80,6 +88,12 @@ class TempUser(BaseModelCore):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
+
+    def save(self, *args, **kwargs):
+        if not self.timezone_id:
+            from onboard.models.timezone import get_default_timezone
+            self.timezone_id = get_default_timezone()
+        super().save(*args, **kwargs)
 
     def is_otp_expired(self):
         """
