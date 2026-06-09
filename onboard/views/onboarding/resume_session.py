@@ -84,7 +84,7 @@ class ResumeSessionView(ResponseMixin, APIView):
         # Case 1: Registration exists but email is not verified yet
         if not temp_user.is_email_verified:
             # Re-generate OTP code cleanly (bypassing cooldown for resume)
-            otp_code = f"{random.randint(10000, 99999)}"
+            otp_code = f"{random.randint(100000, 999999)}"
             temp_user.otp_code = otp_code
             temp_user.otp_created_at = timezone.now()
             temp_user.save()

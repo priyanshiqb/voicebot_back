@@ -14,7 +14,7 @@ from drf_spectacular.utils import extend_schema
 @extend_schema(
     tags=["Onboarding - Signup Flow"],
     summary="Step 1: User Signup Registration",
-    description="Captures initial signup details (name, email, business name, password, optional referral code) and emails a 5-digit OTP code.",
+    description="Captures initial signup details (name, email, business name, password, optional referral code) and emails a 6-digit OTP code.",
     responses={
         201: RegisterPendingResponseSerializer,
         400: GeneralResponseSerializer
@@ -35,8 +35,8 @@ class TempUserRegisterView(ResponseMixin, APIView):
 
         temp_user = serializer.save()
 
-        # Generate a random 5-digit verification OTP code
-        otp_code = f"{random.randint(10000, 99999)}"
+        # Generate a random 6-digit verification OTP code
+        otp_code = f"{random.randint(100000, 999999)}"
         temp_user.otp_code = otp_code
         temp_user.otp_created_at = timezone.now()
         temp_user.save()

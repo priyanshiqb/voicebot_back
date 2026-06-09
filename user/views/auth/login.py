@@ -3,6 +3,9 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema, OpenApiResponse
+import logging
+
+logger = logging.getLogger("django")
 
 from utils.views.base_model_viewset import ResponseMixin
 from user.serializers.auth import LoginSerializer, LoginResponseSerializer
@@ -54,6 +57,30 @@ class LoginAPIView(ResponseMixin, APIView):
         user.save(update_fields=["last_login"])
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
+
+        # Create active UserSession record
+        try:
+            from user.models.user_session import UserSession
+            from utils.device_utils import parse_user_agent, get_client_ip
+            import datetime
+            from datetime import timezone as dt_timezone
+
+            refresh_jti = refresh.get("jti")
+            access_jti = access.get("jti")
+            exp_timestamp = refresh.get("exp")
+            expires_at = datetime.datetime.fromtimestamp(exp_timestamp, tz=dt_timezone.utc)
+
+
+            UserSession.objects.create(
+                user=user,
+                refresh_jti=refresh_jti,
+                access_jti=access_jti,
+                device_name=parse_user_agent(request.headers.get("User-Agent")),
+                ip_address=get_client_ip(request),
+                expires_at=expires_at
+            )
+        except Exception as session_err:
+            logger.warning("Failed to create UserSession: %s", str(session_err))
 
         return self.success(
             data={

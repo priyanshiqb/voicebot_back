@@ -20,7 +20,7 @@ sequenceDiagram
 
     Note over Client,Backend: STEP 1: Registration & OTP Verification
     Client->>Backend: POST /register-pending/ (signup credentials + selected initial plan)
-    Note over Backend: Validates names, passwords, duplicates<br/>Saves unverified entry to TempUser<br/>Generates & emails 5-Digit OTP
+    Note over Backend: Validates names, passwords, duplicates<br/>Saves unverified entry to TempUser<br/>Generates & emails 6-Digit OTP
     Backend-->>Client: HTTP 201 Created (temp_registration_id)
 
     Client->>Backend: POST /verify-otp/ (temp_registration_id + otp_code)
@@ -99,7 +99,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 ### 1. Register Pending User (`/register-pending/`)
 * **Endpoint**: `POST /api/v1/onboard/register-pending/`
 * **Auth Level**: Anonymous Public (No Headers)
-* **Description**: Performs robust validation on credentials, checks for duplicate email records across both temporary and permanent tables, saves details into `TempUser` table, and sends a 5-digit verification code.
+* **Description**: Performs robust validation on credentials, checks for duplicate email records across both temporary and permanent tables, saves details into `TempUser` table, and sends a 6-digit verification code.
 * **Request Payload**:
   ```json
   {
@@ -147,7 +147,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 ### 2. Verify OTP (`/verify-otp/`)
 * **Endpoint**: `POST /api/v1/onboard/verify-otp/`
 * **Auth Level**: Anonymous Public (No Headers)
-* **Description**: Validates the emailed 5-digit verification code against the database. If correct and within the 10-minute validity window, grants a short-lived temporary token and the plan's cost details.
+* **Description**: Validates the emailed 6-digit verification code against the database. If correct and within the 10-minute validity window, grants a short-lived temporary token and the plan's cost details.
 * **Request Payload**:
   ```json
   {
@@ -190,7 +190,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 ### 2.1 Resend OTP (`/resend-otp/`)
 * **Endpoint**: `POST /api/v1/onboard/resend-otp/`
 * **Auth Level**: Anonymous Public (No Headers)
-* **Description**: Generates and emails a fresh 5-digit OTP code to the user. Features a **30-second resend cooldown limit** to prevent API abuse.
+* **Description**: Generates and emails a fresh 6-digit OTP code to the user. Features a **30-second resend cooldown limit** to prevent API abuse.
 * **Request Payload**:
   ```json
   {
@@ -226,7 +226,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
 ### 2.1.1 Change Email (`/change-email/`)
 * **Endpoint**: `POST /api/v1/onboard/change-email/`
 * **Auth Level**: Anonymous Public (No Headers)
-* **Description**: Allows the user to update their email address during the OTP stage without losing any entered details (names, business name, password). Generates a fresh **5-digit verification OTP** and emails it to the updated email address.
+* **Description**: Allows the user to update their email address during the OTP stage without losing any entered details (names, business name, password). Generates a fresh **6-digit verification OTP** and emails it to the updated email address.
 * **Request Payload**:
   ```json
   {
@@ -311,7 +311,7 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
   }
   ```
 * **Success Output - Email Unverified (200 OK)**:
-  Automatically emails a new 5-digit OTP code and instructs client to redirect to the verification screen:
+  Automatically emails a new 6-digit OTP code and instructs client to redirect to the verification screen:
   ```json
   {
     "status": true,

@@ -36,6 +36,16 @@ class LogoutAPIView(ResponseMixin, APIView):
             token = RefreshToken(refresh_token)
             token.blacklist()
 
+            # Revoke UserSession
+            try:
+                from user.models.user_session import UserSession
+                refresh_jti = token.get("jti")
+                sessions = UserSession.objects.filter(refresh_jti=refresh_jti, is_active=True)
+                for session in sessions:
+                    session.revoke()
+            except Exception as session_err:
+                logger.warning("Failed to revoke UserSession on logout: %s", str(session_err))
+
             return self.success(
                 message="Logout successful"
             )

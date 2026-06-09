@@ -13,25 +13,39 @@ User = get_user_model()
 def get_user_from_token(token_string):
     """
     Extracts user ID from SimpleJWT access token and validates the active user.
-    Returns (user, None) if successful, or (None, error_message) if authentication fails.
+    Returns (user, session, None) if successful, or (None, None, error_message) if authentication fails.
     """
     try:
         token = AccessToken(token_string)
         user_id = token.payload.get("user_id")
+        jti = token.payload.get("jti")
+        
         if not user_id:
-            return None, "Invalid token payload: user_id not found"
+            return None, None, "Invalid token payload: user_id not found"
         
         try:
             user = User.objects.get(id=user_id, is_active=True)
-            return user, None
+            
+            from user.models.user_session import UserSession
+            from django.utils import timezone
+            try:
+                session = UserSession.objects.get(
+                    access_jti=jti, 
+                    is_active=True, 
+                    expires_at__gt=timezone.now()
+                )
+                return user, session, None
+            except UserSession.DoesNotExist:
+                return None, None, "Session is invalid or logged out"
+                
         except User.DoesNotExist:
-            return None, "User not found or is inactive"
+            return None, None, "User not found or is inactive"
             
     except TokenError as e:
         # Catches Expired or Invalid signature errors directly from SimpleJWT
-        return None, str(e) or "Token is invalid or expired"
+        return None, None, str(e) or "Token is invalid or expired"
     except Exception:
-        return None, "Authentication failed"
+        return None, None, "Authentication failed"
 
 
 class JWTAuthMiddleware(BaseMiddleware):
@@ -91,13 +105,14 @@ class JWTAuthMiddleware(BaseMiddleware):
             return
 
         # Validate and authenticate user
-        user, error_message = await get_user_from_token(token_string)
+        user, session, error_message = await get_user_from_token(token_string)
         if error_message:
             await self.close_with_error(send, error_message)
             return
 
-        # Authentication succeeded! Assign user to connection scope and continue pipeline
+        # Authentication succeeded! Assign user and session to connection scope
         scope["user"] = user
+        scope["session"] = session
         return await super().__call__(scope, receive, send)
 
     async def close_with_error(self, send, message):

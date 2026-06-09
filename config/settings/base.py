@@ -99,11 +99,13 @@ CORS_ALLOW_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-recaptcha-token',
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "config.middleware.RequestTracingMiddleware",  # Dynamic Request ID tracking
+    "config.middleware.ReCaptchaMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -185,7 +187,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # DRF Configurations
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "user.authentication.CachedJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -206,6 +208,26 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+# ReCaptcha Verification Settings
+RECAPTCHA_VERIFICATION_ON = env.bool("RECAPTCHA_VERIFICATION_ON", default=False)
+RECAPTCHA_REQUIRED_PATHS = [
+    "/api/v1/onboard/register-pending/",
+    "/api/v1/onboard/verify-otp/",
+    "/api/v1/onboard/resend-otp/",
+    "/api/v1/onboard/change-email/",
+    "/api/v1/onboard/resume-session/",
+    "/api/v1/onboard/forgot-password/",
+    "/api/v1/onboard/forgot-password/verify/",
+    "/api/v1/onboard/forgot-password/resend/",
+    "/api/v1/onboard/reset-password/",
+    "/api/v1/onboard/check-email/",
+    "/api/v1/auth/forgot-password/",
+    "/api/v1/auth/forgot-password/verify/",
+    "/api/v1/auth/forgot-password/resend/",
+    "/api/v1/auth/reset-password/",
+]
+
 
 # SimpleJWT Configurations
 from datetime import timedelta

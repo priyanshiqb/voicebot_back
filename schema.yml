@@ -165,7 +165,7 @@ paths:
               $ref: '#/components/schemas/Logout'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -247,6 +247,162 @@ paths:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
           description: Validation or Token error.
+  /api/v1/auth/sessions/:
+    get:
+      operationId: v1_auth_sessions_list
+      description: ViewSet to manage user sessions/devices.
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - v1
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserSessionListList'
+          description: ''
+    post:
+      operationId: v1_auth_sessions_create
+      description: ViewSet to manage user sessions/devices.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserSession'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserSession'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserSession'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSession'
+          description: ''
+  /api/v1/auth/sessions/{id}/:
+    get:
+      operationId: v1_auth_sessions_retrieve
+      description: ViewSet to manage user sessions/devices.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this User Session.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSession'
+          description: ''
+    delete:
+      operationId: v1_auth_sessions_destroy
+      description: ViewSet to manage user sessions/devices.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this User Session.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwt: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/sessions/bulk_delete/:
+    post:
+      operationId: v1_auth_sessions_bulk_delete_create
+      description: ViewSet to manage user sessions/devices.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwt: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/sessions/dropdown/:
+    get:
+      operationId: v1_auth_sessions_dropdown_retrieve
+      description: ViewSet to manage user sessions/devices.
+      tags:
+      - v1
+      security:
+      - jwt: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/sessions/revoke-all/:
+    post:
+      operationId: v1_auth_sessions_revoke_all_create
+      description: Revoke all other active sessions except the current one.
+      tags:
+      - v1
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: All other sessions revoked successfully
   /api/v1/auth/users/:
     get:
       operationId: v1_auth_users_list
@@ -301,7 +457,7 @@ paths:
       tags:
       - Users
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -340,7 +496,7 @@ paths:
               $ref: '#/components/schemas/User'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -382,7 +538,7 @@ paths:
       tags:
       - Users
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -435,7 +591,7 @@ paths:
               $ref: '#/components/schemas/User'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -493,7 +649,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -540,7 +696,7 @@ paths:
       tags:
       - Users
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -580,7 +736,7 @@ paths:
                 - uuid-1
                 - uuid-2
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           description: No response body
@@ -604,7 +760,7 @@ paths:
               $ref: '#/components/schemas/ChangePassword'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -630,7 +786,7 @@ paths:
       tags:
       - Users
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           description: No response body
@@ -642,7 +798,7 @@ paths:
       tags:
       - Users
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -727,7 +883,7 @@ paths:
       tags:
       - Agent Template
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -766,7 +922,7 @@ paths:
               $ref: '#/components/schemas/AgentTemplate'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -808,7 +964,7 @@ paths:
       tags:
       - Agent Template
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -861,7 +1017,7 @@ paths:
               $ref: '#/components/schemas/AgentTemplate'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -919,7 +1075,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedAgentTemplate'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -966,7 +1122,7 @@ paths:
       tags:
       - Agent Template
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1012,7 +1168,7 @@ paths:
               $ref: '#/components/schemas/AgentTemplate'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1110,7 +1266,7 @@ paths:
       tags:
       - Agent Template
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1182,7 +1338,7 @@ paths:
       tags:
       - Agent
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1221,7 +1377,7 @@ paths:
               $ref: '#/components/schemas/Agent'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -1263,7 +1419,7 @@ paths:
       tags:
       - Agent
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1316,7 +1472,7 @@ paths:
               $ref: '#/components/schemas/Agent'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1374,7 +1530,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedAgent'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1421,7 +1577,7 @@ paths:
       tags:
       - Agent
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1463,7 +1619,7 @@ paths:
                 - uuid-1
                 - uuid-2
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1554,7 +1710,7 @@ paths:
       tags:
       - Agent
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1615,7 +1771,7 @@ paths:
       tags:
       - Knowledge Base
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1684,7 +1840,7 @@ paths:
               $ref: '#/components/schemas/KnowledgeBase'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -1755,7 +1911,7 @@ paths:
       tags:
       - Knowledge Base
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1833,7 +1989,7 @@ paths:
               $ref: '#/components/schemas/KnowledgeBase'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1916,7 +2072,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedKnowledgeBase'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -1963,7 +2119,7 @@ paths:
       tags:
       - Knowledge Base
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2006,10 +2162,103 @@ paths:
                 - uuid-1
                 - uuid-2
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           description: No response body
+  /api/v1/core/knowledge-base/check-name/:
+    post:
+      operationId: v1_core_knowledge_base_check_name_create
+      description: Checks if a knowledge base name is unique under the active tenant
+        context.
+      summary: Check Name Uniqueness
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseNameCheck'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseNameCheck'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseNameCheck'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UniquenessCheckResponse'
+          description: Uniqueness check result.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
+  /api/v1/core/knowledge-base/check-url/:
+    post:
+      operationId: v1_core_knowledge_base_check_url_create
+      description: Checks if a website URL is unique under the active tenant context.
+      summary: Check URL Uniqueness
+      tags:
+      - Knowledge Base
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseUrlCheck'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseUrlCheck'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/KnowledgeBaseUrlCheck'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UniquenessCheckResponse'
+          description: Uniqueness check result.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied.
   /api/v1/core/knowledge-base/dropdown/:
     get:
       operationId: v1_core_knowledge_base_dropdown_list
@@ -2064,7 +2313,7 @@ paths:
       tags:
       - Knowledge Base
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2094,7 +2343,7 @@ paths:
               $ref: '#/components/schemas/KBFiles'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -2170,7 +2419,7 @@ paths:
       tags:
       - Probing Question
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2209,7 +2458,7 @@ paths:
               $ref: '#/components/schemas/ProbingQuestion'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -2251,7 +2500,7 @@ paths:
       tags:
       - Probing Question
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2304,7 +2553,7 @@ paths:
               $ref: '#/components/schemas/ProbingQuestion'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2362,7 +2611,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedProbingQuestion'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2409,7 +2658,7 @@ paths:
       tags:
       - Probing Question
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2455,7 +2704,7 @@ paths:
               $ref: '#/components/schemas/ProbingQuestion'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2531,7 +2780,7 @@ paths:
       tags:
       - Probing Question
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -2590,7 +2839,7 @@ paths:
     post:
       operationId: v1_onboard_change_email_create
       description: Updates the email of a temporary unverified onboarding registration,
-        generates a new 5-digit OTP, and sends it to the new email address.
+        generates a new 6-digit OTP, and sends it to the new email address.
       summary: 'Step 2 Helper: Change Temp User Email'
       tags:
       - Onboarding - Signup Flow
@@ -2607,7 +2856,7 @@ paths:
               $ref: '#/components/schemas/ChangeEmail'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2644,7 +2893,7 @@ paths:
               $ref: '#/components/schemas/CheckEmail'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2727,7 +2976,7 @@ paths:
               $ref: '#/components/schemas/ForgotPassword'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2763,7 +3012,7 @@ paths:
               $ref: '#/components/schemas/ForgotPasswordResendOTP'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2799,7 +3048,7 @@ paths:
               $ref: '#/components/schemas/ForgotPasswordVerifyOTP'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2813,6 +3062,404 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/languages/:
+    get:
+      operationId: v1_onboard_languages_list
+      description: Get paginated list of languages with optional search, ordering,
+        and filter attributes.
+      summary: List Languages
+      parameters:
+      - in: query
+        name: code
+        schema:
+          type: string
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: name
+        schema:
+          type: string
+      - in: query
+        name: name__icontains
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+      tags:
+      - Onboarding - Languages
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLanguageListList'
+          description: ''
+    post:
+      operationId: v1_onboard_languages_create
+      description: Create a new language option.
+      summary: Create Language
+      tags:
+      - Onboarding - Languages
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Language'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Language'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Language'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Language'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+  /api/v1/onboard/languages/{id}/:
+    get:
+      operationId: v1_onboard_languages_retrieve
+      description: Get specific language details by ID.
+      summary: Get Language
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Language.
+        required: true
+      tags:
+      - Onboarding - Languages
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Language'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Language not found.
+    put:
+      operationId: v1_onboard_languages_update
+      description: Completely update an existing language by ID.
+      summary: Update Language
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Language.
+        required: true
+      tags:
+      - Onboarding - Languages
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Language'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Language'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Language'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Language'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Language not found.
+    patch:
+      operationId: v1_onboard_languages_partial_update
+      description: Partially update an existing language by ID.
+      summary: Partial Update Language
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Language.
+        required: true
+      tags:
+      - Onboarding - Languages
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLanguage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLanguage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLanguage'
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Language'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Language not found.
+    delete:
+      operationId: v1_onboard_languages_destroy
+      description: Soft-delete an existing language by ID.
+      summary: Delete Language
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Language.
+        required: true
+      tags:
+      - Onboarding - Languages
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Language deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Language not found.
+  /api/v1/onboard/languages/bulk_delete/:
+    post:
+      operationId: v1_onboard_languages_bulk_delete_create
+      description: |-
+        Language ViewSet.
+        Provides robust, production-grade endpoints for managing system languages.
+      tags:
+      - Onboarding - Languages
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwt: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/onboard/languages/dropdown/:
+    get:
+      operationId: v1_onboard_languages_dropdown_list
+      description: Get lightweight label/value selection pairs representing all active
+        languages.
+      summary: Get Language Dropdown Options
+      parameters:
+      - in: query
+        name: code
+        schema:
+          type: string
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: name
+        schema:
+          type: string
+      - in: query
+        name: name__icontains
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Onboarding - Languages
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLanguageDropdownList'
           description: ''
   /api/v1/onboard/plans/:
     get:
@@ -2913,7 +3560,7 @@ paths:
       tags:
       - Onboarding - Plans
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -2941,7 +3588,7 @@ paths:
               $ref: '#/components/schemas/Plan'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '201':
           content:
@@ -2983,7 +3630,7 @@ paths:
       tags:
       - Onboarding - Plans
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3025,7 +3672,7 @@ paths:
               $ref: '#/components/schemas/Plan'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -3083,7 +3730,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedPlan'
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -3130,7 +3777,7 @@ paths:
       tags:
       - Onboarding - Plans
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           content:
@@ -3173,7 +3820,7 @@ paths:
                 - uuid-1
                 - uuid-2
       security:
-      - jwtAuth: []
+      - jwt: []
       responses:
         '200':
           description: No response body
@@ -3294,7 +3941,7 @@ paths:
       tags:
       - Onboarding - Plans
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3307,7 +3954,7 @@ paths:
     post:
       operationId: v1_onboard_register_pending_create
       description: Captures initial signup details (name, email, business name, password,
-        optional referral code) and emails a 5-digit OTP code.
+        optional referral code) and emails a 6-digit OTP code.
       summary: 'Step 1: User Signup Registration'
       tags:
       - Onboarding - Signup Flow
@@ -3324,7 +3971,7 @@ paths:
               $ref: '#/components/schemas/TempUserSignup'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '201':
@@ -3342,7 +3989,7 @@ paths:
   /api/v1/onboard/resend-otp/:
     post:
       operationId: v1_onboard_resend_otp_create
-      description: Resends a new 5-digit OTP to the registrant's email, subject to
+      description: Resends a new 6-digit OTP to the registrant's email, subject to
         a 30-second cooldown period.
       summary: 'Step 2 Helper: Resend Verification OTP'
       tags:
@@ -3360,7 +4007,7 @@ paths:
               $ref: '#/components/schemas/ResendOTP'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3396,7 +4043,7 @@ paths:
               $ref: '#/components/schemas/ResetPassword'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3432,7 +4079,7 @@ paths:
               $ref: '#/components/schemas/ResumeSession'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3446,6 +4093,436 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/resume-session-token/:
+    post:
+      operationId: v1_onboard_resume_session_token_create
+      description: Allows a client to resume their onboarding process from their last
+        completed state. Pass the temporary token via the Authorization header as
+        'Bearer <token>'.
+      summary: 'Step 2 Helper: Resume Onboarding Session with Token'
+      tags:
+      - Onboarding - Signup Flow
+      security:
+      - TempUserTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeSessionResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: ''
+  /api/v1/onboard/timezones/:
+    get:
+      operationId: v1_onboard_timezones_list
+      description: Get paginated list of timezones with optional search, ordering,
+        and filter attributes.
+      summary: List Timezones
+      parameters:
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: offset
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: region
+        schema:
+          type: string
+      - in: query
+        name: region__icontains
+        schema:
+          type: string
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: timezone
+        schema:
+          type: string
+      tags:
+      - Onboarding - Timezones
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTimezoneListList'
+          description: ''
+    post:
+      operationId: v1_onboard_timezones_create
+      description: Create a new timezone option.
+      summary: Create Timezone
+      tags:
+      - Onboarding - Timezones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timezone'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+  /api/v1/onboard/timezones/{id}/:
+    get:
+      operationId: v1_onboard_timezones_retrieve
+      description: Get specific timezone details by ID.
+      summary: Get Timezone
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Timezone.
+        required: true
+      tags:
+      - Onboarding - Timezones
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timezone'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Timezone not found.
+    put:
+      operationId: v1_onboard_timezones_update
+      description: Completely update an existing timezone by ID.
+      summary: Update Timezone
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Timezone.
+        required: true
+      tags:
+      - Onboarding - Timezones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Timezone'
+        required: true
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timezone'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Timezone not found.
+    patch:
+      operationId: v1_onboard_timezones_partial_update
+      description: Partially update an existing timezone by ID.
+      summary: Partial Update Timezone
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Timezone.
+        required: true
+      tags:
+      - Onboarding - Timezones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTimezone'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTimezone'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTimezone'
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timezone'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Validation failed.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Timezone not found.
+    delete:
+      operationId: v1_onboard_timezones_destroy
+      description: Soft-delete an existing timezone by ID.
+      summary: Delete Timezone
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Timezone.
+        required: true
+      tags:
+      - Onboarding - Timezones
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Timezone deleted successfully.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Unauthenticated user request.
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Permission denied (superuser required).
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneralResponse'
+          description: Timezone not found.
+  /api/v1/onboard/timezones/bulk_delete/:
+    post:
+      operationId: v1_onboard_timezones_bulk_delete_create
+      description: |-
+        Timezone ViewSet.
+        Provides robust, production-grade endpoints for managing system timezones.
+      tags:
+      - Onboarding - Timezones
+      requestBody:
+        content:
+          application/json:
+            schema:
+              example:
+                ids:
+                - uuid-1
+                - uuid-2
+      security:
+      - jwt: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/onboard/timezones/dropdown/:
+    get:
+      operationId: v1_onboard_timezones_dropdown_list
+      description: Get lightweight label/value selection pairs representing all active
+        timezones.
+      summary: Get Timezone Dropdown Options
+      parameters:
+      - in: query
+        name: created_at__date
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: created_at__gte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: offset
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: region
+        schema:
+          type: string
+      - in: query
+        name: region__icontains
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: timezone
+        schema:
+          type: string
+      tags:
+      - Onboarding - Timezones
+      security:
+      - jwt: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTimezoneDropdownList'
           description: ''
   /api/v1/onboard/update-plan/:
     patch:
@@ -3543,7 +4620,7 @@ paths:
   /api/v1/onboard/verify-otp/:
     post:
       operationId: v1_onboard_verify_otp_create
-      description: Verifies the emailed 5-digit OTP. Upon success, returns a temporary
+      description: Verifies the emailed 6-digit OTP. Upon success, returns a temporary
         scoped token and the initial pricing breakdown.
       summary: 'Step 2: Email OTP Verification'
       tags:
@@ -3561,7 +4638,7 @@ paths:
               $ref: '#/components/schemas/VerifyOTP'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -3597,7 +4674,7 @@ paths:
               $ref: '#/components/schemas/RazorpayWebhook'
         required: true
       security:
-      - jwtAuth: []
+      - jwt: []
       - {}
       responses:
         '200':
@@ -4530,6 +5607,129 @@ components:
       - created_at
       - id
       - name
+    KnowledgeBaseNameCheck:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        exclude_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - name
+    KnowledgeBaseUrlCheck:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+        exclude_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - url
+    Language:
+      type: object
+      description: Main Language Serializer for detail, create, and update operations.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Human-readable language label (e.g., English (US), Hindi)
+          maxLength: 255
+        code:
+          type: string
+          description: Standard language code (e.g., en-US, hi)
+          maxLength: 50
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - code
+      - created_at
+      - id
+      - name
+      - updated_at
+    LanguageDropdown:
+      type: object
+      description: |-
+        Language Dropdown Serializer.
+        Returns label/value pairs matching unified selection patterns.
+      properties:
+        label:
+          type: string
+          readOnly: true
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    LanguageList:
+      type: object
+      description: |-
+        Language List Serializer.
+        Optimized layout tailored for list displays, dashboards, and admin tables.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Human-readable language label (e.g., English (US), Hindi)
+          maxLength: 255
+        code:
+          type: string
+          description: Standard language code (e.g., en-US, hi)
+          maxLength: 50
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - code
+      - created_at
+      - id
+      - name
+    LanguageRef:
+      type: object
+      description: |-
+        Language Reference Serializer.
+        Extremely lightweight representation used for nested relations or brief displays.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Human-readable language label (e.g., English (US), Hindi)
+        code:
+          type: string
+          readOnly: true
+          description: Standard language code (e.g., en-US, hi)
+      required:
+      - code
+      - id
+      - name
     Login:
       type: object
       properties:
@@ -5148,6 +6348,52 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/KnowledgeBaseList'
+    PaginatedLanguageDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageDropdown'
+    PaginatedLanguageListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageList'
     PaginatedPlanDropdownList:
       type: object
       required:
@@ -5240,6 +6486,52 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProbingQuestionList'
+    PaginatedTimezoneDropdownList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimezoneDropdown'
+    PaginatedTimezoneListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimezoneList'
     PaginatedUserListList:
       type: object
       required:
@@ -5263,6 +6555,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/UserList'
+    PaginatedUserSessionListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSessionList'
     PatchedAgent:
       type: object
       description: |-
@@ -5579,6 +6894,32 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+    PatchedLanguage:
+      type: object
+      description: Main Language Serializer for detail, create, and update operations.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: Human-readable language label (e.g., English (US), Hindi)
+          maxLength: 255
+        code:
+          type: string
+          description: Standard language code (e.g., en-US, hi)
+          maxLength: 50
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
     PatchedPlan:
       type: object
       description: |-
@@ -5758,6 +7099,36 @@ components:
           type: boolean
           readOnly: true
           description: Determines whether this is a system-wide default probing question.
+    PatchedTimezone:
+      type: object
+      description: Main Timezone Serializer for detail, create, and update operations.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        offset:
+          type: string
+          description: Timezone UTC offset (e.g., UTC-12:00)
+          maxLength: 50
+        region:
+          type: string
+          description: Associated regions/cities (e.g., London, Dublin)
+          maxLength: 255
+        timezone:
+          type: string
+          description: Standard IANA timezone identifier (e.g., Europe/London)
+          maxLength: 100
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
     PatchedUpdatePlan:
       type: object
       properties:
@@ -5804,6 +7175,14 @@ components:
           allOf:
           - $ref: '#/components/schemas/Subscription'
           readOnly: true
+        timezone:
+          type: string
+          format: uuid
+          nullable: true
+        language:
+          type: string
+          format: uuid
+          nullable: true
     Plan:
       type: object
       description: |-
@@ -6342,6 +7721,9 @@ components:
         email:
           type: string
           format: email
+        phone_number:
+          type: string
+          nullable: true
         step:
           type: string
         temporary_token:
@@ -6462,6 +7844,14 @@ components:
           minLength: 8
         confirm_password:
           type: string
+        timezone_id:
+          type: string
+          format: uuid
+          nullable: true
+        language_id:
+          type: string
+          format: uuid
+          nullable: true
       required:
       - business_name
       - confirm_password
@@ -6490,6 +7880,114 @@ components:
       - id
       - name
       - subdomain
+    Timezone:
+      type: object
+      description: Main Timezone Serializer for detail, create, and update operations.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        offset:
+          type: string
+          description: Timezone UTC offset (e.g., UTC-12:00)
+          maxLength: 50
+        region:
+          type: string
+          description: Associated regions/cities (e.g., London, Dublin)
+          maxLength: 255
+        timezone:
+          type: string
+          description: Standard IANA timezone identifier (e.g., Europe/London)
+          maxLength: 100
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - offset
+      - region
+      - timezone
+      - updated_at
+    TimezoneDropdown:
+      type: object
+      description: |-
+        Timezone Dropdown Serializer.
+        Returns label/value pairs matching unified selection patterns.
+      properties:
+        label:
+          type: string
+          readOnly: true
+        value:
+          type: string
+          format: uuid
+      required:
+      - label
+      - value
+    TimezoneList:
+      type: object
+      description: |-
+        Timezone List Serializer.
+        Optimized layout tailored for list displays, dashboards, and admin tables.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        offset:
+          type: string
+          description: Timezone UTC offset (e.g., UTC-12:00)
+          maxLength: 50
+        region:
+          type: string
+          description: Associated regions/cities (e.g., London, Dublin)
+          maxLength: 255
+        timezone:
+          type: string
+          description: Standard IANA timezone identifier (e.g., Europe/London)
+          maxLength: 100
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - offset
+      - region
+      - timezone
+    TimezoneRef:
+      type: object
+      description: |-
+        Timezone Reference Serializer.
+        Extremely lightweight representation used for nested relations or brief displays.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        timezone:
+          type: string
+          readOnly: true
+          description: Standard IANA timezone identifier (e.g., Europe/London)
+        offset:
+          type: string
+          readOnly: true
+          description: Timezone UTC offset (e.g., UTC-12:00)
+      required:
+      - id
+      - offset
+      - timezone
     TokenDetailResponse:
       type: object
       properties:
@@ -6532,6 +8030,13 @@ components:
         * `FORMAL` - Formal
         * `CASUAL` - Casual
         * `ENTHUSIASTIC` - Enthusiastic
+    UniquenessCheckResponse:
+      type: object
+      properties:
+        is_unique:
+          type: boolean
+      required:
+      - is_unique
     UpdatePlanResponse:
       type: object
       properties:
@@ -6599,6 +8104,14 @@ components:
           allOf:
           - $ref: '#/components/schemas/Subscription'
           readOnly: true
+        timezone:
+          type: string
+          format: uuid
+          nullable: true
+        language:
+          type: string
+          format: uuid
+          nullable: true
       required:
       - email
       - id
@@ -6681,10 +8194,20 @@ components:
           type: string
           format: date-time
           readOnly: true
+        timezone:
+          allOf:
+          - $ref: '#/components/schemas/TimezoneRef'
+          readOnly: true
+        language:
+          allOf:
+          - $ref: '#/components/schemas/LanguageRef'
+          readOnly: true
       required:
       - created_at
       - email
       - id
+      - language
+      - timezone
     UserResetPassword:
       type: object
       properties:
@@ -6704,6 +8227,96 @@ components:
       - password
       - token
       - user_id
+    UserSession:
+      type: object
+      description: 'Main Serializer: Full details including is_current.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_deleted:
+          type: boolean
+          readOnly: true
+        device_name:
+          type: string
+          nullable: true
+          maxLength: 255
+        ip_address:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        last_used:
+          type: string
+          format: date-time
+          readOnly: true
+        is_current:
+          type: boolean
+          readOnly: true
+      required:
+      - created_at
+      - deleted_at
+      - expires_at
+      - id
+      - is_current
+      - is_deleted
+      - last_used
+      - updated_at
+    UserSessionList:
+      type: object
+      description: 'List Serializer: Optimized layout for active session listings.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        device_name:
+          type: string
+          nullable: true
+          maxLength: 255
+        ip_address:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        last_used:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_current:
+          type: boolean
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_current
+      - last_used
+      - updated_at
     VerifyOTP:
       type: object
       properties:
@@ -6712,8 +8325,8 @@ components:
           format: uuid
         otp_code:
           type: string
-          maxLength: 5
-          minLength: 5
+          maxLength: 6
+          minLength: 6
       required:
       - otp_code
       - temp_registration_id
@@ -6797,7 +8410,7 @@ components:
       in: header
       name: Authorization
       description: Scoped temporary onboarding token prefixed with 'Bearer '
-    jwtAuth:
+    jwt:
       type: http
       scheme: bearer
       bearerFormat: JWT

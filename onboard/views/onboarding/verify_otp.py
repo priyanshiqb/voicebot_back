@@ -12,7 +12,7 @@ from drf_spectacular.utils import extend_schema
 @extend_schema(
     tags=["Onboarding - Signup Flow"],
     summary="Step 2: Email OTP Verification",
-    description="Verifies the emailed 5-digit OTP. Upon success, returns a temporary scoped token and the initial pricing breakdown.",
+    description="Verifies the emailed 6-digit OTP. Upon success, returns a temporary scoped token and the initial pricing breakdown.",
     responses={
         200: VerifyOTPResponseSerializer,
         400: GeneralResponseSerializer

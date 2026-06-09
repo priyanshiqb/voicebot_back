@@ -52,7 +52,7 @@ This document covers endpoints involved in registering new temporary accounts, v
 * **Path**: `/api/v1/onboard/register-pending/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Registers a temporary unverified user, generates a 5-digit verification OTP valid for 2 minutes, and emails it to the user.
+* **Description**: Registers a temporary unverified user, generates a 6-digit verification OTP valid for 2 minutes, and emails it to the user.
 
 ### Request Payload
 
@@ -101,14 +101,14 @@ This document covers endpoints involved in registering new temporary accounts, v
 * **Path**: `/api/v1/onboard/verify-otp/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Verifies the 5-digit OTP sent to the email. Returns a temporary scoped onboarding JWT token and initial plan pricing.
+* **Description**: Verifies the 6-digit OTP sent to the email. Returns a temporary scoped onboarding JWT token and initial plan pricing.
 
 ### Request Payload
 
 ```json
 {
   "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa",
-  "otp_code": "12345"
+  "otp_code": "123456"
 }
 ```
 
@@ -152,7 +152,7 @@ This document covers endpoints involved in registering new temporary accounts, v
 * **Path**: `/api/v1/onboard/resend-otp/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Resends a new 5-digit verification OTP code to the temporary user's email, subject to a 30-second cooldown.
+* **Description**: Resends a new 6-digit verification OTP code to the temporary user's email, subject to a 30-second cooldown.
 
 ### Request Payload
 
@@ -197,7 +197,7 @@ This document covers endpoints involved in registering new temporary accounts, v
 * **Path**: `/api/v1/onboard/change-email/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Updates the email address of a temporary registration, generates a new 5-digit OTP, and sends it to the new address.
+* **Description**: Updates the email address of a temporary registration, generates a new 6-digit OTP, and sends it to the new address.
 
 ### Request Payload
 
@@ -277,6 +277,70 @@ This document covers endpoints involved in registering new temporary accounts, v
   "message": "Incorrect password",
   "data": null,
   "errors": ["INVALID_CREDENTIALS"]
+}
+```
+
+---
+
+## 🔌 6.1. Step 2 Helper: Resume Onboarding Session with Token
+
+* **Path**: `/api/v1/onboard/resume-session-token/`
+* **Method**: `POST`
+* **Authentication**: Bearer Temporary Token (passed via `Authorization` header)
+* **Description**: Resume onboarding process from the last saved state by passing the temporary token in the `Authorization` header. No request body required.
+
+### Request
+
+```
+POST /api/v1/onboard/resume-session-token/
+Authorization: Bearer eyJhbGciOi...
+```
+
+> No request body needed. The token in the header cryptographically identifies the user.
+
+### Responses
+
+#### 200 OK (Success)
+
+```json
+{
+  "status": true,
+  "message": "Session resumed successfully.",
+  "data": {
+    "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa",
+    "email": "jane@example.com",
+    "phone_number": "919876543210",
+    "step": "BILLING_ADDRESS_REQUIRED",
+    "temporary_token": "eyJhbGciOi...",
+    "plan": {
+      "id": "efb14afc-00dc-45c4-ba74-fa9018b0ebb0",
+      "name": "Starter Plan",
+      "code": "starter_inr"
+    },
+    "billing_breakdown": {
+      "base_price": "2000.00",
+      "discount_amount": "200.00",
+      "net_base_price": "1800.00",
+      "tax_percentage": "18.00",
+      "tax_amount": "324.00",
+      "total_price": "2124.00",
+      "currency": "INR"
+    },
+    "billing_address": null,
+    "razorpay_order_id": null
+  },
+  "errors": null
+}
+```
+
+#### 401 Unauthorized (Invalid / Expired Token)
+
+```json
+{
+  "status": false,
+  "message": "Invalid temporary token or user registration ID",
+  "data": null,
+  "errors": ["INVALID_TEMPORARY_TOKEN"]
 }
 ```
 

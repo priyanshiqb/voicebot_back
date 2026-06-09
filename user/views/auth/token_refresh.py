@@ -1,7 +1,7 @@
 import logging
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
@@ -57,12 +57,50 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
                     message="User account is deleted."
                 )
 
+            # Check active session exists
+            from user.models.user_session import UserSession
+            old_refresh_jti = token.get("jti")
+            try:
+                session = UserSession.objects.get(refresh_jti=old_refresh_jti, is_active=True)
+            except UserSession.DoesNotExist:
+                return self.error(
+                    message="Session is invalid or has been logged out."
+                )
+
             # Validate token officially
             serializer = TokenRefreshSerializer(
                 data=request.data
             )
 
             serializer.is_valid(raise_exception=True)
+
+            # Update session with newly rotated JTIs and expiry
+            try:
+                import datetime
+                from datetime import timezone as dt_timezone
+
+                new_refresh = serializer.validated_data.get("refresh")
+                new_access = serializer.validated_data.get("access")
+
+                new_refresh_token = RefreshToken(new_refresh)
+                new_access_token = AccessToken(new_access)
+
+                new_refresh_jti = new_refresh_token.get("jti")
+                new_access_jti = new_access_token.get("jti")
+                new_exp = new_refresh_token.get("exp")
+                new_expires_at = datetime.datetime.fromtimestamp(new_exp, tz=dt_timezone.utc)
+
+                # Revoke old access token from cache before assigning new one
+                if session.access_jti:
+                    from django.core.cache import cache
+                    cache.set(f"user_session:access:{session.access_jti}", "revoked", timeout=300)
+
+                session.refresh_jti = new_refresh_jti
+                session.access_jti = new_access_jti
+                session.expires_at = new_expires_at
+                session.save(update_fields=["refresh_jti", "access_jti", "expires_at"])
+            except Exception as rotation_err:
+                logger.warning("Failed to rotate UserSession JTIs: %s", str(rotation_err))
 
             return self.success(
                 data=serializer.validated_data,

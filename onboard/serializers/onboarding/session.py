@@ -18,3 +18,5 @@ class ResumeSessionSerializer(serializers.Serializer):
                 "Either email or temp_registration_id must be provided."
             )
         return data
+
+

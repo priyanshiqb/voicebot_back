@@ -15,7 +15,7 @@ from drf_spectacular.utils import extend_schema
 @extend_schema(
     tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Change Temp User Email",
-    description="Updates the email of a temporary unverified onboarding registration, generates a new 5-digit OTP, and sends it to the new email address.",
+    description="Updates the email of a temporary unverified onboarding registration, generates a new 6-digit OTP, and sends it to the new email address.",
     responses={
         200: RegisterPendingResponseSerializer,
         400: GeneralResponseSerializer
@@ -78,8 +78,8 @@ class ChangeEmailView(ResponseMixin, APIView):
         # 1. Update the email on the TempUser record
         temp_user.email = new_email
 
-        # 2. Generate a new 5-digit verification OTP code
-        otp_code = f"{random.randint(10000, 99999)}"
+        # 2. Generate a new 6-digit verification OTP code
+        otp_code = f"{random.randint(100000, 999999)}"
         temp_user.otp_code = otp_code
         temp_user.otp_created_at = timezone.now()
         temp_user.save()

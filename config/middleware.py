@@ -1,6 +1,7 @@
 import uuid
 import time
 import logging
+from django.conf import settings
 
 logger = logging.getLogger("django")
 
@@ -53,3 +54,30 @@ class RequestTracingMiddleware:
         )
         
         return response
+
+
+class ReCaptchaMiddleware:
+    """
+    Middleware to verify the X-ReCaptcha-Token header for a specific list of API requests.
+    Only active if settings.RECAPTCHA_VERIFICATION_ON is True.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Only validate if the feature is toggled ON in settings
+        if getattr(settings, "RECAPTCHA_VERIFICATION_ON", False):
+            path = request.path
+            required_paths = getattr(settings, "RECAPTCHA_REQUIRED_PATHS", [])
+            
+            if path in required_paths:
+                # Fetch x-recaptcha-token from header (case-insensitive lookup)
+                recaptcha_token = request.headers.get("x-recaptcha-token")
+                
+                # As of now, we just fetch it and return True (let request proceed)
+                # Later we will implement how we will verify the token.
+                pass
+
+        return self.get_response(request)
+
+

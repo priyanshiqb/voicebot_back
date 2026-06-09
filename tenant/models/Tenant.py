@@ -68,3 +68,22 @@ class Tenant(BaseModelCore):
                     self.tenant_referral_code = code
                     break
         super().save(*args, **kwargs)
+
+    def send_ws_message_to_tenant(self, event_type, message, data=None):
+        """
+        Broadcasts a WebSocket message to all users and tabs currently connected under this Tenant.
+        """
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+            
+        payload = {
+            "type": "send_update",
+            "event_type": event_type,
+            "message": message,
+            "data": data or {}
+        }
+        async_to_sync(channel_layer.group_send)(f"tenant_{self.id}", payload)

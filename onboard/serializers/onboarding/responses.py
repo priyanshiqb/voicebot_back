@@ -49,6 +49,7 @@ class VerifyOTPResponseSerializer(BaseEnvelopeSerializer):
 class ResumeSessionResponseDataSerializer(serializers.Serializer):
     temp_registration_id = serializers.UUIDField(required=True)
     email = serializers.EmailField(required=True)
+    phone_number = serializers.CharField(required=False, allow_null=True)
     step = serializers.CharField(required=True)
     temporary_token = serializers.CharField(required=False, allow_null=True)
     plan = PlanResponseSerializer(required=False, allow_null=True)

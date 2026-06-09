@@ -15,7 +15,7 @@ from drf_spectacular.utils import extend_schema
 @extend_schema(
     tags=["Onboarding - Signup Flow"],
     summary="Step 2 Helper: Resend Verification OTP",
-    description="Resends a new 5-digit OTP to the registrant's email, subject to a 30-second cooldown period.",
+    description="Resends a new 6-digit OTP to the registrant's email, subject to a 30-second cooldown period.",
     responses={
         200: RegisterPendingResponseSerializer,
         400: GeneralResponseSerializer
@@ -57,8 +57,8 @@ class ResendOTPView(ResponseMixin, APIView):
                     status_code=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Generate a new 5-digit verification OTP code
-        otp_code = f"{random.randint(10000, 99999)}"
+        # Generate a new 6-digit verification OTP code
+        otp_code = f"{random.randint(100000, 999999)}"
         temp_user.otp_code = otp_code
         temp_user.otp_created_at = now
         temp_user.save()

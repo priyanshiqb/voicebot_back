@@ -733,19 +733,19 @@ export default function Home() {
               <div>
                 <h2 className="text-2xl font-bold text-white mb-2">Step 2: Enter Verification OTP</h2>
                 <p className="text-slate-400 text-sm mb-6">
-                  We sent a 5-digit security code to <strong className="text-indigo-400">{email}</strong>. Enter it below to unlock checkout.
+                  We sent a 6-digit security code to <strong className="text-indigo-400">{email}</strong>. Enter it below to unlock checkout.
                 </p>
 
                 <form onSubmit={handleVerifyOtp} className="space-y-6">
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 text-center">
-                      5-Digit OTP Code
+                      6-Digit OTP Code
                     </label>
                     <input
                       type="text"
-                      maxLength={5}
+                      maxLength={6}
                       required
-                      placeholder="e.g. 12345"
+                      placeholder="e.g. 123456"
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value)}
                       className="w-full max-w-xs mx-auto text-center text-2xl font-bold bg-slate-950 border border-slate-800 rounded-lg px-4 py-4 tracking-widest text-indigo-400 focus:outline-none focus:border-indigo-500 transition"

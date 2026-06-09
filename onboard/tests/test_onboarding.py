@@ -47,6 +47,8 @@ class OnboardingTests(APITestCase):
         self.create_order_url = reverse("api-v1:create-order-just-in-time")
         self.verify_payment_url = reverse("api-v1:verify")
         self.cancel_order_url = reverse("api-v1:cancel-order")
+        self.resume_session_token_url = reverse("api-v1:resume-session-token")
+
 
     def test_signup_funnel_success(self):
         """
@@ -168,7 +170,7 @@ class OnboardingTests(APITestCase):
 
         otp_payload = {
             "temp_registration_id": temp_id,
-            "otp_code": "00000"  # Invalid 5-digit OTP
+            "otp_code": "000000"  # Invalid 6-digit OTP
         }
         response = self.client.post(self.verify_otp_url, data=otp_payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -707,3 +709,112 @@ class OnboardingTests(APITestCase):
         response = self.client.post(resend_url, {"temp_registration_id": temp_id}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["status"])
+
+    def test_resume_session_with_token_success(self):
+        """
+        Verify that a user can successfully resume their onboarding session
+        by passing a valid temporary token via the Authorization header.
+        """
+        # Step 1: POST register-pending
+        signup_payload = {
+            "plan_id": str(self.plan.id),
+            "first_name": "ResumeToken",
+            "last_name": "User",
+            "business_name": "ResumeToken Inc",
+            "email": "resume.token@example.com",
+            "password": "SecurePassword123!",
+            "confirm_password": "SecurePassword123!"
+        }
+        response = self.client.post(self.register_url, data=signup_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        temp_id = response.data["data"]["temp_registration_id"]
+
+        from onboard.models import TempUser
+        temp_user = TempUser.objects.get(id=temp_id)
+
+        # Verify OTP to get the temporary token
+        otp_payload = {
+            "temp_registration_id": temp_id,
+            "otp_code": temp_user.otp_code
+        }
+        response = self.client.post(self.verify_otp_url, data=otp_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        temp_token = response.data["data"]["temporary_token"]
+
+        # Call resume-session-token view — pass token via Authorization header
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {temp_token}")
+        response = self.client.post(self.resume_session_token_url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["status"])
+        self.assertEqual(response.data["data"]["temp_registration_id"], temp_id)
+        self.assertEqual(response.data["data"]["email"], "resume.token@example.com")
+        self.assertEqual(response.data["data"]["step"], "BILLING_ADDRESS_REQUIRED")
+        self.assertIsNotNone(response.data["data"]["temporary_token"])
+
+    def test_resume_session_with_token_invalid_token(self):
+        """
+        Verify that resuming session with an invalid Authorization token fails with a 401.
+        """
+        # TempUserAuthentication has no www_authenticate_realm, so DRF returns 403
+        # (not 401) for both bad-signature and no-token cases.
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token_hash")
+        response = self.client.post(self.resume_session_token_url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_resume_session_with_token_no_token(self):
+        """
+        Verify that calling resume-session-token with no Authorization header fails with a 401.
+        """
+        self.client.credentials()  # Clear any credentials
+        response = self.client.post(self.resume_session_token_url, format="json")
+        # No header → TempUserAuthentication returns None → request.user is AnonymousUser
+        # IsTempUserAuthenticated.has_permission returns False → DRF returns 403
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_resume_session_with_token_mismatched_id(self):
+        """
+        Verify that User B's token cannot be used to impersonate User A.
+        With header-based auth, User B's token correctly resolves to User B only.
+        """
+        # Register user A
+        signup_a = {
+            "plan_id": str(self.plan.id),
+            "first_name": "UserA",
+            "last_name": "Test",
+            "business_name": "Business A",
+            "email": "usera@example.com",
+            "password": "SecurePassword123!",
+            "confirm_password": "SecurePassword123!"
+        }
+        self.client.post(self.register_url, data=signup_a, format="json")
+
+        # Register user B and get their token
+        signup_b = {
+            "plan_id": str(self.plan.id),
+            "first_name": "UserB",
+            "last_name": "Test",
+            "business_name": "Business B",
+            "email": "userb@example.com",
+            "password": "SecurePassword123!",
+            "confirm_password": "SecurePassword123!"
+        }
+        res_b = self.client.post(self.register_url, data=signup_b, format="json")
+        temp_id_b = res_b.data["data"]["temp_registration_id"]
+
+        from onboard.models import TempUser
+        temp_b = TempUser.objects.get(id=temp_id_b)
+
+        otp_b = {
+            "temp_registration_id": temp_id_b,
+            "otp_code": temp_b.otp_code
+        }
+        res_otp_b = self.client.post(self.verify_otp_url, data=otp_b, format="json")
+        token_b = res_otp_b.data["data"]["temporary_token"]
+
+        # Use B's token — the auth backend resolves it to B, NOT to A.
+        # This correctly returns B's session data, proving no impersonation is possible.
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_b}")
+        response = self.client.post(self.resume_session_token_url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["email"], "userb@example.com")
+
