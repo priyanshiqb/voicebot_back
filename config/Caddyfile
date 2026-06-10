@@ -42,3 +42,19 @@ grafana.{$DOMAIN} {
 prometheus.{$DOMAIN} {
     reverse_proxy prometheus:9090
 }
+
+# 6. Log Engine (Loki)
+loki.{$DOMAIN} {
+    reverse_proxy loki:3100
+}
+
+# 7. Azurite Storage Emulator Services
+azurite-blob.{$DOMAIN} {
+    reverse_proxy azurite:10000
+}
+azurite-queue.{$DOMAIN} {
+    reverse_proxy azurite:10001
+}
+azurite-table.{$DOMAIN} {
+    reverse_proxy azurite:10002
+}

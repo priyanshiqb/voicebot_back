@@ -6,7 +6,7 @@ This document outlines the hardware requirements, operating system kernel tuning
 
 ## 1. Host VM Hardware Sizing Tiers
 
-The baseline memory footprint of all containers running together is **~1.3 GB to 1.5 GB** under idle state. This footprint excludes host OS kernel requirements (~500 MB).
+The baseline memory footprint of all containers running together is **~1.4 GB to 1.8 GB** under idle state. This footprint excludes host OS kernel requirements (~500 MB).
 
 | Specification | Starter Tier (Dev/QA/Low-traffic) | Recommended Production (Scale-ready) | High-Traffic Production (Heavy Voice/WS load) |
 | :--- | :--- | :--- | :--- |
@@ -30,15 +30,17 @@ The table below lists each service inside the stack, its host network binding in
 | Service Name | Host Binding Interface | Domain Routing (Caddy) | Avg. Memory (Idle) | Max Connections | Per-Connection Overhead |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`caddy`** | `0.0.0.0:80`<br>`0.0.0.0:443` | `localhost` *(Gateway)* | **30 - 50 MB** | **10,000+** | **~10 KB - 20 KB** (Keep-alive socket) |
-| **`backend-wsgi`** | `127.0.0.1:8001` | `localhost` *(HTTP)* | **150 - 250 MB** | **16 concurrent** | **~25 MB** (Pre-allocated worker thread) |
-| **`backend-asgi`** | `127.0.0.1:8002` | `localhost` *(WebSockets)* | **70 - 120 MB** | **1,000 - 5,000+** | **~15 KB - 30 KB** (Idle socket handle) |
-| **`postgres`** | `127.0.0.1:5579` | *Internal network only* | **100 - 300 MB** | **100** (Default) | **~10 MB** (Postgres worker process) |
+| **`backend-wsgi`** | `${BIND_IP}:8001` | `localhost` *(HTTP)* | **150 - 250 MB** | **16 concurrent** | **~25 MB** (Pre-allocated worker thread) |
+| **`backend-asgi`** | `${BIND_IP}:8002` | `localhost` *(WebSockets)* | **70 - 120 MB** | **1,000 - 5,000+** | **~15 KB - 30 KB** (Idle socket handle) |
+| **`postgres`** | `${BIND_IP}:5579` | *Internal network only* | **100 - 300 MB** | **100** (Default) | **~10 MB** (Postgres worker process) |
 | **`pgbouncer`** | *Internal only* | *Internal network only* | **10 - 20 MB** | **1,000** | **~2 KB** (Connection handle metadata) |
-| **`pgadmin`** | `127.0.0.1:5560` | `pgadmin.localhost` | **80 - 150 MB** | **~100** | **~50 KB - 100 KB** (Dashboard UI state) |
-| **`redis`** | `127.0.0.1:6379` | *Internal network only* | **20 - 50 MB** | **10,000** | **~20 KB** (Client session handle) |
-| **`redis-insight`**| `127.0.0.1:5561` | `redisinsight.localhost` | **100 - 200 MB** | **~50** | **~100 KB** (GUI dashboard session) |
-| **`grafana`** | `127.0.0.1:3099` | `grafana.localhost` | **120 - 200 MB** | **~500** | **~50 KB** (Dashboard user instance) |
-| **`azurite`** | `127.0.0.1:10000-02` | *Internal network only* | **60 - 120 MB** | **~500** | **~15 KB** (Operation payload context) |
+| **`pgadmin`** | `${BIND_IP}:5560` | `pgadmin.localhost` | **80 - 150 MB** | **~100** | **~50 KB - 100 KB** (Dashboard UI state) |
+| **`redis`** | `${BIND_IP}:6379` | *Internal network only* | **20 - 50 MB** | **10,000** | **~20 KB** (Client session handle) |
+| **`redis-insight`**| `${BIND_IP}:5561` | `redisinsight.localhost` | **100 - 200 MB** | **~50** | **~100 KB** (GUI dashboard session) |
+| **`grafana`** | `${BIND_IP}:3099` | `grafana.localhost` | **120 - 200 MB** | **~500** | **~50 KB** (Dashboard user instance) |
+| **`loki`** | `${BIND_IP}:3100` | `loki.localhost` | **40 - 80 MB** | **~1,000** | **~10 KB** (Log pushing client) |
+| **`prometheus`** | `${BIND_IP}:9090` | `prometheus.localhost` | **80 - 150 MB** | **~500** | **~30 KB** (Metrics scraping client) |
+| **`azurite`** | `${BIND_IP}:10000-02` | `azurite-blob.localhost`<br>`azurite-queue.localhost`<br>`azurite-table.localhost` | **60 - 120 MB** | **~500** | **~15 KB** (Operation payload context) |
 
 ---
 
