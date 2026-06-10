@@ -5,7 +5,8 @@ from urllib.parse import parse_qs
 from channels.generic.websocket import AsyncWebsocketConsumer
 from core.constants.ws_errors import WSErrors
 from utils.websocket.group_builder import GroupNameBuilder
-from main.settings import logger
+import logging
+logger = logging.getLogger(__name__)
 
 class BaseConsumer(AsyncWebsocketConsumer):
     """

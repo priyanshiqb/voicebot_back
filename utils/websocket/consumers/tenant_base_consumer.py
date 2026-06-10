@@ -2,8 +2,9 @@ from channels.db import database_sync_to_async
 from core.constants.ws_errors import WSErrors
 from utils.websocket.group_builder import GroupNameBuilder
 from utils.websocket.consumers.base_consumer import BaseConsumer
-from onboard.models.tenant.tenant_model import Tenant
-from main.settings import logger
+from tenant.models import Tenant
+import logging
+logger = logging.getLogger(__name__)
 
 class TenantBaseConsumer(BaseConsumer):
     """

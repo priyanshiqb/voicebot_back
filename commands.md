@@ -5,9 +5,15 @@ This cheatsheet provides all standard developer commands in a quick-copy format.
 ---
 
 ## 💡 Quick Overview of Docker Compose Files
-* **`docker-compose.yml`**: Defines the single core unified Daphne backend application.
-* **`docker-compose.override.yml`**: Extends the configuration for local development. By default, running `docker compose` loads **both** files together, spinning up the backend plus local PostgreSQL, PGAdmin, Redis, and RedisInsight.
-* **To Bypass Override (Remote/Cloud DBs)**: Pass the `-f docker-compose.yml` flag to start *only* the Daphne application.
+* **`docker-compose.yml`**: The single, unified configuration file managing all environments (development, production, databases, caches, monitoring, and storage emulation).
+* **Docker Compose Profiles**: Controls which services spin up. Profiles are managed inside `.env.django.docker` using the `COMPOSE_PROFILES` environment variable:
+  - `dev`: Daphne development server (with code hot-reloading).
+  - `prod`: Gunicorn production workers (no local mounts).
+  - `databases`: Runs PgBouncer, PostgreSQL, and pgAdmin.
+  - `caches`: Runs Redis and RedisInsight.
+  - `monitoring`: Runs Loki, Prometheus, and Grafana.
+  - `emulators`: Runs Azurite.
+  - `gateway`: Runs Caddy reverse proxy for subdomain/domain routing.
 
 ---
 
@@ -58,8 +64,8 @@ uv run python manage.py load_data plan --settings=config.settings.local
 
 ## 🚢 2. Docker Compose Commands
 
-### Boot Local Development (Backend + Local PostgreSQL + Caching)
-Loads both `docker-compose.yml` and `docker-compose.override.yml` collectively:
+### Boot Local Development (Backend + Local PostgreSQL + Caching + Monitoring + Emulators + Gateway)
+Ensure `COMPOSE_PROFILES=dev,databases,caches,monitoring,emulators,gateway` is set in `.env.django.docker`:
 ```bash
 docker compose --env-file .env.django.docker up --build
 ```
@@ -69,10 +75,16 @@ docker compose --env-file .env.django.docker up --build
 docker compose --env-file .env.django.docker up -d --build
 ```
 
-### Boot Daphne ONLY (Bypassing Local DBs / Using Remote Cloud DBs)
-Loads *only* the primary compose file to disable Postgres/Redis containers:
+### Boot Daphne ONLY (Bypassing Local DBs / Caches / Monitoring / Gateway)
+Change `COMPOSE_PROFILES` to `dev` in `.env.django.docker` or run explicitly:
 ```bash
-docker compose --env-file .env.django.docker -f docker-compose.yml up --build
+docker compose --env-file .env.django.docker --profile dev up --build
+```
+
+### Boot Production Environment (Split WSGI Gunicorn + ASGI Daphne + Gateway)
+Change `COMPOSE_PROFILES` to `prod,databases,caches,monitoring,gateway` (or omitting local DB profiles if using cloud DBs) and run:
+```bash
+docker compose --env-file .env.django.docker up --build
 ```
 
 ### Stop All Active Containers
@@ -95,34 +107,37 @@ docker compose --env-file .env.django.docker logs -f
 
 ## 📥 3. Operations Inside Running Docker Containers
 
+> [!NOTE]
+> Replace `backend-dev` with `backend-wsgi` (or `backend-asgi` as needed) if you are executing commands inside the production environment container.
+
 ### Scan for Model Changes inside Container (Makemigrations)
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py makemigrations
+docker compose --env-file .env.django.docker exec backend-dev python manage.py makemigrations
 ```
 
 ### Apply Database Migrations inside Container (Migrate)
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py migrate
+docker compose --env-file .env.django.docker exec backend-dev python manage.py migrate
 ```
 
 ### Create a Superuser inside Container
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py createsuperuser
+docker compose --env-file .env.django.docker exec backend-dev python manage.py createsuperuser
 ```
 
 ### Run Django Unit Tests inside Container
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py test onboard
+docker compose --env-file .env.django.docker exec backend-dev python manage.py test onboard
 ```
 
 ### Seed Database (All Fixtures) inside Container
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py load_data all
+docker compose --env-file .env.django.docker exec backend-dev python manage.py load_data all
 ```
 
 ### Seed Specific Model Fixture inside Container
 ```bash
-docker compose --env-file .env.django.docker exec backend python manage.py load_data plan
+docker compose --env-file .env.django.docker exec backend-dev python manage.py load_data plan
 ```
 
 
@@ -143,10 +158,10 @@ docker compose --env-file .env.django.docker exec redis redis-cli
 ### Gain Root Access inside the Daphne Container
 Enter the backend container as `root` for administrative operations (installs, configs, etc.):
 ```bash
-docker compose --env-file .env.django.docker exec -u root backend bash
+docker compose --env-file .env.django.docker exec -u root backend-dev bash
 ```
 
 ### Gain Standard User Access inside the Daphne Container
 ```bash
-docker compose --env-file .env.django.docker exec backend bash
+docker compose --env-file .env.django.docker exec backend-dev bash
 ```

@@ -18,6 +18,13 @@ if 'test' in sys.argv:
 
     atexit.register(cleanup_test_media)
 
+    # Use in-memory channel layers for testing isolation
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
+
 # Logging Configuration for Local Development
 LOGGING = {
     "version": 1,

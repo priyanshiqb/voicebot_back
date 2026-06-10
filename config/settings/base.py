@@ -231,9 +231,13 @@ RECAPTCHA_REQUIRED_PATHS = [
 
 # SimpleJWT Configurations
 from datetime import timedelta
+
+ACCESS_TOKEN_LIFETIME_SECONDS = 60 * 60  # 60 minutes
+REFRESH_TOKEN_LIFETIME_SECONDS = 60 * 60 * 24 * 7  # 7 days
+
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(seconds=ACCESS_TOKEN_LIFETIME_SECONDS),
+    "REFRESH_TOKEN_LIFETIME": timedelta(seconds=REFRESH_TOKEN_LIFETIME_SECONDS),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,

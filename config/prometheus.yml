@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # Loki internal metrics (handy for health)
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  # Grafana internal metrics (optional but useful)
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]

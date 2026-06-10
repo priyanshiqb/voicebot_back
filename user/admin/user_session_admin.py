@@ -27,6 +27,10 @@ class UserSessionAdmin(BaseAdminCore):
     readonly_fields = BaseAdminCore.readonly_fields + (
         "refresh_jti",
         "access_jti",
+        "refresh_iat",
+        "refresh_exp",
+        "access_iat",
+        "access_exp",
     )
 
     fieldsets = (
@@ -45,7 +49,11 @@ class UserSessionAdmin(BaseAdminCore):
             {
                 "fields": (
                     "refresh_jti",
+                    "refresh_iat",
+                    "refresh_exp",
                     "access_jti",
+                    "access_iat",
+                    "access_exp",
                     "is_active",
                     "expires_at",
                 )

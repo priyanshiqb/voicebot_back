@@ -27,13 +27,8 @@ def get_user_from_token(token_string):
             user = User.objects.get(id=user_id, is_active=True)
             
             from user.models.user_session import UserSession
-            from django.utils import timezone
             try:
-                session = UserSession.objects.get(
-                    access_jti=jti, 
-                    is_active=True, 
-                    expires_at__gt=timezone.now()
-                )
+                session = UserSession.validate_session_jti(jti)
                 return user, session, None
             except UserSession.DoesNotExist:
                 return None, None, "Session is invalid or logged out"

@@ -1,23 +1,35 @@
 # Developer Guide: B2B Multi-Tenant Docker Orchestration
 
-This guide details the high-performance containerization architecture of the Voicebot backend, featuring **Unified Daphne Orchestration** for handling both HTTP and WebSockets collectively.
+This guide details the high-performance containerization architecture of the Voicebot backend, featuring a unified single-file Compose configuration with profiles and a Caddy Reverse Proxy / API Gateway acting as a routing gate for the Split WSGI/ASGI services.
 
 ---
 
 ## 1. Core Architecture Overview
 
-To simplify development and deployment workflows, all incoming application traffic goes through a single, high-performance service cluster:
+To simplify development, routing, and deployment workflows, all incoming application traffic goes through a single, high-performance gateway service:
 
-*   **`api` (Unified Daphne Server)**: Runs **Daphne** on port `8000`. Because Daphne natively supports both standard HTTP protocol (REST APIs, Admin panels) and persistent real-time WebSocket protocol concurrently, a single port handles all operations seamlessly.
+*   **`caddy` (API Gateway & Reverse Proxy)**: Binds to ports `80` and `443`. It terminates SSL/TLS (in production) and forwards requests dynamically:
+    *   Subdomain routing maps to administration tools (pgAdmin, RedisInsight) and observability suites (Grafana, Prometheus).
+    *   The primary domain (e.g., `localhost` or your server's domain/IP) routes all HTTP/WebSocket requests to the backend Django servers.
+*   **Django Application Servers**:
+    *   **`backend-wsgi` (Production - HTTP)**: Runs Gunicorn (WSGI) on port `8000` for high-performance multi-process HTTP (REST APIs, Admin panel) request handling.
+    *   **`backend-asgi` (Production - WebSockets)**: Runs Daphne (ASGI) on port `8000` dedicated to persistent WebSocket traffic.
+    *   **`backend-dev` (Development - Unified)**: Runs Daphne on port `8000` handling both HTTP and WebSockets with volume mounts and hot-reloading for rapid local code iteration.
 
 ---
 
-## 2. Multi-File Compose Setup (The "On/Off" DB Design)
+## 2. Unified Profile-Based Orchestration
 
-We split Compose configurations into two files to allow easy toggling of local database containers.
+Instead of multiple overridden files, the project uses a single `docker-compose.yml` configuration. Services are grouped using **Docker Compose Profiles** which are controlled dynamically via the `COMPOSE_PROFILES` environment variable inside your `.env.django.docker` file.
 
-*   **`docker-compose.yml` (Base File)**: Defines *only* the application server (`api` running Daphne). This is the exact configuration used in production environments.
-*   **`docker-compose.override.yml` (Local Dev Override)**: Merged automatically during local runs. It spins up local Postgres and Redis databases, maps ports, and mounts volumes for hot-reloading.
+### Available Profiles:
+1.  **`dev`**: Starts the Daphne development backend container (with local code mounting and hot-reloading).
+2.  **`prod`**: Starts the production-grade split `backend-wsgi` and `backend-asgi` backend containers.
+3.  **`databases`**: Runs PostgreSQL (with PgBouncer connection pooling and pgAdmin UI).
+4.  **`caches`**: Runs Redis (for caching and channels layers, with RedisInsight dashboard).
+5.  **`monitoring`**: Runs Prometheus (metrics), Loki (log aggregator), and Grafana (dashboards).
+6.  **`emulators`**: Runs Azurite (local Azure Blob/Queue/Table storage emulator).
+7.  **`gateway`**: Runs Caddy as the central reverse proxy.
 
 ---
 
@@ -36,35 +48,27 @@ REDIS_URL=redis://localhost:26379/0
 ### B. Container Environment (`.env.django.docker`)
 Used when running Django **inside Docker containers**. It resolves backing databases using private bridge network container hosts:
 ```env
-# PostgreSQL URL pointing to 'postgres'
-DATABASE_URL=postgres://voicebot_user:secure_password@postgres:5432/voicebot_db
+# PostgreSQL URL pointing to 'pgbouncer'
+DATABASE_URL=postgres://postgres:secure_password@pgbouncer:5432/voicebot_db
 REDIS_URL=redis://redis:6379/0
 ```
 
 ---
 
-## 4. Terminal Commands Cheatsheet
+## 4. API Gateway Routing & Subdomains
 
-### A. Working INSIDE this Backend Repository (`voicebot_back/`)
+When the `gateway` profile is active, Caddy exposes ports `80` and `443` on the host. By default, it routes the following domains (where `localhost` is the default value of the `DOMAIN` environment variable):
 
-Use these commands when developing exclusively on the backend:
-
-| Scenario | Command | Result |
+| Service | Address | Proxies To (Internal Network) |
 | :--- | :--- | :--- |
-| **Local Development**<br>*(Local Postgres & Redis ON)* | `docker compose --env-file .env.django.docker up --build` | Boots Daphne (port 8000), local Postgres, and local Redis collectively with **code hot-reloading**. |
-| **Testing Cloud DBs**<br>*(Local Postgres & Redis OFF)* | `docker compose --env-file .env.django.docker -f docker-compose.yml up --build` | Boots Daphne only. Bypasses local DB containers and connects straight to your remote database. |
-| **Tear Down Everything** | `docker compose --env-file .env.django.docker down -v` | Safely stops containers and clears local volumes. |
+| **Django WSGI / Dev** | `http://localhost` | `backend-wsgi:8000` (production HTTP) or `backend-dev:8000` (development) |
+| **Django ASGI / Dev** | `http://localhost` (WebSocket headers) | `backend-asgi:8000` (production WS) or `backend-dev:8000` (development) |
+| **pgAdmin** | `http://pgadmin.localhost` | `pgadmin:80` |
+| **RedisInsight** | `http://redisinsight.localhost` | `redis-insight:5540` |
+| **Grafana** | `http://grafana.localhost` | `grafana:3000` |
+| **Prometheus** | `http://prometheus.localhost` | `prometheus:9090` |
 
----
-
-### B. Working at the MASTER Repository Level
-
-When this repo is integrated as a submodule alongside the Frontend inside your Master repository:
-
-| Scenario | Command | Result |
-| :--- | :--- | :--- |
-| **Local Unified Dev**<br>*(Local DBs ON)* | `docker compose --env-file .env.django.docker up --build` | Boots Frontend, Daphne (port 8000), Caddy, local Postgres, and local Redis together with **hot-reloading**. |
-| **Production / Staging**<br>*(Local DBs OFF)* | `docker compose --env-file .env.django.docker -f docker-compose.yml up -d --build` | Boots Frontend, Daphne (port 8000), and Caddy. Connects cleanly to cloud-managed database instances. |
+*Note: For production, you can replace `localhost` by setting `DOMAIN=yourdomain.com` in your environment file, and Caddy will automatically manage Let's Encrypt SSL certificates using the configured `ACME_EMAIL`.*
 
 ---
 
@@ -80,11 +84,10 @@ Our production-ready `Dockerfile` implements standard-compliant enterprise secur
 
 ## 6. Troubleshooting & Root Access
 
-Because our container is hardened and runs as the non-root user `django` for security, running standard user switching (`su`) directly inside the container will prompt for a password that is intentionally unset.
+Because our backend container is hardened and runs as the non-root user `django` for security, running standard user switching (`su`) directly inside the container will prompt for a password that is intentionally unset.
 
 To bypass password prompts and enter the container as **`root`** for hot-fixes, debugging, or custom logs, simply pass the `-u root` flag when connecting:
 
 ```bash
-docker compose --env-file .env.django.docker exec -u root api bash
+docker compose --env-file .env.django.docker exec -u root backend-dev bash
 ```
-

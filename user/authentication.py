@@ -3,6 +3,9 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.utils import timezone
 from user.models.user_session import UserSession
 
+import logging
+logger = logging.getLogger(__name__)
+
 class CachedJWTAuthentication(JWTAuthentication):
     """
     Subclass of JWTAuthentication to verify that the access token JTI
@@ -14,40 +17,10 @@ class CachedJWTAuthentication(JWTAuthentication):
         
         jti = validated_token.get("jti")
         if jti:
-            from django.core.cache import cache
-            
-            cache_key = f"user_session:access:{jti}"
-            cache_key_last_used = f"user_session:last_used:{jti}"
-            
-            status = cache.get(cache_key)
-            last_cached_used = cache.get(cache_key_last_used)
-            now = timezone.now()
-            
-            if status == "revoked":
-                raise AuthenticationFailed("Session is invalid or logged out.")
-            
-            if status == "active" and last_cached_used:
-                # Throttled cache hit: skip DB access if updated within the last 60 seconds
-                if (now.timestamp() - last_cached_used) < 60:
-                    return validated_token
-            
-            # Fallback/Update from DB
             try:
-                session = UserSession.objects.get(
-                    access_jti=jti,
-                    is_active=True,
-                    expires_at__gt=now
-                )
+                UserSession.validate_session_jti(jti)
             except UserSession.DoesNotExist:
-                cache.set(cache_key, "revoked", timeout=300)
                 raise AuthenticationFailed("Session is invalid or logged out.")
-            
-            # Update last used in database (throttled to once per 60 seconds)
-            session.update_last_used()
-            
-            # Cache active status and current last_used timestamp
-            cache.set(cache_key, "active", timeout=300)
-            cache.set(cache_key_last_used, now.timestamp(), timeout=300)
                 
         return validated_token
 

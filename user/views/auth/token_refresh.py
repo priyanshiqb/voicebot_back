@@ -12,6 +12,12 @@ from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")
 
+import datetime
+from datetime import timezone as dt_timezone
+from django.core.cache import cache
+from django.utils import timezone
+from django.conf import settings
+from user.models.user_session import UserSession
 
 @extend_schema(
     tags=["Auth - Access"],
@@ -58,7 +64,6 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
                 )
 
             # Check active session exists
-            from user.models.user_session import UserSession
             old_refresh_jti = token.get("jti")
             try:
                 session = UserSession.objects.get(refresh_jti=old_refresh_jti, is_active=True)
@@ -76,9 +81,6 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
 
             # Update session with newly rotated JTIs and expiry
             try:
-                import datetime
-                from datetime import timezone as dt_timezone
-
                 new_refresh = serializer.validated_data.get("refresh")
                 new_access = serializer.validated_data.get("access")
 
@@ -87,18 +89,44 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
 
                 new_refresh_jti = new_refresh_token.get("jti")
                 new_access_jti = new_access_token.get("jti")
-                new_exp = new_refresh_token.get("exp")
-                new_expires_at = datetime.datetime.fromtimestamp(new_exp, tz=dt_timezone.utc)
+                
+                new_refresh_iat_val = new_refresh_token.get("iat")
+                new_refresh_exp_val = new_refresh_token.get("exp")
+                new_access_iat_val = new_access_token.get("iat")
+                new_access_exp_val = new_access_token.get("exp")
+                
+                new_refresh_iat = datetime.datetime.fromtimestamp(new_refresh_iat_val, tz=dt_timezone.utc) if new_refresh_iat_val else None
+                new_refresh_exp = datetime.datetime.fromtimestamp(new_refresh_exp_val, tz=dt_timezone.utc) if new_refresh_exp_val else None
+                new_access_iat = datetime.datetime.fromtimestamp(new_access_iat_val, tz=dt_timezone.utc) if new_access_iat_val else None
+                new_access_exp = datetime.datetime.fromtimestamp(new_access_exp_val, tz=dt_timezone.utc) if new_access_exp_val else None
+
+                new_expires_at = new_refresh_exp or (datetime.datetime.now(tz=dt_timezone.utc) + datetime.timedelta(days=1))
 
                 # Revoke old access token from cache before assigning new one
                 if session.access_jti:
-                    from django.core.cache import cache
-                    cache.set(f"user_session:access:{session.access_jti}", "revoked", timeout=300)
+                    timeout = settings.ACCESS_TOKEN_LIFETIME_SECONDS
+                    if session.access_exp:
+                        remaining = int(session.access_exp.timestamp() - timezone.now().timestamp())
+                        timeout = max(60, remaining)
+                        
+                    cache.set(f"user_session:access:{session.access_jti}", "revoked", timeout=timeout)
 
                 session.refresh_jti = new_refresh_jti
                 session.access_jti = new_access_jti
+                session.access_iat = new_access_iat
+                session.access_exp = new_access_exp
+                session.refresh_iat = new_refresh_iat
+                session.refresh_exp = new_refresh_exp
                 session.expires_at = new_expires_at
-                session.save(update_fields=["refresh_jti", "access_jti", "expires_at"])
+                session.save(update_fields=[
+                    "refresh_jti", 
+                    "access_jti", 
+                    "access_iat", 
+                    "access_exp", 
+                    "refresh_iat", 
+                    "refresh_exp", 
+                    "expires_at"
+                ])
             except Exception as rotation_err:
                 logger.warning("Failed to rotate UserSession JTIs: %s", str(rotation_err))
 
