@@ -1,0 +1,149 @@
+(error_handler) {
+    handle_errors {
+        @offline expression {err.status_code} in [502, 503]
+        handle @offline {
+            rewrite * /error-502.html
+            file_server {
+                root /var/www/html
+            }
+        }
+    }
+}
+
+(basic_auth) {
+    basicauth {
+        {$GATEWAY_BASIC_AUTH_USER} {$GATEWAY_BASIC_AUTH_PASSWORD_HASH}
+    }
+}
+
+(security_headers) {
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Permissions-Policy "interest-cohort=()"
+        Cross-Origin-Opener-Policy "same-origin"
+        Cross-Origin-Resource-Policy "same-origin"
+        -Server
+    }
+}
+
+(compression) {
+    encode zstd gzip
+}
+
+# Global configuration block
+{
+    email {$ACME_EMAIL}
+}
+
+# 1a. REST API Gateway (Django WSGI Gunicorn Server)
+api.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy {$WSGI_HOST}:8000
+
+    log {
+        output file /var/log/caddy/api_access.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
+
+# 1b. WebSockets Gateway (Django ASGI Daphne Server)
+ws.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy {$ASGI_HOST}:8000
+
+    log {
+        output file /var/log/caddy/ws_access.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
+
+# 2. Database Administration (pgAdmin)
+pgadmin.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy pgadmin:80
+}
+
+# 3. Redis Dashboard (RedisInsight)
+redisinsight.{$DOMAIN} {
+    import error_handler
+    import basic_auth
+    import security_headers
+    import compression
+    reverse_proxy redis-insight:5540
+}
+
+# 4. Observability Dashboard (Grafana)
+grafana.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy grafana:3000
+}
+
+# 5. Metrics Engine (Prometheus)
+prometheus.{$DOMAIN} {
+    import error_handler
+    import basic_auth
+    import security_headers
+    import compression
+    reverse_proxy prometheus:9090
+}
+
+# 6. Log Engine (Loki)
+loki.{$DOMAIN} {
+    import error_handler
+    import basic_auth
+    import security_headers
+    import compression
+    reverse_proxy loki:3100
+}
+
+# 7. Azurite Storage Emulator Services
+azurite-blob.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy azurite:10000
+}
+azurite-queue.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy azurite:10001
+}
+azurite-table.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy azurite:10002
+}
+
+# 8a. Secure Fallback Subdomain (Contains Valid SSL)
+notfound.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    root * /var/www/html
+    file_server
+    rewrite * /unconfigured.html
+}
+
+# 8b. HTTP Redirection Catch-all
+http://*.{$DOMAIN} {
+    redir https://notfound.{$DOMAIN}
+}
+

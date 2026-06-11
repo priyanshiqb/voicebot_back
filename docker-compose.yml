@@ -9,6 +9,11 @@ services:
     command: gunicorn config.wsgi:application --workers 4 --threads 4 --bind 0.0.0.0:8000
     ports:
       - "${BIND_IP}:${WSGI_PORT}:8000"
+    env_file:
+      - .env.shared
+      - .env.django.docker
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.production}
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -33,6 +38,11 @@ services:
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     ports:
       - "${BIND_IP}:${ASGI_PORT}:8000"
+    env_file:
+      - .env.shared
+      - .env.django.docker
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.production}
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -64,6 +74,11 @@ services:
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     ports:
       - "${BIND_IP}:${DAPHNE_PORT}:8000"
+    env_file:
+      - .env.shared
+      - .env.django.docker
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.local}
     volumes:
       - .:/app
       - /app/.venv
@@ -245,7 +260,7 @@ services:
       - monitoring
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
-      - ./config/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - ./docker-config/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ./.data/loki:/loki
     ports:
       - "${BIND_IP}:${LOKI_PORT}:3100"
@@ -265,7 +280,7 @@ services:
     profiles:
       - monitoring
     volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./.data/prometheus:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -319,8 +334,11 @@ services:
       - WSGI_HOST=${WSGI_HOST}
       - ASGI_HOST=${ASGI_HOST}
       - ACME_EMAIL=${ACME_EMAIL}
+      - GATEWAY_BASIC_AUTH_USER=${GATEWAY_BASIC_AUTH_USER}
+      - GATEWAY_BASIC_AUTH_PASSWORD_HASH=${GATEWAY_BASIC_AUTH_PASSWORD_HASH}
     volumes:
-      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker-config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker-config/html:/var/www/html:ro
       - ./.data/caddy/data:/data
       - ./.data/caddy/config:/config
     networks:
