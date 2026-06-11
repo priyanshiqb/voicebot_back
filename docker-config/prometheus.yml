@@ -17,3 +17,31 @@ scrape_configs:
   - job_name: grafana
     static_configs:
       - targets: ["grafana:3000"]
+
+  # Django Local Dev Metrics
+  - job_name: django-dev
+    metrics_path: /prom-metrics/
+    static_configs:
+      - targets: ["backend-dev:8000"]
+
+  # Django Prod WSGI Metrics
+  - job_name: django-prod-wsgi
+    metrics_path: /prom-metrics/
+    static_configs:
+      - targets: ["backend-wsgi:8000"]
+
+  # Django Prod ASGI Metrics
+  - job_name: django-prod-asgi
+    metrics_path: /prom-metrics/
+    static_configs:
+      - targets: ["backend-asgi:8000"]
+
+  # PostgreSQL Metrics via Exporter
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # Redis Metrics via Exporter
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]

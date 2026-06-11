@@ -60,6 +60,11 @@ uv run python manage.py load_data all
 uv run python manage.py load_data plan
 ```
 
+### Generate Secure Production Credentials & Hashes
+```bash
+python docker-config/generate_secrets.py
+```
+
 ---
 
 ## 🚢 2. Docker Compose Commands

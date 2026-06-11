@@ -9,15 +9,35 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Initialize environ
 env = environ.Env()
+loaded_files = []
+
 # 1. Read shared environment variables first
 shared_env_path = os.path.join(BASE_DIR, ".env.shared")
 if os.path.exists(shared_env_path):
     environ.Env.read_env(shared_env_path)
+    loaded_files.append(".env.shared")
+
 # 2. Read environment-specific overrides (defaulting to .env.django.local)
 env_file = os.environ.get("ENV_FILE", ".env.django.local")
 env_path = os.path.join(BASE_DIR, env_file)
 if os.path.exists(env_path):
     environ.Env.read_env(env_path)
+    loaded_files.append(env_file)
+
+# Log settings initialization details to console
+import sys
+import logging
+
+boot_logger = logging.getLogger("django.boot")
+if not boot_logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter('[Django Boot] %(message)s'))
+    boot_logger.addHandler(handler)
+    boot_logger.setLevel(logging.INFO)
+
+settings_module = os.environ.get("DJANGO_SETTINGS_MODULE", "config.settings.local")
+boot_logger.info(f"Loaded env files: {loaded_files or 'None (using system env)'}")
+boot_logger.info(f"Active settings module: {settings_module}")
 
 
 DEBUG = env.bool('DJANGO_DEBUG', default=False)
@@ -73,6 +93,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_filters",
     "defender",
+    "django_prometheus",
     
     # OTP & Two-Factor Authentication
     "django_otp",
@@ -103,6 +124,7 @@ CORS_ALLOW_HEADERS = [
 ]
 
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "config.middleware.RequestTracingMiddleware",  # Dynamic Request ID tracking
     "config.middleware.ReCaptchaMiddleware",
@@ -115,6 +137,7 @@ MIDDLEWARE = [
     "defender.middleware.FailedLoginMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -140,7 +163,7 @@ ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django_prometheus.db.backends.postgresql",
         "NAME": env("POSTGRES_DB"),
         "USER": env("POSTGRES_USER"),
         "PASSWORD": env("POSTGRES_PASSWORD"),
@@ -270,7 +293,7 @@ CACHE_REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/1"
 
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
+        "BACKEND": "django_prometheus.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",

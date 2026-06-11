@@ -191,7 +191,7 @@ services:
     volumes:
       - ./.data/redis:/data
     ports:
-      - "${BIND_IP}:${REDIS_PORT}:6379"
+      - "${BIND_IP}:${REDIS_EXTERNAL_PORT}:6379"
     restart: always
     networks:
       - backend
@@ -243,6 +243,9 @@ services:
       - loki
     volumes:
       - ./.data/grafana:/var/lib/grafana
+      - ./docker-config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./docker-config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./docker-config/dashboards:/var/lib/grafana/dashboards:ro
     restart: always
     networks:
       - backend
@@ -258,7 +261,9 @@ services:
     container_name: loki-voicebot
     profiles:
       - monitoring
-    command: -config.file=/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    environment:
+      - LOKI_RETENTION_PERIOD=${LOKI_RETENTION_PERIOD:-720h}
     volumes:
       - ./docker-config/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ./.data/loki:/loki
@@ -267,6 +272,67 @@ services:
     restart: always
     networks:
       - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9b. Promtail (Log Collector & Shipper)
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail-voicebot
+    profiles:
+      - monitoring
+    volumes:
+      - ./docker-config/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9c. Postgres Metrics Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-voicebot
+    profiles:
+      - monitoring
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9d. Redis Metrics Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter-voicebot
+    profiles:
+      - monitoring
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: always
     logging:
       driver: "json-file"
       options:

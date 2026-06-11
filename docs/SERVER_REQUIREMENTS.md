@@ -32,11 +32,14 @@ The table below lists each service inside the stack, its host network binding in
 | **`caddy`** | `0.0.0.0:80`<br>`0.0.0.0:443` | `api.{$DOMAIN}`<br>`ws.{$DOMAIN}`<br>`notfound.{$DOMAIN}` | **30 - 50 MB** | **10,000+** | **~10 KB - 20 KB** (Keep-alive socket) |
 | **`backend-wsgi`** | `${BIND_IP}:8001` | `api.{$DOMAIN}` | **150 - 250 MB** | **16 concurrent** | **~25 MB** (Pre-allocated worker thread) |
 | **`backend-asgi`** | `${BIND_IP}:8002` | `ws.{$DOMAIN}` | **70 - 120 MB** | **1,000 - 5,000+** | **~15 KB - 30 KB** (Idle socket handle) |
+| **`backend-dev`**  | `${BIND_IP}:8000` | `api.{$DOMAIN}`<br>`ws.{$DOMAIN}` | **80 - 150 MB** | **1,000 - 5,000+** | **~20 KB** (Idle socket handle) |
 | **`postgres`** | `${BIND_IP}:5579` | | **100 - 300 MB** | **100** (Default) | **~10 MB** (Postgres worker process) |
 | **`pgbouncer`** | *Internal only* | | **10 - 20 MB** | **1,000** | **~2 KB** (Connection handle metadata) |
 | **`pgadmin`** | `${BIND_IP}:5560` | `pgadmin.{$DOMAIN}` | **80 - 150 MB** | **~100** | **~50 KB - 100 KB** (Dashboard UI state) |
-| **`redis`** | `${BIND_IP}:6379` | | **20 - 50 MB** | **10,000** | **~20 KB** (Client session handle) |
+| **`redis`** | `${BIND_IP}:5563` | | **20 - 50 MB** | **10,000** | **~20 KB** (Client session handle) |
 | **`redis-insight`**| `${BIND_IP}:5561` | `redisinsight.{$DOMAIN}` | **100 - 200 MB** | **~50** | **~100 KB** (GUI dashboard session) |
+| **`postgres-exporter`**| *Internal only* | | **15 - 30 MB** | **~10** | **~5 KB** (Scraper handle) |
+| **`redis-exporter`**| *Internal only* | | **15 - 30 MB** | **~10** | **~5 KB** (Scraper handle) |
 | **`grafana`** | `${BIND_IP}:3099` | `grafana.{$DOMAIN}` | **120 - 200 MB** | **~500** | **~50 KB** (Dashboard user instance) |
 | **`loki`** | `${BIND_IP}:3100` | `loki.{$DOMAIN}` | **40 - 80 MB** | **~1,000** | **~10 KB** (Log pushing client) |
 | **`prometheus`** | `${BIND_IP}:9090` | `prometheus.{$DOMAIN}` | **80 - 150 MB** | **~500** | **~30 KB** (Metrics scraping client) |

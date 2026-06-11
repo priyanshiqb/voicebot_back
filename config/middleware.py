@@ -2,6 +2,8 @@ import uuid
 import time
 import logging
 from django.conf import settings
+from utils.logging.context import set_log_context, clear_log_context
+from utils.logging.helper_functions import _get_extra, _get_client_ip
 
 logger = logging.getLogger("django")
 
@@ -9,9 +11,10 @@ class RequestTracingMiddleware:
     """
     Enterprise telemetry middleware that:
     1. Generates or extracts a unique X-Request-ID for every incoming request.
-    2. Measures exact request execution duration in milliseconds.
-    3. Appends the request ID to the response headers.
-    4. Logs structured data about request completion.
+    2. Stores request metadata in thread/async-safe log context.
+    3. Measures exact request execution duration in milliseconds.
+    4. Appends the request ID to the response headers.
+    5. Cleans up context after execution to prevent memory leaks.
     """
     def __init__(self, get_response):
         self.get_response = get_response
@@ -22,38 +25,55 @@ class RequestTracingMiddleware:
         if not request_id:
             request_id = str(uuid.uuid4())
         
-        # Annotate the request object so that custom logging formatters 
-        # and standard exception handlers can display it dynamically.
         request.request_id = request_id
         
-        # 2. Track execution duration
+        # 2. Extract base request metadata for log context (global tracing ID only)
+        context_data = {
+            "request_id": request_id,
+        }
+        
+        # Clear context first to prevent any pollution from previous executions
+        clear_log_context()
+        set_log_context(context_data)
+        
+        # 3. Track execution duration
         start_time = time.monotonic()
         
-        response = self.get_response(request)
-        
-        duration_ms = int((time.monotonic() - start_time) * 1000)
-        
-        # 3. Inject tracing ID into response header
-        response["X-Request-ID"] = request_id
-        
-        # 4. Structured logging output
-        log_message = (
-            f"Request completed: {request.method} {request.path} -> "
-            f"Status {response.status_code} in {duration_ms}ms"
-        )
-        
-        # Inject fields if logger has support
-        logger.info(
-            log_message,
-            extra={
-                "fields_name": ["request_id", "duration_ms", "status_code"],
-                "request_id": request_id,
-                "duration_ms": duration_ms,
-                "status_code": response.status_code,
-            }
-        )
-        
-        return response
+        try:
+            response = self.get_response(request)
+            
+            # Update context with user info if authenticated during the request
+            if hasattr(request, "user") and request.user and request.user.is_authenticated:
+                context_data["user_id"] = str(request.user.id)
+                try:
+                    context_data["tenant_id"] = str(request.user.tenant_mapping.tenant.id)
+                except Exception:
+                    pass
+                set_log_context(context_data)
+                
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            
+            # 4. Inject tracing ID into response header
+            response["X-Request-ID"] = request_id
+            
+            # 5. Log request completion using full request/response telemetry helper
+            log_message = (
+                f"Request completed: {request.method} {request.path} -> "
+                f"Status {response.status_code} in {duration_ms}ms"
+            )
+            logger.info(
+                log_message,
+                extra=_get_extra(
+                    request=request,
+                    response=response,
+                    add_dict={"duration_ms": duration_ms}
+                )
+            )
+            return response
+        finally:
+            # 6. Always clear context to avoid variables leaking into other requests
+            clear_log_context()
+
 
 
 class ReCaptchaMiddleware:

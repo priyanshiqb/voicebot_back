@@ -145,3 +145,17 @@ Each `.md` document must cover all HTTP methods exposed by the API and explicitl
    * Specify all search parameters (e.g., `?search=<term>`) and matching keys.
    * Document all available query parameter filtering keys (e.g., `?is_active=true` or `?processing_status=PENDING`).
    * Explicitly list **every possible key and all allowed/possible values** for those keys.
+
+---
+
+## 🪵 7. Logging Standards
+
+To ensure full compatibility with Promtail/Loki log aggregation and consistent namespace identification:
+* **Per-File Logger Initialization**: Do **NOT** create a centralized logger utility or import a global logger instance. If a Python file requires logging, **ALWAYS** initialize a logger instance at the top of that specific file:
+  ```python
+  import logging
+
+  logger = logging.getLogger(__name__)
+  ```
+* **Namespace Scoping**: Using `__name__` ensures that the log event is tagged with the correct Python module path (e.g. `onboard.consumers`), allowing developers to query and filter log messages precisely inside Grafana/Loki.
+

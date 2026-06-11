@@ -23,5 +23,6 @@ dependencies = [
     "django-redis>=6.0.0",
     "django-two-factor-auth>=1.17.0",
     "qrcode>=8.0.1",
+    "django-prometheus>=2.5.0",
 ]
 

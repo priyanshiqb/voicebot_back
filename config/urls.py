@@ -25,6 +25,7 @@ urlpatterns = [
     path("", include(tf_urls)),
     path('admin/defender/', include('defender.urls')),
     path("admin/", admin.site.urls),
+    path("prom-metrics/", include("django_prometheus.urls")),
     
     # API endpoints grouped under v1 namespace
     path("api/v1/", include((api_v1_patterns, "api-v1"))),
