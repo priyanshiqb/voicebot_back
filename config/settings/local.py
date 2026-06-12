@@ -26,6 +26,8 @@ if 'test' in sys.argv:
     }
 
 # Logging Configuration for Local Development
+DJANGO_JSON_LOGGING = env.bool("DJANGO_JSON_LOGGING", default=False)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -33,6 +35,9 @@ LOGGING = {
         "verbose": {
             "format": "[{levelname}] {asctime} [{name}] {module} ({filename}:{lineno}) - {message}",
             "style": "{",
+        },
+        "json": {
+            "()": "utils.logging.JSONFormatter.JsonFormatter",
         },
         "simple": {
             "format": "[{levelname}] {message}",
@@ -42,7 +47,7 @@ LOGGING = {
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": "json" if DJANGO_JSON_LOGGING else "verbose",
         },
     },
     "root": {

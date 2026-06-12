@@ -139,6 +139,9 @@ services:
       MAX_CLIENT_CONN: 1000
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
+      LOG_CONNECTIONS: "1"
+      LOG_DISCONNECTIONS: "1"
+      STATS_PERIOD: "86400"
     depends_on:
       postgres:
         condition: service_healthy
@@ -237,6 +240,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_LOG_LEVEL=warn
     ports:
       - "${BIND_IP}:${GRAFANA_PORT}:3000"
     depends_on:

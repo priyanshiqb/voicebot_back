@@ -1,6 +1,7 @@
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
+  log_level: warn
 
 positions:
   filename: /tmp/positions.yaml
@@ -14,11 +15,6 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
     relabel_configs:
-      # Keep ONLY the three Django backend containers, ignoring postgres, redis, caddy etc.
-      - source_labels: ['__meta_docker_container_name']
-        regex: '/(backend-wsgi-voicebot|backend-asgi-voicebot|backend-dev-voicebot)'
-        action: keep
-
       # Map the discovered container name (removing leading slash) to container label
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
@@ -28,3 +24,12 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: 'job'
+
+      # Map Docker Compose service name to service_name label
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service_name'
+
+    pipeline_stages:
+      # Drop PgBouncer healthcheck connection logs to avoid database/loki log clutter
+      - drop:
+          expression: ".*login attempt: db=postgres user=postgres.*"
