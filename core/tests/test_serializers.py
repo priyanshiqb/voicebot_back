@@ -89,6 +89,26 @@ class KBSerializersTestCase(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
+        # 4. Valid Upload with extension passed from API
+        good_file_2 = SimpleUploadedFile("doc2.pdf", b"pdf contents", content_type="application/pdf")
+        serializer_api = KBFilesSerializer(
+            data={"file": good_file_2, "extension": "pdf"},
+            context={"request": self.request}
+        )
+        self.assertTrue(serializer_api.is_valid(), serializer_api.errors)
+        instance = serializer_api.save(tenant=self.tenant)
+        self.assertEqual(instance.extension, ".pdf")
+
+        # 5. Invalid extension passed from API
+        good_file_3 = SimpleUploadedFile("doc3.pdf", b"pdf contents", content_type="application/pdf")
+        serializer_bad_ext = KBFilesSerializer(
+            data={"file": good_file_3, "extension": ".exe"},
+            context={"request": self.request}
+        )
+        with self.assertRaises(ValidationError) as context:
+            serializer_bad_ext.is_valid(raise_exception=True)
+        self.assertIn("Unsupported format", str(context.exception.detail["extension"][0]))
+
     def test_kb_website_serializer_multi_tenant_uniqueness(self):
         # Create an active domain website
         KBWebsite.objects.create(

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <style>
         :root {
             --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
@@ -59,13 +60,16 @@
                 opacity: 0;
                 transform: translateY(20px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
             }
         }
 
-        h1, h2, h3 {
+        h1,
+        h2,
+        h3 {
             font-weight: 700;
             color: var(--text-main);
             margin-bottom: 1rem;
@@ -80,7 +84,12 @@
         }
 
         /* Form Inputs */
-        input[type="text"], input[type="password"], input[type="email"], input[type="number"], input[type="tel"], select {
+        input[type="text"],
+        input[type="password"],
+        input[type="email"],
+        input[type="number"],
+        input[type="tel"],
+        select {
             width: 100%;
             padding: 0.75rem 1rem;
             border-radius: 0.5rem;
@@ -94,13 +103,15 @@
             transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input:focus, select:focus {
+        input:focus,
+        select:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
         }
 
         /* Hidden Elements */
-        [hidden], input[type="submit"][hidden] {
+        [hidden],
+        input[type="submit"][hidden] {
             display: none !important;
         }
 
@@ -128,7 +139,9 @@
         }
 
         /* Buttons & Submits */
-        .btn, button, input[type="submit"] {
+        .btn,
+        button,
+        input[type="submit"] {
             display: inline-block;
             width: 100%;
             padding: 0.85rem 1.5rem;
@@ -144,21 +157,27 @@
             text-align: center;
         }
 
-        .btn:hover, button:hover, input[type="submit"]:hover {
+        .btn:hover,
+        button:hover,
+        input[type="submit"]:hover {
             background: var(--primary-hover);
         }
 
-        .btn:active, button:active, input[type="submit"]:active {
+        .btn:active,
+        button:active,
+        input[type="submit"]:active {
             transform: scale(0.98);
         }
 
-        .btn-secondary, button.btn-secondary {
+        .btn-secondary,
+        button.btn-secondary {
             background: rgba(255, 255, 255, 0.08) !important;
             border: 1px solid var(--glass-border) !important;
             color: var(--text-main) !important;
         }
 
-        .btn-secondary:hover, button.btn-secondary:hover {
+        .btn-secondary:hover,
+        button.btn-secondary:hover {
             background: rgba(255, 255, 255, 0.15) !important;
         }
 
@@ -171,7 +190,8 @@
             width: 100%;
         }
 
-        .wizard-actions .btn, .wizard-actions button {
+        .wizard-actions .btn,
+        .wizard-actions button {
             flex: 1;
             margin: 0;
         }
@@ -229,9 +249,11 @@
     </style>
     {% block extra_media %}{% endblock %}
 </head>
+
 <body>
     <div class="container-card">
         {% block content %}{% endblock %}
     </div>
 </body>
+
 </html>

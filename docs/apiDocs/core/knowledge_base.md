@@ -74,6 +74,7 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
 * **Request Header**: `Content-Type: multipart/form-data`
 * **Request Payload (Form-Data)**:
   * `file` (binary, **Required**): The document file to upload (`.pdf`, `.docx`, or `.txt`, Max size 10 MB).
+  * `extension` (string, **Optional**): The extension of the file (e.g. `".pdf"`, `".docx"`, `".txt"`, `"pdf"`, `"docx"`, or `"txt"`). If not supplied, it is automatically extracted from the uploaded file's name.
 * **Response (HTTP 201 Created)**:
 ```json
 {
@@ -83,6 +84,7 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
     "id": "uuid-preuploaded-file-id",
     "file": "http://localhost:8000/media/t-1/kb_files/setup.pdf",
     "original_name": "setup.pdf",
+    "extension": ".pdf",
     "is_processed": false,
     "processing_status": "PENDING"
   }
@@ -204,7 +206,8 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
     "files": [
       {
         "id": "uuid-file-1",
-        "original_name": "manual.pdf"
+        "original_name": "manual.pdf",
+        "extension": ".pdf"
       }
     ],
     "websites": [

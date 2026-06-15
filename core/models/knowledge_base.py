@@ -12,7 +12,6 @@ def validate_file_size(value):
         raise ValidationError(f"File size should be less than {max_size / (1024 * 1024)} MB.")
     return value
 
-
 class KBText(KBBaseModel):
     title = models.CharField(max_length=255, help_text="Title of the text block")
     description = models.TextField(blank=True, null=True)
@@ -38,6 +37,12 @@ class KBFiles(KBBaseModel):
         help_text="Clean original name of the uploaded file"
     )
     file_size_in_bytes = models.BigIntegerField(default=0)
+    extension = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        help_text="File extension (e.g., '.pdf', '.docx', '.txt')"
+    )
 
     class Meta:
         db_table = "core_kb_files"

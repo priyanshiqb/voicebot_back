@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
-from django.core.mail import send_mail
+from utils.tasks import send_email_task
 from django.conf import settings
 import random
 
@@ -84,17 +84,21 @@ class ChangeEmailView(ResponseMixin, APIView):
         temp_user.otp_created_at = timezone.now()
         temp_user.save()
 
-        # 3. Send the new OTP to the updated email address
+        # 3. Send the new OTP to the updated email address via Celery task
         try:
-            send_mail(
+            send_email_task.delay(
                 subject="Verify your Voicebot Registration - Email Updated",
                 message=f"Your email has been updated. Your verification code is: {otp_code}. It is valid for 10 minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[new_email],
-                fail_silently=False
+                fail_silently=False,
+                title="Email Address Updated",
+                lead_text="Your onboarding email address has been successfully updated. Use the verification code below to confirm this address and continue your registration.",
+                otp_code=otp_code,
+                body_text="This code is valid for 10 minutes. If you did not initiate this change, please contact support."
             )
         except Exception as e:
-            print(f"OTP Email delivery skipped/failed: {e}. OTP Code for {new_email} is: {otp_code}")
+            print(f"OTP Email queuing skipped/failed: {e}. OTP Code for {new_email} is: {otp_code}")
 
         return self.success(
             data={

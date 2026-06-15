@@ -39,13 +39,14 @@ class KnowledgeBaseTestCase(TestCase):
         dummy_file = SimpleUploadedFile("dummy_doc.txt", b"file contents bytes", content_type="text/plain")
         file_obj = KBFiles.objects.create(
             tenant=self.tenant,
-            file=dummy_file
+            file=dummy_file,
+            extension=".txt"
         )
         self.assertTrue(file_obj.file.name.endswith("dummy_doc.txt"))
         self.assertEqual(file_obj.original_name, "dummy_doc.txt")
+        self.assertEqual(file_obj.extension, ".txt")
         self.assertEqual(file_obj.file_size_in_bytes, 19)
         self.assertEqual(str(file_obj), "dummy_doc.txt")
-
     def test_kb_qna_creation(self):
         q1 = KBQuestions.objects.create(
             tenant=self.tenant,
@@ -131,7 +132,8 @@ class KnowledgeBaseTestCase(TestCase):
 
         file_obj = KBFiles.objects.create(
             tenant=self.tenant,
-            file=dummy_file_1
+            file=dummy_file_1,
+            extension=".txt"
         )
         # Save old filename
         old_file_name = file_obj.file.name
@@ -148,8 +150,8 @@ class KnowledgeBaseTestCase(TestCase):
         dummy_file_1 = SimpleUploadedFile("doc1.txt", b"doc 1 contents", content_type="text/plain")
         dummy_file_2 = SimpleUploadedFile("doc2.txt", b"doc 2 contents", content_type="text/plain")
 
-        KBFiles.objects.create(tenant=self.tenant, file=dummy_file_1)
-        f2 = KBFiles.objects.create(tenant=self.tenant, file=dummy_file_2)
+        KBFiles.objects.create(tenant=self.tenant, file=dummy_file_1, extension=".txt")
+        f2 = KBFiles.objects.create(tenant=self.tenant, file=dummy_file_2, extension=".txt")
         f2.soft_delete()
 
         stats = KBFiles.get_tenant_file_stats(self.tenant.id)

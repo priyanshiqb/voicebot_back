@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
-from django.core.mail import send_mail
+from utils.tasks import send_email_task
 from django.conf import settings
 import random
 
@@ -63,17 +63,21 @@ class ResendOTPView(ResponseMixin, APIView):
         temp_user.otp_created_at = now
         temp_user.save()
 
-        # Send the verification code via email
+        # Send the verification code via email via Celery task
         try:
-            send_mail(
+            send_email_task.delay(
                 subject="Verify your Voicebot Registration - New OTP",
                 message=f"Your new verification code is: {otp_code}. It is valid for 10 minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[temp_user.email],
-                fail_silently=False
+                fail_silently=False,
+                title="New Verification Code",
+                lead_text="We received a request to resend your signup verification code. Please use the verification code below to confirm your registration.",
+                otp_code=otp_code,
+                body_text="This code is valid for 10 minutes. If you did not request a code, please ignore this email."
             )
         except Exception as e:
-            print(f"OTP Email delivery skipped/failed: {e}. OTP Code is: {otp_code}")
+            print(f"OTP Email queuing skipped/failed: {e}. OTP Code is: {otp_code}")
 
         return self.success(
             data={

@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
-from django.core.mail import send_mail
+from utils.tasks import send_email_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
 import random
@@ -90,15 +90,19 @@ class ResumeSessionView(ResponseMixin, APIView):
             temp_user.save()
 
             try:
-                send_mail(
+                send_email_task.delay(
                     subject="Verify your Voicebot Registration",
                     message=f"Your verification code is: {otp_code}. It is valid for 10 minutes.",
                     from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                     recipient_list=[temp_user.email],
-                    fail_silently=False
+                    fail_silently=False,
+                    title="Verify Your Registration",
+                    lead_text="You requested to resume your onboarding session. Please use the verification code below to verify your email and resume.",
+                    otp_code=otp_code,
+                    body_text="This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email."
                 )
             except Exception as e:
-                print(f"OTP Email delivery failed/skipped: {e}. OTP: {otp_code}")
+                print(f"OTP Email queuing failed/skipped: {e}. OTP: {otp_code}")
 
             return self.success(
                 data={
