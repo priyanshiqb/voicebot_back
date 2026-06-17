@@ -2,6 +2,8 @@ from django.test import TestCase, RequestFactory
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from rest_framework.exceptions import ValidationError
+from unittest.mock import patch
+
 
 from tenant.models.Tenant import Tenant
 from core.models.knowledge_base import KBText, KBFiles, KBQuestions, KBQuestionAnswer, KBWebsite, KnowledgeBase
@@ -11,7 +13,8 @@ from core.serializers import (
     KBTextDropdownSerializer,
     KBFilesSerializer,
     KBWebsiteSerializer,
-    KnowledgeBaseSerializer
+    KnowledgeBaseSerializer,
+    KnowledgeBaseETLSerializer
 )
 
 User = get_user_model()
@@ -215,3 +218,131 @@ class KBSerializersTestCase(TestCase):
         self.assertEqual(qa_obj.answer, "Standard nested answer")
         self.assertEqual(qa_obj.questions.count(), 1)
         self.assertEqual(qa_obj.questions.first().question, "What is nested?")
+
+    def test_knowledge_base_etl_serializer(self):
+        # Create a complete KnowledgeBase with associated entities
+        text = KBText.objects.create(tenant=self.tenant, title="Doc text", description="some content")
+        file_obj = KBFiles.objects.create(tenant=self.tenant, file=SimpleUploadedFile("doc.pdf", b"bytes"), original_name="doc.pdf", extension=".pdf")
+        web = KBWebsite.objects.create(tenant=self.tenant, url="https://test.com", content="web content")
+        q = KBQuestions.objects.create(tenant=self.tenant, question="A question?")
+        qa = KBQuestionAnswer.objects.create(tenant=self.tenant, title="Q&A title", answer="An answer")
+        qa.questions.add(q)
+
+        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="ETL test KB")
+        kb.texts.add(text)
+        kb.files.add(file_obj)
+        kb.websites.add(web)
+        kb.question_answers.add(qa)
+
+        # Serialize
+        serializer = KnowledgeBaseETLSerializer(kb)
+        data = serializer.data
+
+        # Check fields
+        self.assertEqual(data["id"], str(kb.id))
+        self.assertEqual(data["name"], "ETL test KB")
+        self.assertEqual(data["is_processed"], False)
+        self.assertEqual(data["is_deleted"], False)
+        self.assertEqual(data["tenant"]["id"], str(self.tenant.id))
+
+        # Check nested lists
+        self.assertEqual(len(data["texts"]), 1)
+        self.assertEqual(data["texts"][0]["title"], "Doc text")
+        self.assertEqual(data["texts"][0]["description"], "some content")
+
+        self.assertEqual(len(data["files"]), 1)
+        self.assertEqual(data["files"][0]["original_name"], "doc.pdf")
+        self.assertEqual(data["files"][0]["extension"], ".pdf")
+
+        self.assertEqual(len(data["websites"]), 1)
+        self.assertEqual(data["websites"][0]["url"], "https://test.com")
+
+        self.assertEqual(len(data["question_answers"]), 1)
+        self.assertEqual(data["question_answers"][0]["answer"], "An answer")
+
+    @patch('utils.tasks.trigger_kb_etl_task.delay')
+    def test_knowledge_base_serializer_create_triggers_etl(self, mock_delay):
+        # Payload to create KnowledgeBase with nested components
+        payload = {
+            "name": "Trigger Test KB",
+            "texts": [{"title": "Text Title", "description": "Text content"}],
+            "files": [],
+            "websites": [{"url": "https://trigger.com", "content": "Trigger website content"}],
+            "question_answers": []
+        }
+
+        serializer = KnowledgeBaseSerializer(
+            data=payload,
+            context={"request": self.request}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        
+        with self.captureOnCommitCallbacks(execute=True):
+            kb = serializer.save(tenant=self.tenant)
+
+        # Check mock delay was called exactly once
+        self.assertEqual(mock_delay.call_count, 1)
+        mock_delay.assert_called_once_with(str(kb.id), str(kb.etl_id))
+
+        # Verify KB status
+        kb.refresh_from_db()
+        self.assertIsNotNone(kb.etl_id)
+        self.assertEqual(kb.processing_status, "PENDING")
+
+    @patch('requests.post')
+    def test_trigger_kb_etl_task_success(self, mock_post):
+        from unittest.mock import MagicMock
+        import uuid
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "ok"}
+        mock_post.return_value = mock_response
+
+        from utils.tasks import trigger_kb_etl_task
+        etl_id = uuid.uuid4()
+        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Celery Success KB", etl_id=etl_id)
+
+        trigger_kb_etl_task(str(kb.id), str(etl_id))
+
+        # Check mock post was called
+        self.assertEqual(mock_post.call_count, 1)
+        call_kwargs = mock_post.call_args[1]
+        self.assertIn("json", call_kwargs)
+        post_data = call_kwargs["json"]
+        self.assertEqual(post_data["payload"]["name"], "Celery Success KB")
+
+    @patch('requests.post')
+    def test_trigger_kb_etl_task_failure(self, mock_post):
+        mock_post.side_effect = Exception("Connection refused")
+
+        import uuid
+        from utils.tasks import trigger_kb_etl_task
+        etl_id = uuid.uuid4()
+        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Celery Failure KB", etl_id=etl_id)
+
+        from celery.exceptions import MaxRetriesExceededError
+        from unittest.mock import MagicMock
+        
+        retry_mock = MagicMock(side_effect=MaxRetriesExceededError())
+        
+        with patch.object(trigger_kb_etl_task, 'retry', retry_mock):
+            trigger_kb_etl_task(str(kb.id), str(etl_id))
+
+        kb.refresh_from_db()
+        self.assertEqual(kb.processing_status, "FAILED")
+        self.assertIn("Failed to trigger ingestion", kb.processing_error)
+
+    def test_trigger_kb_etl_task_stale_skipped(self):
+        """Verify that task execution is skipped if a newer etl_id has been set in the DB"""
+        from utils.tasks import trigger_kb_etl_task
+        import uuid
+        old_etl_id = uuid.uuid4()
+        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Stale KB", etl_id=old_etl_id)
+        
+        kb.etl_id = uuid.uuid4()
+        kb.save()
+
+        from unittest.mock import patch
+        with patch('requests.post') as mock_post:
+            trigger_kb_etl_task(str(kb.id), str(old_etl_id))
+            mock_post.assert_not_called()

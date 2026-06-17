@@ -14,13 +14,13 @@ class KBFilesSerializer(TenantBaseModelSerializer):
         model = KBFiles
         fields = (
             "id", "tenant", "file", "original_name", "extension", "is_processed",
-            "processing_status", "processing_error", "last_processed_at",
-            "processing_history", "created_by", "updated_by", "deleted_by",
+            "processing_status", "processing_error", "etl_id", "pending_at",
+            "processing_at", "completed_at", "failed_at", "created_by", "updated_by", "deleted_by",
             "created_at", "updated_at", "deleted_at"
         )
         read_only_fields = TenantBaseModelSerializer.Meta.read_only_fields + (
             "original_name", "is_processed", "processing_status",
-            "processing_error", "last_processed_at", "processing_history",
+            "processing_error", "etl_id", "pending_at", "processing_at", "completed_at", "failed_at",
         )
 
     def validate_file(self, value):
@@ -52,3 +52,35 @@ class KBFilesListSerializer(serializers.ModelSerializer):
 class KBFilesDropdownSerializer(serializers.Serializer):
     label = serializers.CharField(source="original_name")
     value = serializers.UUIDField(source="id")
+
+
+class NestedKBFilesSerializer(KBFilesSerializer):
+    id = serializers.UUIDField(required=False)
+    flag = serializers.ChoiceField(choices=["create", "update", "delete"], required=False)
+    file = serializers.FileField(required=False)
+
+    class Meta(KBFilesSerializer.Meta):
+        fields = KBFilesSerializer.Meta.fields + ("id", "flag")
+
+    def to_internal_value(self, data):
+        flag = data.get('flag')
+        if flag in ['update', 'delete'] or ('id' in data and not flag):
+            record_id = data.get('id')
+            if record_id:
+                try:
+                    existing = KBFiles.objects.get(id=record_id, is_deleted=False)
+                    for field in self.fields:
+                        if field not in data and hasattr(existing, field):
+                            if field not in ['tenant', 'file', 'flag']:
+                                data[field] = getattr(existing, field)
+                except KBFiles.DoesNotExist:
+                    pass
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        flag = attrs.get('flag')
+        record_id = attrs.get('id')
+        if flag == 'create' or (not record_id and not flag):
+            if 'file' not in attrs:
+                raise serializers.ValidationError({"file": "No file was submitted."})
+        return attrs

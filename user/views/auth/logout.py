@@ -1,6 +1,7 @@
 import logging
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from utils.views.base_model_viewset import ResponseMixin
@@ -48,6 +49,11 @@ class LogoutAPIView(ResponseMixin, APIView):
 
             return self.success(
                 message="Logout successful"
+            )
+        except TokenError as te:
+            logger.warning("TokenError during logout: %s", str(te))
+            return self.error(
+                message="Invalid refresh token."
             )
         except Exception as e:
             logger.exception("Error during logout: %s", str(e))

@@ -102,17 +102,19 @@ class Agent(TenantBaseModel):
         from django.utils import timezone
 
         with transaction.atomic():
-            agent = Agent.objects.select_for_update().get(pk=self.pk)
-            agent.is_deleted = True
-            agent.deleted_at = timezone.now()
+            # Lock row in DB
+            Agent.objects.select_for_update().get(pk=self.pk)
+            
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
             if user:
-                agent.deleted_by = user
+                self.deleted_by = user
 
             # Append deleted timestamp to prevent unique constraint conflict on active bot names
-            suffix = f"-deleted-{agent.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            agent.bot_name = f"{agent.bot_name}{suffix}"
+            suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            self.bot_name = f"{self.bot_name}{suffix}"
 
-            agent.save(
+            self.save(
                 update_fields=["is_deleted", "deleted_at", "bot_name", "deleted_by"]
                 if user
                 else ["is_deleted", "deleted_at", "bot_name"]

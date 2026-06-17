@@ -45,6 +45,19 @@ class ForgotPasswordView(ResponseMixin, APIView):
                 status_code=status.HTTP_200_OK
             )
 
+        # OTP cooldown check (30 seconds limit)
+        now = timezone.now()
+        if temp_user.otp_created_at:
+            elapsed = (now - temp_user.otp_created_at).total_seconds()
+            if elapsed < 30:
+                cooldown_remaining = int(30 - elapsed)
+                return self.error(
+                    message="Please wait before requesting another OTP.",
+                    data={"cooldown_remaining": cooldown_remaining},
+                    errors=["OTP_COOLDOWN_ACTIVE"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
         # 1. Generate a secure 6-digit numeric OTP code
         otp_code = f"{random.randint(100000, 999999)}"
         temp_user.otp_code = otp_code

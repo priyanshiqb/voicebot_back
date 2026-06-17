@@ -550,6 +550,12 @@ class OnboardingTests(APITestCase):
         temp_user = TempUser.objects.get(id=temp_id)
         original_hash = temp_user.password_hash
 
+        # Mock-advance otp_created_at to bypass cooldown
+        from django.utils import timezone
+        import datetime
+        temp_user.otp_created_at = timezone.now() - datetime.timedelta(seconds=45)
+        temp_user.save()
+
         # Step 2: POST forgot-password
         forgot_url = "/api/v1/onboard/forgot-password/"
         forgot_payload = {"email": "bob.builder@example.com"}
@@ -817,4 +823,119 @@ class OnboardingTests(APITestCase):
         response = self.client.post(self.resume_session_token_url, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["email"], "userb@example.com")
+
+    def test_onboarding_forgot_password_cooldown(self):
+        from onboard.models import TempUser
+        temp_user = TempUser.objects.create(
+            email="cooldowntest@example.com",
+            first_name="Forgot",
+            last_name="Temp",
+            business_name="Forgot Temp Ltd",
+            password_hash="somehash"
+        )
+        forgot_url = "/api/v1/onboard/forgot-password/"
+        
+        # First request should succeed
+        response = self.client.post(forgot_url, {"email": temp_user.email}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second request immediately after should trigger cooldown
+        response = self.client.post(forgot_url, {"email": temp_user.email}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("OTP_COOLDOWN_ACTIVE", response.data["errors"])
+
+    def test_onboarding_forgot_password_verify_brute_force(self):
+        from onboard.models import TempUser
+        from django.core.cache import cache
+        temp_user = TempUser.objects.create(
+            email="bruteforcetest@example.com",
+            first_name="Forgot",
+            last_name="Temp",
+            business_name="Forgot Temp Ltd",
+            password_hash="somehash",
+            otp_code="123456"
+        )
+        verify_url = "/api/v1/onboard/forgot-password/verify/"
+        
+        # Clear cache first
+        cache.clear()
+
+        # Send 5 incorrect verification requests
+        for _ in range(5):
+            response = self.client.post(verify_url, {
+                "temp_registration_id": str(temp_user.id),
+                "otp_code": "000000"
+            }, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 6th request should fail with TOO_MANY_ATTEMPTS and code should be invalidated in database
+        response = self.client.post(verify_url, {
+            "temp_registration_id": str(temp_user.id),
+            "otp_code": "123456"
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("TOO_MANY_ATTEMPTS", response.data["errors"])
+
+        temp_user.refresh_from_db()
+        self.assertIsNone(temp_user.otp_code)
+
+    def test_onboarding_verify_otp_brute_force(self):
+        from onboard.models import TempUser
+        from django.core.cache import cache
+        temp_user = TempUser.objects.create(
+            email="signupbrute@example.com",
+            first_name="Signup",
+            last_name="Temp",
+            business_name="Signup Temp Ltd",
+            password_hash="somehash",
+            otp_code="123456"
+        )
+        verify_url = reverse("api-v1:verify-otp")
+        
+        # Clear cache first
+        cache.clear()
+
+        # Send 5 incorrect OTP requests
+        for _ in range(5):
+            response = self.client.post(verify_url, {
+                "temp_registration_id": str(temp_user.id),
+                "otp_code": "000000"
+            }, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 6th request should fail with TOO_MANY_ATTEMPTS and code should be invalidated in DB
+        response = self.client.post(verify_url, {
+            "temp_registration_id": str(temp_user.id),
+            "otp_code": "123456"
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("TOO_MANY_ATTEMPTS", response.data["errors"])
+
+        temp_user.refresh_from_db()
+        self.assertIsNone(temp_user.otp_code)
+
+    def test_check_email_bloom_filter_integration(self):
+        from utils.bloom_filter import RedisBloomFilter
+        from django.core.cache import cache
+        
+        cache.clear()
+        bf = RedisBloomFilter()
+        
+        # Email that is NOT in the bloom filter
+        check_email_url = reverse("api-v1:check-email")
+        response = self.client.post(check_email_url, {"email": "bloomunique@example.com"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Message should contain fast-path to indicate Bloom Filter bypass
+        self.assertIn("fast-path", response.data["message"])
+        self.assertTrue(response.data["data"]["available"])
+
+        # Add email to Bloom Filter
+        bf.add("bloomunique@example.com")
+        
+        # Querying again should go to slow-path (since it exists in Bloom Filter)
+        response = self.client.post(check_email_url, {"email": "bloomunique@example.com"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("slow-path", response.data["message"])
+        # Should still be available as it is not in database
+        self.assertTrue(response.data["data"]["available"])
 

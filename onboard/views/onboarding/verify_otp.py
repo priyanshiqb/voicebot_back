@@ -35,7 +35,34 @@ class VerifyOTPView(ResponseMixin, APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
+        # Check brute force attempts
+        from django.core.cache import cache
+        cache_key = f"onboard_otp_signup_attempts:{temp_user.id}"
+        attempts = cache.get(cache_key, 0)
+
+        if attempts >= 5:
+            if temp_user.otp_code is not None:
+                temp_user.otp_code = None
+                temp_user.otp_created_at = None
+                temp_user.save()
+            return self.error(
+                message="Too many failed attempts. Verification code has been invalidated.",
+                errors=["TOO_MANY_ATTEMPTS"],
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
         if temp_user.otp_code != otp_code:
+            attempts += 1
+            cache.set(cache_key, attempts, 600)  # 10 minutes lock duration
+            if attempts >= 5:
+                temp_user.otp_code = None
+                temp_user.otp_created_at = None
+                temp_user.save()
+                return self.error(
+                    message="Too many failed attempts. Verification code has been invalidated.",
+                    errors=["TOO_MANY_ATTEMPTS"],
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
             return self.error(
                 message="Invalid OTP code",
                 errors=["INVALID_OTP"],
@@ -48,6 +75,9 @@ class VerifyOTPView(ResponseMixin, APIView):
                 errors=["OTP_EXPIRED"],
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+        # Invalidate OTP attempts cache upon success
+        cache.delete(cache_key)
 
         temp_user.is_email_verified = True
         temp_user.save()

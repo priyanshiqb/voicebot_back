@@ -34,15 +34,15 @@ class UserResetPasswordAPIView(ResponseMixin, APIView):
         serializer = UserResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user_id = str(serializer.validated_data["user_id"])
+        email = serializer.validated_data["email"].strip().lower()
         token = serializer.validated_data["token"]
         new_password = serializer.validated_data["password"]
 
         try:
-            user = CustomUser.objects.get(id=user_id, is_active=True, is_deleted=False)
+            user = CustomUser.objects.get(email=email, is_active=True, is_deleted=False)
         except CustomUser.DoesNotExist:
             return self.error(
-                message="Invalid user ID.",
+                message="Invalid email or user not found.",
                 errors=["USER_NOT_FOUND"]
             )
 
@@ -61,7 +61,7 @@ class UserResetPasswordAPIView(ResponseMixin, APIView):
             )
 
         # Ensure the token belongs to the specified user
-        if payload.get("user_id") != user_id:
+        if payload.get("user_id") != str(user.id):
             return self.error(
                 message="Token is not associated with this user.",
                 errors=["INVALID_USER_TOKEN"]

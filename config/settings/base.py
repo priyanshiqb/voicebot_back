@@ -48,7 +48,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
 BACKEND_PROJECT_URL = env('BACKEND_PROJECT_URL')
 be_parsed=urlparse(BACKEND_PROJECT_URL)
-if be_parsed.hostname not in ALLOWED_HOSTS:
+if be_parsed.hostname and be_parsed.hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(be_parsed.hostname)
 
 FRONTEND_PROJECT_URL = env('FRONTEND_PROJECT_URL')
@@ -333,4 +333,11 @@ CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", f"redis://{REDIS_HOST}:
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE
+CELERY_TIMEZONE = TIME_ZONE
+
+# ETL Server Configuration
+ETL_SERVER_URL = env.str("ETL_SERVER_URL")
+ETL_SYSTEM_TOKEN = env.str("ETL_SYSTEM_TOKEN", default="dummy_etl_system_token_for_local_dev")
+CALLBACK_URL_BASE = env.str("CALLBACK_URL_BASE", default=None)
+
+

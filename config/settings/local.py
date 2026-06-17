@@ -25,6 +25,21 @@ if 'test' in sys.argv:
         }
     }
 
+    # Use in-memory cache for testing isolation to decouple from Redis and prevent test timeouts
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake-test-cache",
+        }
+    }
+    # Use SQLite in-memory database during tests to avoid external PostgreSQL dependencies and locks
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+
 # Logging Configuration for Local Development
 DJANGO_JSON_LOGGING = env.bool("DJANGO_JSON_LOGGING", default=False)
 

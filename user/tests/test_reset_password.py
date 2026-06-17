@@ -20,20 +20,20 @@ class ActiveUserPasswordResetTest(TestCase):
         self.user.save()
 
     def test_forgot_and_reset_password_flow(self):
-        """Complete OTP workflow for an active onboarding user"""
+        """Complete OTP workflow for an active onboarding user using email-based identifier"""
         # Step 1: request OTP
         response = self.client.post(self.forgot_url, {"email": self.user.email}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('user_id', response.data['data'])
-        user_id = response.data['data']['user_id']
-        self.assertEqual(user_id, str(self.user.id))
+        # Ensure no user details are leaked in the response data
+        self.assertIsNone(response.data['data'])
+
         # Grab OTP from DB
         self.user.refresh_from_db()
         otp = self.user.otp_code
         self.assertIsNotNone(otp)
 
         # Step 2a: verify with wrong OTP
-        resp = self.client.post(self.verify_url, {"user_id": user_id, "otp_code": '000000'}, format='json')
+        resp = self.client.post(self.verify_url, {"email": self.user.email, "otp_code": '000000'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(resp.data['status'])
         self.assertIn('INVALID_OTP', resp.data['errors'])
@@ -41,7 +41,7 @@ class ActiveUserPasswordResetTest(TestCase):
         # Step 2b: make OTP expired
         self.user.otp_created_at = timezone.now() - timezone.timedelta(minutes=3)
         self.user.save(update_fields=['otp_created_at'])
-        resp = self.client.post(self.verify_url, {"user_id": user_id, "otp_code": otp}, format='json')
+        resp = self.client.post(self.verify_url, {"email": self.user.email, "otp_code": otp}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('OTP_EXPIRED', resp.data['errors'])
 
@@ -51,7 +51,7 @@ class ActiveUserPasswordResetTest(TestCase):
         self.user.save(update_fields=['otp_code', 'otp_created_at'])
 
         # Step 2c: successful verification
-        resp = self.client.post(self.verify_url, {"user_id": user_id, "otp_code": otp}, format='json')
+        resp = self.client.post(self.verify_url, {"email": self.user.email, "otp_code": otp}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertTrue(resp.data['status'])
         token = resp.data['data']['token']
@@ -62,13 +62,13 @@ class ActiveUserPasswordResetTest(TestCase):
         self.assertIsNone(self.user.otp_created_at)
 
         # Step 2d: verification again should fail (OTP cleared)
-        resp = self.client.post(self.verify_url, {"user_id": user_id, "otp_code": otp}, format='json')
+        resp = self.client.post(self.verify_url, {"email": self.user.email, "otp_code": otp}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Step 3: reset password using token
         new_password = 'NewPass456!'
         resp = self.client.post(self.reset_url, {
-            "user_id": user_id,
+            "email": self.user.email,
             "token": token,
             "password": new_password,
             "confirm_password": new_password
@@ -80,7 +80,7 @@ class ActiveUserPasswordResetTest(TestCase):
 
         # Step 4: reuse token should fail
         resp = self.client.post(self.reset_url, {
-            "user_id": user_id,
+            "email": self.user.email,
             "token": token,
             "password": 'AnotherPass789!',
             "confirm_password": 'AnotherPass789!'
@@ -88,16 +88,34 @@ class ActiveUserPasswordResetTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('TOKEN_ALREADY_USED', resp.data['errors'])
 
+    def test_prevent_user_enumeration(self):
+        """Verify that password reset endpoints do not leak user existence"""
+        # Step 1: Request OTP for non-existent email should return same success response
+        response = self.client.post(self.forgot_url, {"email": "nonexistent@example.com"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['data'])
+        self.assertIn("verification OTP code will be sent shortly", response.data['message'])
+
+        # Step 2: Verification for non-existent email should return invalid OTP error (not User Not Found)
+        resp = self.client.post(self.verify_url, {"email": "nonexistent@example.com", "otp_code": "123456"}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('INVALID_OTP', resp.data['errors'])
+
+        # Step 3: Resend OTP for non-existent email should return same success response
+        resend_url = reverse('api-v1:user-forgot-password-resend')
+        resp = self.client.post(resend_url, {"email": "nonexistent@example.com"}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIsNone(resp.data['data'])
+
     def test_resend_forgot_password_otp(self):
         resend_url = reverse('api-v1:user-forgot-password-resend')
         
         # Step 1: Request OTP
         response = self.client.post(self.forgot_url, {"email": self.user.email}, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        user_id = response.data['data']['user_id']
         
         # Step 2: Attempt to resend OTP immediately (should fail due to 30-second cooldown)
-        resp = self.client.post(resend_url, {"user_id": user_id}, format='json')
+        resp = self.client.post(resend_url, {"email": self.user.email}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('OTP_COOLDOWN_ACTIVE', resp.data['errors'])
         
@@ -107,7 +125,7 @@ class ActiveUserPasswordResetTest(TestCase):
         self.user.save()
         
         # Step 4: Resend OTP (should succeed)
-        resp = self.client.post(resend_url, {"user_id": user_id}, format='json')
+        resp = self.client.post(resend_url, {"email": self.user.email}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertTrue(resp.data['status'])
         

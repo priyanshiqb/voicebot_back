@@ -14,7 +14,11 @@ from core.serializers.knowledge_base import (
     KnowledgeBaseUrlCheckSerializer,
     UniquenessCheckResponseSerializer,
 )
+from core.serializers.kb_etl import UpdateETLStatusSerializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
+from user.models import CustomUser
+from user.authentication import ETLSystemTokenAuthentication
+from utils.permissions.is_etl_user import IsETLUser
 
 
 @extend_schema(tags=["Knowledge Base"])
@@ -73,6 +77,29 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
     select_related_fields = ["tenant"]
     prefetch_related_fields = ["texts", "files", "websites", "question_answers"]
 
+    def get_queryset(self):
+        user = self.request.user
+        if getattr(user, "user_type", None) == CustomUser.UserType.ETL:
+            return KnowledgeBase.objects.all()
+        return super().get_queryset()
+
+    def get_authenticators(self):
+        action = None
+        if hasattr(self, "request") and self.request:
+            action = getattr(self, "action_map", {}).get(self.request.method.lower())
+        if not action:
+            action = getattr(self, "action", None)
+
+        if action == "update_etl_status":
+            return [ETLSystemTokenAuthentication()]
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        action = getattr(self, "action", None)
+        if action == "update_etl_status":
+            return [IsETLUser()]
+        return super().get_permissions()
+
     @extend_schema(
         summary="Upload a Knowledge Base document file",
         description="""
@@ -96,7 +123,10 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
         serializer_class=KBFilesSerializer,
     )
     def upload_file(self, request, *args, **kwargs):
-        tenant = request.user.tenant_mapping.tenant
+        try:
+            tenant = request.user.tenant_mapping.tenant
+        except:
+            raise PermissionDenied("User must have an active tenant to upload files to a knowledge base.")
         serializer = KBFilesSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         # Force tenant scoping
@@ -108,6 +138,43 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
                 "data": serializer.data
             },
             status=status.HTTP_201_CREATED
+        )
+
+    @extend_schema(
+        summary="Update ETL status of a Knowledge Base component",
+        description="Updates the ETL status of the knowledge base itself or one of its nested elements (file, website, text, qa).",
+        request=UpdateETLStatusSerializer,
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="ETL status updated successfully."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or etl_id mismatch."),
+            404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge Base or target component not found.")
+        }
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="update-etl-status",
+        serializer_class=UpdateETLStatusSerializer,
+    )
+    def update_etl_status(self, request, pk=None, *args, **kwargs):
+        kb_instance = self.get_object()
+        serializer = self.get_serializer(data=request.data, context={"kb_instance": kb_instance})
+        serializer.is_valid(raise_exception=True)
+        success = serializer.save()
+        if not success:
+            return Response(
+                {
+                    "status": False,
+                    "message": "Failed to update ETL status. The etl_id does not match the current tracking etl_id."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return Response(
+            {
+                "status": True,
+                "message": "ETL status updated successfully."
+            },
+            status=status.HTTP_200_OK
         )
 
     @extend_schema(

@@ -30,22 +30,25 @@ while True:
 print("Database is ready!")
 EOF
 
-# Run database migrations
-echo "Running migrations..."
-python manage.py migrate --noinput
+# Run database migrations, fixtures, and collectstatic only if we are not running celery
+if [ "$1" != "celery" ]; then
+    # Run database migrations
+    echo "Running migrations..."
+    python manage.py migrate --noinput
 
-# Load database fixtures
-echo "Loading fixtures..."
-python manage.py load_data all
+    # Load database fixtures
+    echo "Loading fixtures..."
+    python manage.py load_data all
 
-
-
-# Collect static files (only for production environments where DJANGO_DEBUG is False)
-if [ "$DJANGO_DEBUG" != "True" ] && [ "$DJANGO_DEBUG" != "1" ]; then
-    echo "Collecting static files..."
-    python manage.py collectstatic --noinput
+    # Collect static files (only for production environments where DJANGO_DEBUG is False)
+    if [ "$DJANGO_DEBUG" != "True" ] && [ "$DJANGO_DEBUG" != "1" ]; then
+        echo "Collecting static files..."
+        python manage.py collectstatic --noinput
+    else
+        echo "Local development: skipping collectstatic (DJANGO_DEBUG=True)."
+    fi
 else
-    echo "Local development: skipping collectstatic (DJANGO_DEBUG=True)."
+    echo "Celery command detected: skipping database migrations, fixtures, and collectstatic."
 fi
 
 

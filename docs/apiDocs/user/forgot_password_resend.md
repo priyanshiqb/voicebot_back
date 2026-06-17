@@ -13,7 +13,7 @@ This endpoint resends a verification OTP code to an active onboarded user who re
 
 ```json
 {
-  "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a"
+  "email": "user@example.com"
 }
 ```
 
@@ -21,38 +21,20 @@ This endpoint resends a verification OTP code to an active onboarded user who re
 
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `user_id` | UUID | Yes | Must be a valid UUID string. Must match an active, non-deleted user. | The unique identifier of the user requesting the reset. |
+| `email` | String | Yes | Must be a valid email format. | The registered email address of the user requesting the reset. |
 
 ## Responses
 
 ### 200 OK (Success)
 
-Sent when the OTP email delivery is successfully triggered.
+Sent when the OTP email delivery is successfully triggered (or silently skipped if user doesn't exist, preventing enumeration).
 
 ```json
 {
   "status": true,
-  "message": "A new verification OTP has been emailed.",
-  "data": {
-    "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-    "email": "user@example.com"
-  },
-  "errors": null
-}
-```
-
-### 400 Bad Request (Validation Error)
-
-Sent if fields are malformed or invalid.
-
-```json
-{
-  "status": false,
-  "message": "Invalid user ID.",
+  "message": "If the email is registered, a verification OTP code will be sent shortly.",
   "data": null,
-  "errors": [
-    "USER_NOT_FOUND"
-  ]
+  "errors": null
 }
 ```
 

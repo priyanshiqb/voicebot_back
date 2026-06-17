@@ -116,3 +116,20 @@ class TempUser(BaseModelCore):
             return True
         expiry_limit = timezone.now() - timezone.timedelta(minutes=2)
         return self.otp_created_at < expiry_limit
+
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    @property
+    def is_superuser(self):
+        return False
+
+    @property
+    def is_staff(self):
+        return False
+

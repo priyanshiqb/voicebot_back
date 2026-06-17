@@ -113,17 +113,19 @@ class AgentTemplate(TenantBaseModel):
             raise ValidationError("This is a default agent template and cannot be deleted.")
 
         with transaction.atomic():
-            template = AgentTemplate.objects.select_for_update().get(pk=self.pk)
-            template.is_deleted = True
-            template.deleted_at = timezone.now()
+            # Lock row in DB
+            AgentTemplate.objects.select_for_update().get(pk=self.pk)
+            
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
             if user:
-                template.deleted_by = user
+                self.deleted_by = user
 
             # Append deleted timestamp to prevent unique constraint conflict on active names
-            suffix = f"-deleted-{template.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            template.name = f"{template.name}{suffix}"
+            suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            self.name = f"{self.name}{suffix}"
 
-            template.save(
+            self.save(
                 update_fields=["is_deleted", "deleted_at", "name", "deleted_by"]
                 if user
                 else ["is_deleted", "deleted_at", "name"]

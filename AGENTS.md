@@ -119,6 +119,20 @@ While implementing any API viewset extending `BaseViewSet` or `TenantBaseViewSet
 
 * **Clean Migrations**: Always run `makemigrations <app_name>` followed by `migrate` to apply and test changes locally.
 * **Isolate Integrity Checks**: In unit tests, wrap any operations that expect to raise database exceptions (like `IntegrityError` from unique-together constraints) in a `django.db.transaction.atomic()` block. This prevents marking the test transaction as broken and avoids subsequent `TransactionManagementError` failures.
+* **Module-Wise Testing Structure**: Do not create monolithic test files directly in the root of `<app_name>/tests/`. Restructure tests into component-specific directories matching the application's structure:
+  ```text
+  <app_name>/tests/
+  ├── models/          # Model-level unit tests
+  ├── serializers/     # Serializer validation & logic tests
+  ├── views/           # API endpoint integration tests
+  └── consumers/       # WebSocket & async consumer tests
+  ```
+  Each subdirectory **MUST** contain an `__init__.py` file for test runner discovery.
+* **Targeted Test Execution**: Avoid testing the whole suite every time. Run only the specific module-wise or file-specific tests using targeted commands:
+  * Run all core model tests: `python manage.py test core.tests.models`
+  * Run all core serializer tests: `python manage.py test core.tests.serializers`
+  * Run a specific test file: `python manage.py test core.tests.serializers.test_knowledge_base`
+  * Run the full test suite only when requested or before final deployment.
 
 ---
 
@@ -158,4 +172,10 @@ To ensure full compatibility with Promtail/Loki log aggregation and consistent n
   logger = logging.getLogger(__name__)
   ```
 * **Namespace Scoping**: Using `__name__` ensures that the log event is tagged with the correct Python module path (e.g. `onboard.consumers`), allowing developers to query and filter log messages precisely inside Grafana/Loki.
+
+---
+
+## 📦 8. Import Standards
+
+* **Top-Level Imports**: Do **NOT** write inline imports (i.e., imports within functions, methods, or conditional blocks) unless there is a strictly verified circular dependency that cannot be resolved otherwise. All module imports **MUST** reside at the top level of the file.
 

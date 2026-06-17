@@ -34,7 +34,11 @@ from core.serializers.knowledge_base import (
     KnowledgeBaseRefSerializer,
     KnowledgeBaseSerializer,
     KnowledgeBaseListSerializer,
-    KnowledgeBaseDropdownSerializer
+    KnowledgeBaseDropdownSerializer,
+)
+from core.serializers.kb_etl import (
+    KnowledgeBaseETLSerializer,
+    UpdateETLStatusSerializer,
 )
 from core.serializers.agent_template import (
     AgentTemplateRefSerializer,
@@ -80,6 +84,8 @@ __all__ = [
     "KnowledgeBaseSerializer",
     "KnowledgeBaseListSerializer",
     "KnowledgeBaseDropdownSerializer",
+    "KnowledgeBaseETLSerializer",
+    "UpdateETLStatusSerializer",
     "AgentTemplateRefSerializer",
     "AgentTemplateSerializer",
     "AgentTemplateListSerializer",

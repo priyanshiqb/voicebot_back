@@ -61,7 +61,7 @@ class UserSession(BaseModelCore):
             raise cls.DoesNotExist("Session is invalid or logged out")
             
         now = timezone.now()
-        
+            
         # If cache hit (active) and last_used is within the last 60s,
         # we can fetch the session but skip the DB update!
         skip_db_update = False

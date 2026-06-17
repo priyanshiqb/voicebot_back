@@ -390,3 +390,114 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
 }
 ```
 
+---
+
+### 11. Update ETL status of a Knowledge Base component
+* **Path**: `POST /api/v1/core/knowledge-base/<kb_uuid>/update-etl-status/`
+* **Authentication**: Static Bearer Token (`ETLSystemTokenAuthentication`) via header: `Authorization: Bearer <ETL_SYSTEM_TOKEN>`
+* **Permissions**: Restricted to users with type `ETL` (`IsETLUser`). This system user has global cross-tenant access to bypass typical multi-tenant isolation constraints.
+* **Request Payload**:
+```json
+{
+  "type": "text",
+  "object_id": "uuid-of-the-object",
+  "etl_id": "uuid-of-the-etl-task",
+  "status": "COMPLETED",
+  "timestamp": "optional-iso-datetime",
+  "error_message": "optional-error-message-if-failed"
+}
+```
+  * **Explicit Field Validations**:
+    * `type`: Choice field. Allowed values: `knowledgebase`, `file`, `website`, `text`, `qa`.
+    * `object_id`: UUID. Must match the specified Knowledge Base component type and belong to that Knowledge Base.
+    * `etl_id`: UUID. Must match the current tracking `etl_id` on the object if one is already set.
+    * `status`: Choice field. Allowed values: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+* **Response (HTTP 200 OK - Success)**:
+```json
+{
+  "status": true,
+  "message": "ETL status updated successfully."
+}
+```
+* **Response (HTTP 400 Bad Request - e.g. Mismatched etl_id)**:
+```json
+{
+  "status": false,
+  "message": "Failed to update ETL status. The etl_id does not match the current tracking etl_id."
+}
+```
+
+---
+
+### 12. Outbound External Ingestion (ETL) API Trigger
+When a Knowledge Base is created or updated, the backend automatically dispatches a single HTTP POST request to the external ETL server (configured via `ETL_SERVER_URL`).
+
+* **HTTP Method**: `POST`
+* **Trigger Payload Example**:
+```json
+{
+  "etl_id": "36c7c81e-f85f-4de7-85eb-aba467037fa7",
+  "callback_update_url": "http://localhost:8000/api/v1/core/knowledge-base/20ab4a80-bbf8-4c9e-9c42-79138832db8a/update-etl-status/",
+  "data": {
+    "id": "20ab4a80-bbf8-4c9e-9c42-79138832db8a",
+    "name": "Acme Ingestion",
+    "is_processed": false,
+    "processing_status": "PENDING",
+    "is_deleted": false,
+    "callback_update_url": "http://localhost:8000/api/v1/core/knowledge-base/20ab4a80-bbf8-4c9e-9c42-79138832db8a/update-etl-status/",
+    "texts": [
+      {
+        "id": "78c8c81e-f85f-4de7-85eb-aba467037fa8",
+        "title": "Setup",
+        "description": "Guides to configure REST endpoints",
+        "is_processed": false,
+        "processing_status": "PENDING",
+        "etl_id": "36c7c81e-f85f-4de7-85eb-aba467037fa7",
+        "is_deleted": false
+      }
+    ],
+    "files": [
+      {
+        "id": "18c8c81e-f85f-4de7-85eb-aba467037fa9",
+        "file": "http://localhost:8000/media/t-1/kb_files/setup.pdf",
+        "original_name": "setup.pdf",
+        "extension": ".pdf",
+        "file_size_in_bytes": 102400,
+        "is_processed": false,
+        "processing_status": "PENDING",
+        "etl_id": "36c7c81e-f85f-4de7-85eb-aba467037fa7",
+        "is_deleted": false
+      }
+    ],
+    "websites": [
+      {
+        "id": "28c8c81e-f85f-4de7-85eb-aba467037fb0",
+        "url": "https://acme-setup-guides.org",
+        "is_processed": false,
+        "processing_status": "PENDING",
+        "etl_id": "36c7c81e-f85f-4de7-85eb-aba467037fa7",
+        "is_deleted": false
+      }
+    ],
+    "question_answers": [
+      {
+        "id": "38c8c81e-f85f-4de7-85eb-aba467037fb1",
+        "answer": "Yes, we support deep nesting.",
+        "is_processed": false,
+        "processing_status": "PENDING",
+        "etl_id": "36c7c81e-f85f-4de7-85eb-aba467037fa7",
+        "is_deleted": false,
+        "questions": [
+          {
+            "id": "48c8c81e-f85f-4de7-85eb-aba467037fb2",
+            "question": "Does this support nested creation?"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+* **Processing Logic**: The external ETL server receives this payload and processes only items where `etl_id` matches the request `etl_id` and `processing_status` is `PENDING`. It will skip already processed items (where `is_processed` is `true` or `etl_id` is different) and delete items where `is_deleted` is `true`.
+
+

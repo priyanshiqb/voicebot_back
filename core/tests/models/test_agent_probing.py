@@ -306,3 +306,40 @@ class AgentProbingTestCase(TestCase):
         )
         self.assertEqual(new_agent.bot_name, "Quantum-Bot")
 
+    def test_soft_delete_in_memory_state_synchronization(self):
+        """Verify that soft_delete mutates the Python instance attributes directly in memory"""
+        # Test AgentTemplate
+        template = AgentTemplate.objects.create(
+            tenant=self.tenant,
+            name="In Memory Template",
+            short_description="Short desc",
+            agent_prompt="A prompt description that has more than thirty characters.",
+        )
+        template.soft_delete()
+        self.assertTrue(template.is_deleted)
+        self.assertIsNotNone(template.deleted_at)
+        self.assertIn("-deleted-", template.name)
+
+        # Test ProbingQuestion
+        pq = ProbingQuestion.objects.create(
+            tenant=self.tenant,
+            question="Is your monthly salary above $5000?",
+            priority=1,
+            score=50,
+        )
+        pq.soft_delete()
+        self.assertTrue(pq.is_deleted)
+        self.assertIsNotNone(pq.deleted_at)
+        self.assertIn("-deleted-", pq.question)
+
+        # Test Agent
+        agent = Agent.objects.create(
+            tenant=self.tenant,
+            bot_name="In-Memory-Agent",
+            persona_name="Emma",
+        )
+        agent.soft_delete()
+        self.assertTrue(agent.is_deleted)
+        self.assertIsNotNone(agent.deleted_at)
+        self.assertIn("-deleted-", agent.bot_name)
+

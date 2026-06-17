@@ -1,7 +1,13 @@
+import logging
+import uuid
+import requests
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from core.common.models.kb_base_model import KBBaseModel
+
+logger = logging.getLogger(__name__)
 
 def kb_file_upload_path(instance, filename):
     return f"t-{instance.tenant_id}/kb_files/{filename}"
@@ -194,35 +200,91 @@ class KnowledgeBase(KBBaseModel):
             )
         ]
 
-    def soft_delete(self, user=None):
+    def soft_delete(self, user=None, request=None):
         from django.db import transaction
         from django.utils import timezone
         with transaction.atomic():
             # Lock row
             kb = KnowledgeBase.objects.select_for_update().get(pk=self.pk)
-            kb.is_deleted = True
-            kb.deleted_at = timezone.now()
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
             if user:
-                kb.deleted_by = user
+                self.deleted_by = user
             
-            kb.name = f"{kb.name} -deleted-{kb.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            self.name = f"{self.name} -deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
             
             update_fields = ["is_deleted", "deleted_at", "name"]
             if user:
                 update_fields.append("deleted_by")
-            kb.save(update_fields=update_fields)
+            self.save(update_fields=update_fields)
 
-            # Cascade soft delete to all M2M relations
-            for text in kb.texts.all():
+            # Cascade soft delete to all M2M relations if they are not referenced by other active knowledge bases
+            for text in self.texts.filter(is_deleted=False):
+                if not text.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
                 text.soft_delete(user=user)
-            for file in kb.files.all():
+            for file in self.files.filter(is_deleted=False):
+                if not file.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
                 file.soft_delete(user=user)
-            for website in kb.websites.all():
+            for website in self.websites.filter(is_deleted=False):
+                if not website.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
                 website.soft_delete(user=user)
-            for qa in kb.question_answers.all():
-                for question in qa.questions.all():
+            for qa in self.question_answers.filter(is_deleted=False):
+                if not qa.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
+                    for question in qa.questions.filter(is_deleted=False):
+                        if not question.question_answers.filter(is_deleted=False).exclude(pk=qa.pk).exists():
                     question.soft_delete(user=user)
                 qa.soft_delete(user=user)
+
+        self.run_etl(request)
+
+    def run_etl(self, request=None):
+        """
+        Triggers the external ETL server API with the complete Knowledge Base JSON.
+        Generates a single etl_id, persists it on all specified instances (including self),
+        and sends a POST request with the serialized data.
+        """
+
+        new_etl_id = uuid.uuid4()
+
+        # Ensure the parent kb itself gets the new etl_id and status PENDING
+        self.etl_id = new_etl_id
+        self.processing_status = self.ProcessingStatusChoices.PENDING
+        self.pending_at = timezone.now()
+        self.processing_error = None
+        self.completed_at = None
+        self.failed_at = None
+        self.processing_time = None
+        self.save()
+
+        # 2. Serialize the complete Knowledge Base
+        from core.serializers.kb_etl import KnowledgeBaseETLSerializer
+        serializer = KnowledgeBaseETLSerializer(self, context={"request": request})
+        serialized_kb_data = serializer.data
+
+        # 3. Prepare payload for the external ETL server
+        etl_server_url = getattr(settings, "ETL_SERVER_URL", "http://localhost:5001/api/v1/etl/")
+
+        # Generate task name at runtime
+        task_name = f"knowledge_base_ingestion_{self.id}_{new_etl_id}"
+
+        payload = {
+            "task_name": task_name,
+            "payload": serialized_kb_data,
+        }
+
+        try:
+            logger.info(f"Triggering external ETL at {etl_server_url} for KB {self.id} with task: {task_name}")
+            response = requests.post(etl_server_url, json=payload, timeout=10)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Failed to contact external ETL server at {etl_server_url}: {e}")
+            # Transition state to FAILED
+            error_msg = f"Failed to trigger ingestion: external ETL server error ({str(e)})"
+            self.update_etl_status(
+                etl_id=new_etl_id,
+                status=self.ProcessingStatusChoices.FAILED,
+                error_message=error_msg
+            )
 
     def __str__(self):
         return self.name

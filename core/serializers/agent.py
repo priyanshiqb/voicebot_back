@@ -226,13 +226,15 @@ class AgentSerializer(TenantBaseModelSerializer):
         validated_data.pop("add_probing_questions", None)
         validated_data.pop("remove_probing_questions", None)
 
-        instance = super().create(validated_data)
+        from django.db import transaction
+        with transaction.atomic():
+            instance = super().create(validated_data)
 
-        if resolved_add_kbs:
-            instance.knowledge_bases.add(*resolved_add_kbs)
-        if resolved_add_pqs:
-            instance.probing_questions.add(*resolved_add_pqs)
-        return instance
+            if resolved_add_kbs:
+                instance.knowledge_bases.add(*resolved_add_kbs)
+            if resolved_add_pqs:
+                instance.probing_questions.add(*resolved_add_pqs)
+            return instance
 
     def update(self, instance, validated_data):
         resolved_add_kbs = validated_data.pop("resolved_add_knowledge_bases", None)
@@ -245,18 +247,20 @@ class AgentSerializer(TenantBaseModelSerializer):
         validated_data.pop("add_probing_questions", None)
         validated_data.pop("remove_probing_questions", None)
 
-        instance = super().update(instance, validated_data)
+        from django.db import transaction
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
 
-        if resolved_remove_kbs:
-            instance.knowledge_bases.remove(*resolved_remove_kbs)
-        if resolved_add_kbs:
-            instance.knowledge_bases.add(*resolved_add_kbs)
+            if resolved_remove_kbs:
+                instance.knowledge_bases.remove(*resolved_remove_kbs)
+            if resolved_add_kbs:
+                instance.knowledge_bases.add(*resolved_add_kbs)
 
-        if resolved_remove_pqs:
-            instance.probing_questions.remove(*resolved_remove_pqs)
-        if resolved_add_pqs:
-            instance.probing_questions.add(*resolved_add_pqs)
-        return instance
+            if resolved_remove_pqs:
+                instance.probing_questions.remove(*resolved_remove_pqs)
+            if resolved_add_pqs:
+                instance.probing_questions.add(*resolved_add_pqs)
+            return instance
 
 
 class AgentListSerializer(serializers.ModelSerializer):

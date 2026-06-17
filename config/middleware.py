@@ -43,7 +43,7 @@ class RequestTracingMiddleware:
             response = self.get_response(request)
             
             # Update context with user info if authenticated during the request
-            if hasattr(request, "user") and request.user and request.user.is_authenticated:
+            if hasattr(request, "user") and request.user and getattr(request.user, "is_authenticated", False):
                 context_data["user_id"] = str(request.user.id)
                 try:
                     context_data["tenant_id"] = str(request.user.tenant_mapping.tenant.id)

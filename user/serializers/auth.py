@@ -66,16 +66,16 @@ class UserForgotPasswordSerializer(serializers.Serializer):
 
 
 class UserForgotPasswordVerifyOTPSerializer(serializers.Serializer):
-    user_id = serializers.UUIDField(required=True)
+    email = serializers.EmailField(required=True)
     otp_code = serializers.CharField(max_length=6, min_length=5, required=True)
 
 
 class UserForgotPasswordResendOTPSerializer(serializers.Serializer):
-    user_id = serializers.UUIDField(required=True)
+    email = serializers.EmailField(required=True)
 
 
 class UserResetPasswordSerializer(serializers.Serializer):
-    user_id = serializers.UUIDField(required=True)
+    email = serializers.EmailField(required=True)
     token = serializers.CharField(required=True)
     password = serializers.CharField(
         min_length=8,

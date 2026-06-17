@@ -699,7 +699,11 @@ class BaseViewSet(ResponseMixin, ModelViewSet):
         if not isinstance(ids, list) or not ids:
             return self.error(message="ids must be a non-empty list", status_code=status.HTTP_400_BAD_REQUEST)
 
-        queryset = self.get_queryset().filter(id__in=ids, is_deleted=False)
+        model = self.get_queryset().model
+        if hasattr(model, "is_deleted"):
+            queryset = self.get_queryset().filter(id__in=ids, is_deleted=False)
+        else:
+            queryset = self.get_queryset().filter(id__in=ids)
         if queryset.count() != len(ids):
             return self.error(message="Some ids are invalid", status_code=status.HTTP_400_BAD_REQUEST)
             

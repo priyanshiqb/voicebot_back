@@ -78,17 +78,19 @@ class ProbingQuestion(TenantBaseModel):
             raise ValidationError("This is a default probing question and cannot be deleted.")
 
         with transaction.atomic():
-            question = ProbingQuestion.objects.select_for_update().get(pk=self.pk)
-            question.is_deleted = True
-            question.deleted_at = timezone.now()
+            # Lock row in DB
+            ProbingQuestion.objects.select_for_update().get(pk=self.pk)
+            
+            self.is_deleted = True
+            self.deleted_at = timezone.now()
             if user:
-                question.deleted_by = user
+                self.deleted_by = user
 
             # Append deleted timestamp to prevent unique constraint conflicts on active question texts
-            suffix = f"-deleted-{question.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            question.question = f"{question.question}{suffix}"
+            suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            self.question = f"{self.question}{suffix}"
 
-            question.save(
+            self.save(
                 update_fields=["is_deleted", "deleted_at", "question", "deleted_by"]
                 if user
                 else ["is_deleted", "deleted_at", "question"]

@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from utils.views.base_model_viewset import ResponseMixin
@@ -133,6 +134,12 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
             return self.success(
                 data=serializer.validated_data,
                 message="Token refreshed successfully"
+            )
+
+        except TokenError as te:
+            logger.warning("TokenError during token refresh: %s", str(te))
+            return self.error(
+                message="Invalid refresh token."
             )
 
         except CustomUser.DoesNotExist:

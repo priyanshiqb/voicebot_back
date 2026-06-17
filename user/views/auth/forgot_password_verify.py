@@ -1,5 +1,6 @@
 from django.core import signing
 from django.conf import settings
+from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiResponse
@@ -34,18 +35,55 @@ class UserForgotPasswordVerifyOTPAPIView(ResponseMixin, APIView):
         serializer = UserForgotPasswordVerifyOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data["user_id"]
+        email = serializer.validated_data["email"].strip().lower()
         otp_code = serializer.validated_data["otp_code"]
 
+        import hashlib
+        email_hash = hashlib.sha256(email.encode('utf-8')).hexdigest()
+        cache_key = f"otp_verify_attempts:{email_hash}"
+
+        # Fetch active user
         try:
-            user = CustomUser.objects.get(id=user_id, is_active=True, is_deleted=False)
+            user = CustomUser.objects.get(email=email, is_active=True, is_deleted=False)
         except CustomUser.DoesNotExist:
+            # Mask user existence by incrementing/checking brute force attempts on fake key
+            attempts = cache.get(cache_key, 0)
+            attempts += 1
+            cache.set(cache_key, attempts, 600)
+            if attempts >= 5:
+                return self.error(
+                    message="Too many failed attempts. Verification code has been invalidated.",
+                    errors=["TOO_MANY_ATTEMPTS"]
+                )
             return self.error(
-                message="Invalid user ID.",
-                errors=["USER_NOT_FOUND"]
+                message="Invalid OTP code.",
+                errors=["INVALID_OTP"]
+            )
+
+        # Check brute force attempts
+        attempts = cache.get(cache_key, 0)
+
+        if attempts >= 5:
+            if user.otp_code is not None:
+                user.otp_code = None
+                user.otp_created_at = None
+                user.save(update_fields=["otp_code", "otp_created_at"])
+            return self.error(
+                message="Too many failed attempts. Verification code has been invalidated.",
+                errors=["TOO_MANY_ATTEMPTS"]
             )
 
         if user.otp_code != otp_code:
+            attempts += 1
+            cache.set(cache_key, attempts, 600)  # 10 minutes lock duration
+            if attempts >= 5:
+                user.otp_code = None
+                user.otp_created_at = None
+                user.save(update_fields=["otp_code", "otp_created_at"])
+                return self.error(
+                    message="Too many failed attempts. Verification code has been invalidated.",
+                    errors=["TOO_MANY_ATTEMPTS"]
+                )
             return self.error(
                 message="Invalid OTP code.",
                 errors=["INVALID_OTP"]
@@ -56,6 +94,9 @@ class UserForgotPasswordVerifyOTPAPIView(ResponseMixin, APIView):
                 message="Verification code has expired.",
                 errors=["OTP_EXPIRED"]
             )
+
+        # Invalidate OTP attempts cache upon success
+        cache.delete(cache_key)
 
         # Invalidate OTP code in the database
         user.otp_code = None

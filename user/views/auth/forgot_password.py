@@ -48,6 +48,18 @@ class UserForgotPasswordAPIView(ResponseMixin, APIView):
                 message="If the email is registered, a verification OTP code will be sent shortly."
             )
 
+        # OTP cooldown check (30 seconds limit)
+        now = timezone.now()
+        if user.otp_created_at:
+            elapsed = (now - user.otp_created_at).total_seconds()
+            if elapsed < 30:
+                cooldown_remaining = int(30 - elapsed)
+                return self.error(
+                    message="Please wait before requesting another OTP.",
+                    data={"cooldown_remaining": cooldown_remaining},
+                    errors=["OTP_COOLDOWN_ACTIVE"]
+                )
+
         # Generate a secure 6-digit numeric OTP code
         otp_code = f"{random.randint(100000, 999999)}"
         user.otp_code = otp_code
@@ -71,8 +83,5 @@ class UserForgotPasswordAPIView(ResponseMixin, APIView):
             logger.exception("Password reset active user OTP email queuing skipped/failed: %s", str(e))
 
         return self.success(
-            data={
-                "user_id": str(user.id)
-            },
             message="If the email is registered, a verification OTP code will be sent shortly."
         )

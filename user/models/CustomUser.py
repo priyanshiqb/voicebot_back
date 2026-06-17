@@ -44,6 +44,17 @@ class UserManager(BaseUserManager):
 
 
 class CustomUser(AbstractUser, BaseModelCore):
+    class UserType(models.TextChoices):
+        ADMIN = "ADMIN", "Admin"
+        USER = "USER", "User"
+        ETL = "ETL", "ETL"
+
+    user_type = models.CharField(
+        max_length=10,
+        choices=UserType.choices,
+        default=UserType.USER,
+        help_text="Role/Type classification of the user account."
+    )
 
     username = models.CharField(
         _('username'),

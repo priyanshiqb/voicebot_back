@@ -31,9 +31,11 @@ class KnowledgeBaseTestCase(TestCase):
         )
         self.assertEqual(text.title, "Text block title")
         self.assertEqual(text.tenant, self.tenant)
-        self.assertFalse(text.is_processed)
-        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.PENDING)
-        self.assertEqual(text.processing_history, [])
+        self.assertIsNone(text.etl_id)
+        self.assertIsNone(text.pending_at)
+        self.assertIsNone(text.processing_at)
+        self.assertIsNone(text.completed_at)
+        self.assertIsNone(text.failed_at)
 
     def test_kb_files_creation(self):
         dummy_file = SimpleUploadedFile("dummy_doc.txt", b"file contents bytes", content_type="text/plain")
@@ -180,3 +182,129 @@ class KnowledgeBaseTestCase(TestCase):
         self.assertEqual(tracker.task_id, "task-123")
         self.assertEqual(tracker.kb_json_snapshot["name"], "ETL Bot KB")
         self.assertEqual(str(tracker), f"Run {tracker.id} | KB: ETL Bot KB | Status: PENDING")
+
+    def test_kb_update_etl_status(self):
+        import uuid
+        from django.utils import timezone
+        
+        text = KBText.objects.create(
+            tenant=self.tenant,
+            title="Update Status Test",
+            description="Testing state transitions"
+        )
+        
+        etl_id_1 = uuid.uuid4()
+        etl_id_2 = uuid.uuid4()
+        
+        # 1. Update status to PENDING
+        success = text.update_etl_status(etl_id=etl_id_1, status=KBText.ProcessingStatusChoices.PENDING)
+        self.assertTrue(success)
+        self.assertEqual(text.etl_id, etl_id_1)
+        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.PENDING)
+        self.assertIsNotNone(text.pending_at)
+        self.assertFalse(text.is_processed)
+        
+        # 2. Update status to PROCESSING using correct etl_id
+        success = text.update_etl_status(etl_id=etl_id_1, status=KBText.ProcessingStatusChoices.PROCESSING)
+        self.assertTrue(success)
+        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.PROCESSING)
+        self.assertIsNotNone(text.processing_at)
+        
+        # 3. Try to update status with mismatching etl_id -> should fail/return False
+        success = text.update_etl_status(etl_id=etl_id_2, status=KBText.ProcessingStatusChoices.COMPLETED)
+        self.assertFalse(success)
+        self.assertNotEqual(text.processing_status, KBText.ProcessingStatusChoices.COMPLETED)
+        
+        # 4. Update status to COMPLETED with matching etl_id
+        success = text.update_etl_status(etl_id=etl_id_1, status=KBText.ProcessingStatusChoices.COMPLETED)
+        self.assertTrue(success)
+        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.COMPLETED)
+        self.assertIsNotNone(text.completed_at)
+        self.assertTrue(text.is_processed)
+        self.assertIsNone(text.processing_error)
+        
+        # 5. Try updating status to FAILED with mismatching etl_id
+        success = text.update_etl_status(etl_id=etl_id_2, status=KBText.ProcessingStatusChoices.FAILED, error_message="Some error")
+        self.assertFalse(success)
+        
+        # 6. Set new etl_id or transition to FAILED with matching etl_id
+        success = text.update_etl_status(etl_id=etl_id_1, status=KBText.ProcessingStatusChoices.FAILED, error_message="An error occurred")
+        self.assertTrue(success)
+        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.FAILED)
+        self.assertIsNotNone(text.failed_at)
+        self.assertEqual(text.processing_error, "An error occurred")
+        self.assertFalse(text.is_processed)
+
+    def test_knowledge_base_safe_cascading_soft_delete(self):
+        """Verify that shared child components are not soft deleted when one KB is soft deleted"""
+        text = KBText.objects.create(tenant=self.tenant, title="Shared Cascaded Guide")
+        web = KBWebsite.objects.create(tenant=self.tenant, url="https://shared-cascade.com")
+        
+        kb1 = KnowledgeBase.objects.create(
+            tenant=self.tenant,
+            name="Bot KB 1"
+        )
+        kb2 = KnowledgeBase.objects.create(
+            tenant=self.tenant,
+            name="Bot KB 2"
+        )
+        kb1.texts.add(text)
+        kb1.websites.add(web)
+        kb2.texts.add(text)
+        kb2.websites.add(web)
+
+        # Mock the celery task trigger inside run_etl
+        from unittest.mock import patch
+        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
+            kb1.soft_delete()
+        
+        # Verify kb1 is soft deleted
+        kb1.refresh_from_db()
+        self.assertTrue(kb1.is_deleted)
+
+        # Verify shared child components are NOT soft deleted because kb2 is still active
+        text.refresh_from_db()
+        web.refresh_from_db()
+        self.assertFalse(text.is_deleted)
+        self.assertFalse(web.is_deleted)
+
+        # Now soft delete kb2
+        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
+            kb2.soft_delete()
+        
+        # Verify shared child components are now soft deleted since no active KB references them
+        text.refresh_from_db()
+        web.refresh_from_db()
+        self.assertTrue(text.is_deleted)
+        self.assertTrue(web.is_deleted)
+
+    def test_run_etl_cascading_status_update(self):
+        """Verify that run_etl cascades the etl_id and PENDING status to active child models"""
+        text = KBText.objects.create(tenant=self.tenant, title="Guide to Cascade")
+        web = KBWebsite.objects.create(tenant=self.tenant, url="https://cascade-etl.com")
+        
+        kb = KnowledgeBase.objects.create(
+            tenant=self.tenant,
+            name="ETL Cascading KB"
+        )
+        kb.texts.add(text)
+        kb.websites.add(web)
+
+        # Verify initial status is None
+        self.assertIsNone(text.etl_id)
+        self.assertIsNone(web.etl_id)
+
+        from unittest.mock import patch
+        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
+            kb.run_etl()
+        
+        # Refresh child components from DB
+        text.refresh_from_db()
+        web.refresh_from_db()
+        kb.refresh_from_db()
+
+        # Verify etl_ids match and statuses are PENDING
+        self.assertEqual(text.etl_id, kb.etl_id)
+        self.assertEqual(web.etl_id, kb.etl_id)
+        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.PENDING)
+        self.assertEqual(web.processing_status, KBWebsite.ProcessingStatusChoices.PENDING)

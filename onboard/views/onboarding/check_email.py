@@ -35,7 +35,22 @@ class CheckEmailView(ResponseMixin, APIView):
 
         email = serializer.validated_data["email"].strip().lower()
 
-        # Database index-optimized queries
+        # Step 1: Query Bloom Filter (Fast Path)
+        from utils.bloom_filter import RedisBloomFilter
+        bf = RedisBloomFilter()
+        if not bf.exists(email):
+            return self.success(
+                data={
+                    "email": email,
+                    "available": True,
+                    "exists_in_active_users": False,
+                    "exists_in_pending_registrations": False
+                },
+                message="Email availability checked (fast-path).",
+                status_code=status.HTTP_200_OK
+            )
+
+        # Database index-optimized queries (Slow Path - handles potential false positives)
         exists_in_active = User.objects.filter(email=email).exists()
         exists_in_pending = TempUser.objects.filter(email=email).exists()
 
@@ -48,7 +63,7 @@ class CheckEmailView(ResponseMixin, APIView):
                 "exists_in_active_users": exists_in_active,
                 "exists_in_pending_registrations": exists_in_pending
             },
-            message="Email availability checked.",
+            message="Email availability checked (slow-path).",
             status_code=status.HTTP_200_OK
         )
 

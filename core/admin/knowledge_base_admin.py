@@ -33,8 +33,11 @@ class KnowledgeBaseAdmin(TenantBaseAdmin):
         "is_processed",
         "processing_status",
         "processing_error",
-        "last_processed_at",
-        "processing_history",
+        "etl_id",
+        "pending_at",
+        "processing_at",
+        "completed_at",
+        "failed_at",
     )
 
     ordering = ("-created_at",)
@@ -66,11 +69,14 @@ class KnowledgeBaseAdmin(TenantBaseAdmin):
         }),
         ("ETL / Ingestion Processing", {
             "fields": (
+                "etl_id",
                 "is_processed",
                 "processing_status",
-                "last_processed_at",
+                "pending_at",
+                "processing_at",
+                "completed_at",
+                "failed_at",
                 "processing_error",
-                "processing_history",
             )
         }),
         ("User Auditing", {

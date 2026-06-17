@@ -16,6 +16,12 @@ class KnowledgeBaseViewTestCase(APITestCase):
         # Create Users
         self.user = User.objects.create_user(username="alex", email="alex@example.com", password="password")
         self.other_user = User.objects.create_user(username="bob", email="bob@example.com", password="password")
+        self.etl_user = User.objects.create_user(
+            username="etl_system",
+            email="etl@example.com",
+            password="password",
+            user_type=User.UserType.ETL
+        )
 
         # Establish Tenant Mappings
         TenantUserMapping.objects.create(user=self.user, tenant=self.tenant)
@@ -34,6 +40,9 @@ class KnowledgeBaseViewTestCase(APITestCase):
 
         self.client_bob = APIClient()
         self.client_bob.force_authenticate(user=self.other_user)
+
+        self.client_etl = APIClient()
+        self.client_etl.credentials(HTTP_AUTHORIZATION="Bearer dummy_etl_system_token_for_local_dev")
 
     def test_kb_list_tenant_isolation(self):
         # Alex (Acme Corp) should see 1 Knowledge Base record
@@ -129,4 +138,88 @@ class KnowledgeBaseViewTestCase(APITestCase):
         # Verify the file is associated
         kb = KnowledgeBase.objects.get(name="New KB with existing file")
         self.assertIn(kb_file, kb.files.all())
+
+    def test_kb_update_etl_status_endpoint(self):
+        import uuid
+        etl_id_1 = uuid.uuid4()
+        etl_id_2 = uuid.uuid4()
+
+        # 1. Update KnowledgeBase itself
+        payload = {
+            "type": "knowledgebase",
+            "object_id": str(self.kb.id),
+            "etl_id": str(etl_id_1),
+            "status": "PROCESSING",
+        }
+        response = self.client_etl.post(
+            f"/api/v1/core/knowledge-base/{self.kb.id}/update-etl-status/",
+            payload,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.kb.refresh_from_db()
+        self.assertEqual(self.kb.etl_id, etl_id_1)
+        self.assertEqual(self.kb.processing_status, "PROCESSING")
+
+        # 2. Try to update status with mismatching etl_id
+        payload_mismatch = {
+            "type": "knowledgebase",
+            "object_id": str(self.kb.id),
+            "etl_id": str(etl_id_2),
+            "status": "COMPLETED",
+        }
+        response = self.client_etl.post(
+            f"/api/v1/core/knowledge-base/{self.kb.id}/update-etl-status/",
+            payload_mismatch,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 3. Update nested KBText
+        payload_text = {
+            "type": "text",
+            "object_id": str(self.text.id),
+            "etl_id": str(etl_id_1),
+            "status": "COMPLETED",
+        }
+        response = self.client_etl.post(
+            f"/api/v1/core/knowledge-base/{self.kb.id}/update-etl-status/",
+            payload_text,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.text.refresh_from_db()
+        self.assertEqual(self.text.etl_id, etl_id_1)
+        self.assertEqual(self.text.processing_status, "COMPLETED")
+
+        # 4. Try updating an unassociated text object
+        other_text = KBText.objects.create(tenant=self.tenant, title="Other Guide", description="Not in KB")
+        payload_unassociated = {
+            "type": "text",
+            "object_id": str(other_text.id),
+            "etl_id": str(etl_id_1),
+            "status": "COMPLETED",
+        }
+        response = self.client_etl.post(
+            f"/api/v1/core/knowledge-base/{self.kb.id}/update-etl-status/",
+            payload_unassociated,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_kb_update_etl_status_forbidden_for_non_etl_user(self):
+        import uuid
+        payload = {
+            "type": "knowledgebase",
+            "object_id": str(self.kb.id),
+            "etl_id": str(uuid.uuid4()),
+            "status": "PROCESSING",
+        }
+        response = self.client_alex.post(
+            f"/api/v1/core/knowledge-base/{self.kb.id}/update-etl-status/",
+            payload,
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 

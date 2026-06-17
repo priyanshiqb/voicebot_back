@@ -39,14 +39,13 @@ class UserForgotPasswordResendOTPAPIView(ResponseMixin, APIView):
         serializer = UserForgotPasswordResendOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        user_id = serializer.validated_data["user_id"]
+        email = serializer.validated_data["email"].strip().lower()
 
         try:
-            user = CustomUser.objects.get(id=user_id, is_active=True, is_deleted=False)
+            user = CustomUser.objects.get(email=email, is_active=True, is_deleted=False)
         except CustomUser.DoesNotExist:
-            return self.error(
-                message="Invalid user ID.",
-                errors=["USER_NOT_FOUND"]
+            return self.success(
+                message="A new verification OTP has been emailed."
             )
 
         # Resend OTP cooldown calculation (30 seconds limit)
@@ -84,9 +83,5 @@ class UserForgotPasswordResendOTPAPIView(ResponseMixin, APIView):
             logger.exception("Password reset active user OTP email queuing skipped/failed: %s", str(e))
 
         return self.success(
-            data={
-                "user_id": str(user.id),
-                "email": user.email
-            },
             message="A new verification OTP has been emailed."
         )

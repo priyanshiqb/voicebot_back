@@ -207,7 +207,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must match an active registered user. | User's registered email address. |
+| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
 
 ### Responses
 
@@ -216,23 +216,9 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 ```json
 {
   "status": true,
-  "message": "OTP generation flow initiated successfully.",
-  "data": {
-    "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-    "email": "user@example.com"
-  },
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Validation Error)
-
-```json
-{
-  "status": false,
-  "message": "Invalid email address.",
+  "message": "If the email is registered, a verification OTP code will be sent shortly.",
   "data": null,
-  "errors": ["USER_NOT_FOUND"]
+  "errors": null
 }
 ```
 
@@ -249,7 +235,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ```json
 {
-  "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a"
+  "email": "user@example.com"
 }
 ```
 
@@ -257,7 +243,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `user_id` | UUID | Yes | Must match an active registered user. | User's unique identifier. |
+| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
 
 ### Responses
 
@@ -266,16 +252,13 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 ```json
 {
   "status": true,
-  "message": "A new verification OTP has been emailed.",
-  "data": {
-    "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-    "email": "user@example.com"
-  },
+  "message": "If the email is registered, a verification OTP code will be sent shortly.",
+  "data": null,
   "errors": null
 }
 ```
 
-#### 400 Bad Request (Cooldown Active or User Error)
+#### 400 Bad Request (Cooldown Active)
 
 ```json
 {
@@ -301,7 +284,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ```json
 {
-  "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
+  "email": "user@example.com",
   "otp_code": "123456"
 }
 ```
@@ -310,7 +293,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `user_id` | UUID | Yes | Must match an active registered user. | User's unique identifier. |
+| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
 | `otp_code` | String | Yes | Must be a 6-digit numeric string. | The OTP code sent to the email. |
 
 ### Responses
@@ -352,9 +335,10 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ```json
 {
-  "user_id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
+  "email": "user@example.com",
   "token": "eyJhbGciOi...",
-  "password": "NewSecurePassword123"
+  "password": "NewSecurePassword123",
+  "confirm_password": "NewSecurePassword123"
 }
 ```
 
@@ -362,9 +346,10 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `user_id` | UUID | Yes | Must match an active registered user. | User's unique identifier. |
+| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
 | `token` | String | Yes | Must be a valid, unexpired signed token. | The verification reset token. |
 | `password` | String | Yes | Minimum 8 characters. | New plaintext password. |
+| `confirm_password` | String | Yes | Must match `password`. | Password confirmation. |
 
 ### Responses
 

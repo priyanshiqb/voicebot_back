@@ -149,6 +149,9 @@ class CustomUserViewSet(BaseViewSet):
         queryset = super().get_queryset()
         user = self.request.user
 
+        if not user or not user.is_authenticated:
+            return queryset.none()
+
         if user.is_superuser:
             return queryset
 
