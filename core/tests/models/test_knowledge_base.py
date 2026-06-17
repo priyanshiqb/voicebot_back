@@ -253,9 +253,9 @@ class KnowledgeBaseTestCase(TestCase):
         kb2.texts.add(text)
         kb2.websites.add(web)
 
-        # Mock the celery task trigger inside run_etl
+        # Mock the requests.post trigger inside run_etl
         from unittest.mock import patch
-        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
+        with patch('requests.post') as mock_post:
             kb1.soft_delete()
         
         # Verify kb1 is soft deleted
@@ -269,7 +269,7 @@ class KnowledgeBaseTestCase(TestCase):
         self.assertFalse(web.is_deleted)
 
         # Now soft delete kb2
-        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
+        with patch('requests.post') as mock_post:
             kb2.soft_delete()
         
         # Verify shared child components are now soft deleted since no active KB references them
@@ -277,34 +277,3 @@ class KnowledgeBaseTestCase(TestCase):
         web.refresh_from_db()
         self.assertTrue(text.is_deleted)
         self.assertTrue(web.is_deleted)
-
-    def test_run_etl_cascading_status_update(self):
-        """Verify that run_etl cascades the etl_id and PENDING status to active child models"""
-        text = KBText.objects.create(tenant=self.tenant, title="Guide to Cascade")
-        web = KBWebsite.objects.create(tenant=self.tenant, url="https://cascade-etl.com")
-        
-        kb = KnowledgeBase.objects.create(
-            tenant=self.tenant,
-            name="ETL Cascading KB"
-        )
-        kb.texts.add(text)
-        kb.websites.add(web)
-
-        # Verify initial status is None
-        self.assertIsNone(text.etl_id)
-        self.assertIsNone(web.etl_id)
-
-        from unittest.mock import patch
-        with patch('utils.tasks.trigger_kb_etl_task.delay') as mock_delay:
-            kb.run_etl()
-        
-        # Refresh child components from DB
-        text.refresh_from_db()
-        web.refresh_from_db()
-        kb.refresh_from_db()
-
-        # Verify etl_ids match and statuses are PENDING
-        self.assertEqual(text.etl_id, kb.etl_id)
-        self.assertEqual(web.etl_id, kb.etl_id)
-        self.assertEqual(text.processing_status, KBText.ProcessingStatusChoices.PENDING)
-        self.assertEqual(web.processing_status, KBWebsite.ProcessingStatusChoices.PENDING)

@@ -14,6 +14,7 @@ class RedisBloomFilter:
     """
     def __init__(self, key="email_bloom_filter", size=1000000, hash_count=7):
         self.key = key
+        self.deleted_key = f"{key}:deleted"
         self.size = size
         self.hash_count = hash_count
         self.use_redis = False
@@ -39,30 +40,50 @@ class RedisBloomFilter:
     def add(self, value: str):
         if not value:
             return
+        normalized = value.strip().lower()
         if self.use_redis and self.redis:
+            # Remove from exclusion set if re-added
+            self.redis.srem(self.deleted_key, normalized)
             for index in self._hashes(value):
                 self.redis.setbit(self.key, index, 1)
         else:
             # Fallback using standard Django cache
-            normalized = value.strip().lower()
+            cache.delete(f"{self.key}:deleted:{normalized}")
             cache.set(f"{self.key}:fallback:{normalized}", True, timeout=None)
+
+    def remove(self, value: str):
+        if not value:
+            return
+        normalized = value.strip().lower()
+        if self.use_redis and self.redis:
+            self.redis.sadd(self.deleted_key, normalized)
+        else:
+            # Fallback using standard Django cache
+            cache.set(f"{self.key}:deleted:{normalized}", True, timeout=None)
+            cache.delete(f"{self.key}:fallback:{normalized}")
 
     def exists(self, value: str) -> bool:
         if not value:
             return False
+        normalized = value.strip().lower()
         if self.use_redis and self.redis:
+            # If in exclusion set, it does not exist
+            if self.redis.sismember(self.deleted_key, normalized):
+                return False
             for index in self._hashes(value):
                 if not self.redis.getbit(self.key, index):
                     return False
             return True
         else:
             # Fallback checking standard Django cache
-            normalized = value.strip().lower()
+            if cache.get(f"{self.key}:deleted:{normalized}", False):
+                return False
             return bool(cache.get(f"{self.key}:fallback:{normalized}", False))
 
     def clear(self):
         if self.use_redis and self.redis:
             self.redis.delete(self.key)
+            self.redis.delete(self.deleted_key)
         else:
             # Clear fallback keys if we are in testing (we can clear cache)
             cache.clear()

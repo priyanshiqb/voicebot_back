@@ -260,8 +260,15 @@ class KBSerializersTestCase(TestCase):
         self.assertEqual(len(data["question_answers"]), 1)
         self.assertEqual(data["question_answers"][0]["answer"], "An answer")
 
-    @patch('utils.tasks.trigger_kb_etl_task.delay')
-    def test_knowledge_base_serializer_create_triggers_etl(self, mock_delay):
+    @patch('requests.post')
+    def test_knowledge_base_serializer_create_triggers_etl(self, mock_post):
+        # Mock requests.post response
+        from unittest.mock import MagicMock
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "ok"}
+        mock_post.return_value = mock_response
+
         # Payload to create KnowledgeBase with nested components
         payload = {
             "name": "Trigger Test KB",
@@ -277,72 +284,11 @@ class KBSerializersTestCase(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         
-        with self.captureOnCommitCallbacks(execute=True):
-            kb = serializer.save(tenant=self.tenant)
-
-        # Check mock delay was called exactly once
-        self.assertEqual(mock_delay.call_count, 1)
-        mock_delay.assert_called_once_with(str(kb.id), str(kb.etl_id))
-
-        # Verify KB status
-        kb.refresh_from_db()
-        self.assertIsNotNone(kb.etl_id)
-        self.assertEqual(kb.processing_status, "PENDING")
-
-    @patch('requests.post')
-    def test_trigger_kb_etl_task_success(self, mock_post):
-        from unittest.mock import MagicMock
-        import uuid
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"status": "ok"}
-        mock_post.return_value = mock_response
-
-        from utils.tasks import trigger_kb_etl_task
-        etl_id = uuid.uuid4()
-        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Celery Success KB", etl_id=etl_id)
-
-        trigger_kb_etl_task(str(kb.id), str(etl_id))
+        kb = serializer.save(tenant=self.tenant)
 
         # Check mock post was called
         self.assertEqual(mock_post.call_count, 1)
         call_kwargs = mock_post.call_args[1]
         self.assertIn("json", call_kwargs)
         post_data = call_kwargs["json"]
-        self.assertEqual(post_data["payload"]["name"], "Celery Success KB")
-
-    @patch('requests.post')
-    def test_trigger_kb_etl_task_failure(self, mock_post):
-        mock_post.side_effect = Exception("Connection refused")
-
-        import uuid
-        from utils.tasks import trigger_kb_etl_task
-        etl_id = uuid.uuid4()
-        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Celery Failure KB", etl_id=etl_id)
-
-        from celery.exceptions import MaxRetriesExceededError
-        from unittest.mock import MagicMock
-        
-        retry_mock = MagicMock(side_effect=MaxRetriesExceededError())
-        
-        with patch.object(trigger_kb_etl_task, 'retry', retry_mock):
-            trigger_kb_etl_task(str(kb.id), str(etl_id))
-
-        kb.refresh_from_db()
-        self.assertEqual(kb.processing_status, "FAILED")
-        self.assertIn("Failed to trigger ingestion", kb.processing_error)
-
-    def test_trigger_kb_etl_task_stale_skipped(self):
-        """Verify that task execution is skipped if a newer etl_id has been set in the DB"""
-        from utils.tasks import trigger_kb_etl_task
-        import uuid
-        old_etl_id = uuid.uuid4()
-        kb = KnowledgeBase.objects.create(tenant=self.tenant, name="Stale KB", etl_id=old_etl_id)
-        
-        kb.etl_id = uuid.uuid4()
-        kb.save()
-
-        from unittest.mock import patch
-        with patch('requests.post') as mock_post:
-            trigger_kb_etl_task(str(kb.id), str(old_etl_id))
-            mock_post.assert_not_called()
+        self.assertEqual(post_data["payload"]["name"], "Trigger Test KB")

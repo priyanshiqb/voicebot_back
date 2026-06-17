@@ -221,19 +221,19 @@ class KnowledgeBase(KBBaseModel):
             # Cascade soft delete to all M2M relations if they are not referenced by other active knowledge bases
             for text in self.texts.filter(is_deleted=False):
                 if not text.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
-                text.soft_delete(user=user)
+                    text.soft_delete(user=user)
             for file in self.files.filter(is_deleted=False):
                 if not file.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
-                file.soft_delete(user=user)
+                    file.soft_delete(user=user)
             for website in self.websites.filter(is_deleted=False):
                 if not website.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
-                website.soft_delete(user=user)
+                    website.soft_delete(user=user)
             for qa in self.question_answers.filter(is_deleted=False):
                 if not qa.knowledge_bases.filter(is_deleted=False).exclude(pk=self.pk).exists():
                     for question in qa.questions.filter(is_deleted=False):
                         if not question.question_answers.filter(is_deleted=False).exclude(pk=qa.pk).exists():
-                    question.soft_delete(user=user)
-                qa.soft_delete(user=user)
+                            question.soft_delete(user=user)
+                    qa.soft_delete(user=user)
 
         self.run_etl(request)
 

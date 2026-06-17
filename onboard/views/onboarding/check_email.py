@@ -51,7 +51,7 @@ class CheckEmailView(ResponseMixin, APIView):
             )
 
         # Database index-optimized queries (Slow Path - handles potential false positives)
-        exists_in_active = User.objects.filter(email=email).exists()
+        exists_in_active = User.all_objects.filter(email=email).exists()
         exists_in_pending = TempUser.objects.filter(email=email).exists()
 
         available = not (exists_in_active or exists_in_pending)

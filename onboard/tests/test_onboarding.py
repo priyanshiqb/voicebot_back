@@ -939,3 +939,65 @@ class OnboardingTests(APITestCase):
         # Should still be available as it is not in database
         self.assertTrue(response.data["data"]["available"])
 
+    def test_check_email_bloom_filter_updates_and_deletions(self):
+        from utils.bloom_filter import RedisBloomFilter
+        from django.core.cache import cache
+        from onboard.models import TempUser
+        
+        cache.clear()
+        bf = RedisBloomFilter()
+        bf.clear()
+
+        email = "test.lifecycle@example.com"
+        
+        # 1. Create a TempUser
+        temp_user = TempUser.objects.create(
+            email=email,
+            first_name="Test",
+            last_name="Lifecycle",
+            business_name="Test Corp",
+            password_hash="somehash"
+        )
+        # Verify it is in the Bloom Filter
+        self.assertTrue(bf.exists(email))
+
+        # 2. Change TempUser email
+        new_email = "new.lifecycle@example.com"
+        temp_user.email = new_email
+        temp_user.save()
+
+        # Verify old email is removed and new email is added
+        self.assertFalse(bf.exists(email))
+        self.assertTrue(bf.exists(new_email))
+
+        # 3. Soft delete TempUser
+        temp_user.soft_delete()
+        
+        # Verify new email is removed from Bloom Filter
+        self.assertFalse(bf.exists(new_email))
+
+        # 4. Create CustomUser
+        user_email = "user.lifecycle@example.com"
+        user = CustomUser.objects.create_user(
+            email=user_email,
+            password="SecurePassword123!",
+            first_name="User",
+            last_name="Lifecycle"
+        )
+        self.assertTrue(bf.exists(user_email))
+
+        # 5. Change CustomUser email
+        new_user_email = "new.user.lifecycle@example.com"
+        user.email = new_user_email
+        user.save()
+
+        # Verify old email is removed and new email is added
+        self.assertFalse(bf.exists(user_email))
+        self.assertTrue(bf.exists(new_user_email))
+
+        # 6. Delete CustomUser
+        user.delete()
+        
+        # Verify new user email is removed from Bloom Filter
+        self.assertFalse(bf.exists(new_user_email))
+

@@ -12,8 +12,8 @@ class Command(BaseCommand):
         bf = RedisBloomFilter()
         bf.clear()
 
-        # Populate active users
-        active_emails = User.objects.values_list('email', flat=True)
+        # Populate all users (including soft-deleted ones)
+        active_emails = User.all_objects.values_list('email', flat=True)
         count_active = 0
         for email in active_emails:
             if email:
