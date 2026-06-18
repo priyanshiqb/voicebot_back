@@ -1,0 +1,1 @@
+# Serializer tests package initialization

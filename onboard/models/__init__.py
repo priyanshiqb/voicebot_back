@@ -6,11 +6,12 @@ from .webhook_log import RazorpayWebhookLog
 from .subscription import Subscription
 from .timezone import Timezone, get_default_timezone
 from .language import Language, get_default_language
+from .postal_code import PostalCode
 
 __all__ = [
     "Plan", "TempUser", "BillingAddress", "Transaction", 
     "RazorpayWebhookLog", "Subscription", "Timezone", "get_default_timezone",
-    "Language", "get_default_language"
+    "Language", "get_default_language", "PostalCode"
 ]
 
 

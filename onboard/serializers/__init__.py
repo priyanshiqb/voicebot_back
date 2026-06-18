@@ -27,6 +27,12 @@ from .language import (
     LanguageListSerializer,
     LanguageDropdownSerializer,
 )
+from .postal_code import (
+    PostalCodeRefSerializer,
+    PostalCodeSerializer,
+    PostalCodeListSerializer,
+    PostalCodeDropdownSerializer,
+)
 
 __all__ = [
     "PlanRefSerializer",
@@ -48,4 +54,8 @@ __all__ = [
     "LanguageSerializer",
     "LanguageListSerializer",
     "LanguageDropdownSerializer",
+    "PostalCodeRefSerializer",
+    "PostalCodeSerializer",
+    "PostalCodeListSerializer",
+    "PostalCodeDropdownSerializer",
 ]
