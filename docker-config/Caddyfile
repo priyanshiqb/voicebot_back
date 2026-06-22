@@ -112,24 +112,18 @@ loki.{$DOMAIN} {
     reverse_proxy loki:3100
 }
 
-# 7. Azurite Storage Emulator Services
-azurite-blob.{$DOMAIN} {
+# 7. MinIO S3 Emulator Services
+minio.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
-    reverse_proxy azurite:10000
+    reverse_proxy minio:9000
 }
-azurite-queue.{$DOMAIN} {
+minio-console.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
-    reverse_proxy azurite:10001
-}
-azurite-table.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy azurite:10002
+    reverse_proxy minio:9001
 }
 
 # 8a. Secure Fallback Subdomain (Contains Valid SSL)

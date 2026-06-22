@@ -1,17 +1,19 @@
 services:
-  # 11. Azurite Azure Storage Emulator
-  azurite:
-    image: mcr.microsoft.com/azure-storage/azurite:latest
-    container_name: azurite-voicebot
+  # MinIO S3-Compatible Storage Emulator
+  minio:
+    image: minio/minio:latest
+    container_name: minio-voicebot
     profiles:
       - emulators
     volumes:
-      - ../.data/azurite:/data
+      - ../.data/minio:/data
     ports:
-      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_BLOB_PORT}:10000"
-      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_QUEUE_PORT}:10001"
-      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_TABLE_PORT}:10002"
-    command: azurite -l /data --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+      - "${MINIO_BIND_IP:-${BIND_IP}}:${MINIO_PORT:-9000}:9000"
+      - "${MINIO_BIND_IP:-${BIND_IP}}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: "${S3_ACCESS_KEY_ID:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${S3_SECRET_ACCESS_KEY:-minioadmin}"
+    command: server /data --console-address ":9001"
     restart: always
     networks:
       - backend
