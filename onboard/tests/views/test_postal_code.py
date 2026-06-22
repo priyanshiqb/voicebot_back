@@ -107,6 +107,15 @@ class PostalCodeViewTests(APITestCase):
         # Check matching dropdown structure
         item = next(i for i in results if i["value"] == str(self.postal_dubai.id))
         self.assertEqual(item["label"], "32867 98458 - Al Wuheida (AE)")
+        self.assertEqual(item["id"], str(self.postal_dubai.id))
+
+        # Test dynamic value_field parameter (e.g. ?value_field=postal_code)
+        response = self.client.get(f"{self.dropdown_url}?value_field=postal_code")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["data"]
+        item = next(i for i in results if i["label"] == "32867 98458 - Al Wuheida (AE)")
+        self.assertEqual(item["value"], "32867 98458")
+        self.assertEqual(item["id"], str(self.postal_dubai.id))
 
     def test_nearest_coordinate_search(self):
         """
@@ -292,12 +301,6 @@ class PostalCodeViewTests(APITestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["place_name"], "Al Wuheida")
 
-        # Test icontains query matching (searching '3286798' should match '32867 98458')
-        response = self.client.get(f"{self.list_url}?postal_code__icontains=3286798")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.data["data"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["place_name"], "Al Wuheida")
 
 
 

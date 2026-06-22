@@ -1,0 +1,97 @@
+services:
+  # 8. Grafana Dashboard UI
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-voicebot
+    profiles:
+      - grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_LOG_LEVEL=warn
+    ports:
+      - "${GRAFANA_BIND_IP:-${BIND_IP}}:${GRAFANA_PORT}:3000"
+    depends_on:
+      - loki
+    volumes:
+      - ../.data/grafana:/var/lib/grafana
+      - ../docker-config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ../docker-config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ../docker-config/dashboards:/var/lib/grafana/dashboards:ro
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9. Grafana Loki (Log Aggregator)
+  loki:
+    image: grafana/loki:latest
+    container_name: loki-voicebot
+    profiles:
+      - logs-monitoring
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    environment:
+      - LOKI_RETENTION_PERIOD=${LOKI_RETENTION_PERIOD:-720h}
+    volumes:
+      - ../docker-config/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - ../.data/loki:/loki
+    ports:
+      - "${LOKI_BIND_IP:-${BIND_IP}}:${LOKI_PORT}:3100"
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9b. Promtail (Log Collector & Shipper)
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail-voicebot
+    profiles:
+      - logs-monitoring
+    volumes:
+      - ../docker-config/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 10. Prometheus Time-Series Database
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-voicebot
+    profiles:
+      - matrics-monitoring
+    volumes:
+      - ../docker-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../.data/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "${PROMETHEUS_BIND_IP:-${BIND_IP}}:${PROMETHEUS_PORT}:9090"
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

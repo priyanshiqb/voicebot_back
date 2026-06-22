@@ -1,0 +1,64 @@
+services:
+  # 2. Local Development Django Backend Server (Daphne with Hot-Reloading)
+  backend-dev:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    profiles:
+      - dev
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    ports:
+      - "${BACKEND_DEV_BIND_IP:-${BIND_IP}}:${DAPHNE_PORT}:8000"
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.local}
+      - ENV_FILE=.env
+    volumes:
+      - ../:/app
+      - /app/.venv
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - shared_network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 2b. Local Development Celery Worker
+  celery-dev:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: celery-dev-voicebot
+    profiles:
+      - dev
+    command: celery -A config worker --loglevel=info
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.local}
+      - ENV_FILE=.env
+    volumes:
+      - ../:/app
+      - /app/.venv
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voicebot Developer Portal & API Docs</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="Voicebot API and WebSocket Developer Documentation">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  
+  <!-- Premium Themeable Docsify Styling -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css">
+  
+  <style>
+    :root {
+      /* Sleek dark-blue/cyan theme settings */
+      --theme-color: #0284c7;
+      --base-font-size: 15px;
+      --content-max-width: 55em;
+      --sidebar-width: 19em;
+      --heading-h1-color: #0f172a;
+      --heading-h2-color: #1e293b;
+      --heading-h3-color: #334155;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .markdown-section pre > code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+      font-size: 0.9em !important;
+      border-radius: 6px;
+    }
+
+    #copy-raw-markdown-btn {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+      border: 1.5px solid var(--theme-color) !important;
+      background: transparent !important;
+      color: var(--theme-color) !important;
+    }
+
+    #copy-raw-markdown-btn:hover {
+      background: var(--theme-color) !important;
+      color: #fff !important;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25) !important;
+      transform: translateY(-1px) !important;
+    }
+
+    #copy-raw-markdown-btn:active {
+      transform: scale(0.94) translateY(0) !important;
+      background: #0270a5 !important;
+      box-shadow: 0 2px 4px rgba(2, 132, 199, 0.15) !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">Loading Developer Portal...</div>
+  <script>
+    window.$docsify = {
+      name: 'Voicebot Docs',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      homepage: 'README.md',
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: 'Search documentation...',
+        noData: 'No results found!',
+        depth: 4
+      },
+      copyCode: {
+        buttonText : 'Copy',
+        errorText  : 'Error',
+        successText: 'Copied'
+      },
+      plugins: [
+        function(hook, vm) {
+          var rawMarkdown = '';
+          hook.beforeEach(function(content) {
+            rawMarkdown = content;
+            var copyButtonHtml = `
+<div class="copy-raw-wrapper" style="text-align: right; margin-bottom: -10px; margin-top: 10px; position: relative; z-index: 10;">
+  <button id="copy-raw-markdown-btn" style="padding: 6px 14px; border-radius: 6px; border: 1px solid var(--theme-color); background: transparent; color: var(--theme-color); cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s ease; display: inline-flex; align-items: center; gap: 6px;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+    Copy Page Markdown
+  </button>
+</div>
+`;
+            return copyButtonHtml + '\n\n' + content;
+          });
+
+          hook.doneEach(function() {
+            var btn = document.getElementById('copy-raw-markdown-btn');
+            if (btn) {
+              btn.addEventListener('click', function() {
+                function copyToClipboard(text) {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    return navigator.clipboard.writeText(text);
+                  }
+                  var textarea = document.createElement('textarea');
+                  textarea.value = text;
+                  textarea.style.position = 'fixed';
+                  textarea.style.top = '0';
+                  textarea.style.left = '0';
+                  textarea.style.width = '2em';
+                  textarea.style.height = '2em';
+                  textarea.style.padding = '0';
+                  textarea.style.border = 'none';
+                  textarea.style.outline = 'none';
+                  textarea.style.boxShadow = 'none';
+                  textarea.style.background = 'transparent';
+                  document.body.appendChild(textarea);
+                  textarea.select();
+                  try {
+                    var successful = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    if (successful) {
+                      return Promise.resolve();
+                    } else {
+                      return Promise.reject(new Error('execCommand failed'));
+                    }
+                  } catch (err) {
+                    document.body.removeChild(textarea);
+                    return Promise.reject(err);
+                  }
+                }
+
+                copyToClipboard(rawMarkdown).then(function() {
+                  btn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    Copied!
+                  `;
+                  setTimeout(function() {
+                    btn.innerHTML = `
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                      Copy Page Markdown
+                    `;
+                  }, 2000);
+                }).catch(function(err) {
+                  console.error('Could not copy text: ', err);
+                });
+              });
+            }
+          });
+        }
+      ]
+    }
+  </script>
+  <!-- Docsify Core -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <!-- Plugins -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@3"></script>
+</body>
+</html>

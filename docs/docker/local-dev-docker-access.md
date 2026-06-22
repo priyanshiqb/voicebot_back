@@ -19,14 +19,14 @@ Since Caddy uses Host Headers (like `grafana.{$DOMAIN}`) to route traffic to the
 ### Method A: Wildcard DNS via `nip.io` (No client configuration required)
 `nip.io` is a free wildcard DNS service that resolves subdomains containing an IP address back to that IP address (e.g., `api.192.168.7.77.nip.io` resolves to `192.168.7.77`).
 
-1. Open your host's local environment file `.env.django.docker` and update `DOMAIN` to point to your host IP using `nip.io`:
+1. Open your host's local environment file `.env` and update `DOMAIN` to point to your host IP using `nip.io`:
    ```ini
    DOMAIN=192.168.7.77.nip.io
    ```
 2. Re-create the container environment:
    ```bash
    docker compose down
-   docker compose --env-file .env.django.docker --env-file .env.shared up -d
+   docker compose up -d
    ```
 3. Open any browser on any client device on the same local network and access:
    * **Grafana:** `http://grafana.192.168.7.77.nip.io`
@@ -38,14 +38,14 @@ Since Caddy uses Host Headers (like `grafana.{$DOMAIN}`) to route traffic to the
 ### Method B: Hosts File Resolution (Offline Friendly)
 If you do not have active internet access or prefer a direct mapping, you can use the client device's hosts file.
 
-1. Open `.env.django.docker` on the host machine and set:
+1. Open `.env` on the host machine and set:
    ```ini
    DOMAIN=192.168.7.77
    ```
 2. Restart the stack on the host:
    ```bash
    docker compose down
-   docker compose --env-file .env.django.docker --env-file .env.shared up -d
+   docker compose up -d
    ```
 3. Edit the `hosts` file on the client device:
    * **Windows:** Open Notepad as Administrator, open `C:\Windows\System32\drivers\etc\hosts`
@@ -121,6 +121,6 @@ If you want to tunnel the entire gateway on port `443` through a single URL, you
 
 > [!CAUTION]
 > If you expose Caddy on `0.0.0.0` or make ports public via VS Code, always make sure:
-> 1. All management interfaces (`pgadmin`, `redisinsight`, `grafana`, `prometheus`) have strong passwords set in `.env.shared` or `.env.django.docker`.
+> 1. All management interfaces (`pgadmin`, `redisinsight`, `grafana`, `prometheus`) have strong passwords set in `.env`.
 > 2. Ensure Basic Auth is enabled inside the Caddyfile (`import basic_auth` statement active on restricted subdomains).
 > 3. Never expose database connections directly to the public network. Keep `postgres` and `redis` ports locked to `BIND_IP=127.0.0.1`.

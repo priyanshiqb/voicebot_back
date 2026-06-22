@@ -1,0 +1,22 @@
+services:
+  # 11. Azurite Azure Storage Emulator
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: azurite-voicebot
+    profiles:
+      - emulators
+    volumes:
+      - ../.data/azurite:/data
+    ports:
+      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_BLOB_PORT}:10000"
+      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_QUEUE_PORT}:10001"
+      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_TABLE_PORT}:10002"
+    command: azurite -l /data --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

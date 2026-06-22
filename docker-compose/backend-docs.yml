@@ -1,0 +1,19 @@
+services:
+  # 13. Developer Documentation Web Portal (Docsify)
+  backend-docs:
+    image: nginx:alpine
+    container_name: docs-voicebot
+    profiles:
+      - backend-docs
+    volumes:
+      - ../docs:/usr/share/nginx/html:ro
+    ports:
+      - "${DOCS_BIND_IP:-${BIND_IP}}:${DOCS_PORT:-8088}:80"
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

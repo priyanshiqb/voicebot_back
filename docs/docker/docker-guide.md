@@ -20,16 +20,24 @@ To simplify development, routing, and deployment workflows, all incoming applica
 
 ## 2. Unified Profile-Based Orchestration
 
-Instead of multiple overridden files, the project uses a single `docker-compose.yml` configuration. Services are grouped using **Docker Compose Profiles** which are controlled dynamically via the `COMPOSE_PROFILES` environment variable inside your `.env.django.docker` file.
+Instead of multiple overridden files, the project uses a single `docker-compose.yml` configuration. Services are grouped using **Docker Compose Profiles** which are controlled dynamically via the `COMPOSE_PROFILES` environment variable inside your `.env` file.
 
 ### Available Profiles:
 1.  **`dev`**: Starts the Daphne development backend container (with local code mounting and hot-reloading).
 2.  **`prod`**: Starts the production-grade split `backend-wsgi` and `backend-asgi` backend containers.
-3.  **`databases`**: Runs PostgreSQL (with PgBouncer connection pooling and pgAdmin UI).
-4.  **`caches`**: Runs Redis (for caching and channels layers, with RedisInsight dashboard).
-5.  **`monitoring`**: Runs Prometheus (metrics), Loki (log aggregator), and Grafana (dashboards).
-6.  **`emulators`**: Runs Azurite (local Azure Blob/Queue/Table storage emulator).
-7.  **`gateway`**: Runs Caddy as the central reverse proxy.
+3.  **`database`**: Runs PostgreSQL database container.
+4.  **`pgbouncer`**: Runs PgBouncer connection pooler container.
+5.  **`pgadmin`**: Runs pgAdmin web UI.
+6.  **`pgexporter`**: Runs PostgreSQL metrics exporter.
+7.  **`caches`**: Runs Redis cache layer container.
+8.  **`redis-insight`**: Runs RedisInsight web UI.
+9.  **`redis-exporter`**: Runs Redis metrics exporter.
+10. **`grafana`**: Runs Grafana dashboards.
+11. **`logs-monitoring`**: Runs Loki and Promtail collectors.
+12. **`matrics-monitoring`**: Runs Prometheus metrics database.
+13. **`emulators`**: Runs Azurite (local Azure storage emulator).
+14. **`gateway`**: Runs Caddy as the central reverse proxy.
+15. **`backend-docs`**: Runs Nginx/Docsify to serve the developer portal and formatted API/WS docs.
 
 ---
 
@@ -37,20 +45,22 @@ Instead of multiple overridden files, the project uses a single `docker-compose.
 
 To prevent port conflicts with local engines and handle standard resolution hostnames, the project splits environment configurations into two specialized files:
 
-### A. Local Host Environment (`.env.django.local`)
+### A. Local Host Environment (`.env.local`)
 Used when running Django **outside Docker** (e.g., standard debugging on your host machine via your local virtual environment). It maps connections to your forwarded host ports:
 ```env
-# PostgreSQL URL pointing to 'localhost'
-DATABASE_URL=postgres://voicebot_user:secure_password@localhost:25432/voicebot_db
-REDIS_URL=redis://localhost:26379/0
+# PostgreSQL pointing to localhost exposed port
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5579
+REDIS_HOST=localhost
 ```
 
-### B. Container Environment (`.env.django.docker`)
+### B. Container Environment (`.env`)
 Used when running Django **inside Docker containers**. It resolves backing databases using private bridge network container hosts:
 ```env
-# PostgreSQL URL pointing to 'pgbouncer'
-DATABASE_URL=postgres://postgres:secure_password@pgbouncer:5432/voicebot_db
-REDIS_URL=redis://redis:6379/0
+# PostgreSQL pointing to private network bridge hosts
+POSTGRES_HOST=pgbouncer
+POSTGRES_PORT=5432
+REDIS_HOST=redis
 ```
 
 ---
@@ -89,5 +99,5 @@ Because our backend container is hardened and runs as the non-root user `django`
 To bypass password prompts and enter the container as **`root`** for hot-fixes, debugging, or custom logs, simply pass the `-u root` flag when connecting:
 
 ```bash
-docker compose --env-file .env.django.docker exec -u root backend-dev bash
+docker compose exec -u root backend-dev bash
 ```

@@ -1,0 +1,67 @@
+services:
+  # 6. Redis Caching & Channels Layer
+  redis:
+    image: redis:latest
+    container_name: redis-voicebot
+    profiles:
+      - caches
+    command: [ "redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru" ]
+    volumes:
+      - ../.data/redis:/data
+    ports:
+      - "${REDIS_BIND_IP:-${BIND_IP}}:${REDIS_EXTERNAL_PORT}:6379"
+    restart: always
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      retries: 5
+      timeout: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 7. Redis Insights Web UI
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight-voicebot
+    profiles:
+      - redis-insight
+    ports:
+      - "${REDIS_INSIGHT_BIND_IP:-${BIND_IP}}:${REDIS_INSIGHT_PORT}:5540"
+    volumes:
+      - ../.data/redisinsight:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 9d. Redis Metrics Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter-voicebot
+    profiles:
+      - redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

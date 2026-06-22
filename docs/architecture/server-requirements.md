@@ -164,7 +164,7 @@ To guarantee a 100% smooth launch on the production server without any issues, m
 1. **Port Availability (80 & 443):**
    - Ensure no other web servers (like host-level Nginx, Apache, or conflicting proxy containers) are currently bound to ports `80` or `443` on the VM.
 2. **Environment File Readiness:**
-   - Verify that `.env.django.docker` is fully populated with production secrets, specifically high-entropy values for `DOMAIN`, `ACME_EMAIL`, and `GATEWAY_BASIC_AUTH_PASSWORD_HASH`.
+   - Verify that `.env` is fully populated with production secrets, specifically high-entropy values for `DOMAIN`, `ACME_EMAIL`, and `GATEWAY_BASIC_AUTH_PASSWORD_HASH`.
 3. **DNS Validation:**
    - Verify that your DNS records (A/AAAA records for the base domain and all required subdomains) are pointed to the public IP of your VM *before* booting Caddy so Let's Encrypt can solve the verification challenges.
 4. **Host Directory Permissions:**

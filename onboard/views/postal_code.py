@@ -1,3 +1,4 @@
+import logging
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -28,6 +29,9 @@ from onboard.serializers.postal_code import (
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from utils.views.base_model_viewset import BaseViewSet
 from utils.permissions.is_superuser import IsSuperUser
+
+
+logger = logging.getLogger(__name__)
 
 
 class QueryTimeoutException(APIException):
@@ -190,9 +194,9 @@ class PostalCodeViewSet(BaseViewSet):
     ordering = ["country_code", "postal_code", "place_name"]
 
     filterset_fields = {
-        "country_code": ["exact", "icontains"],
-        "postal_code": ["exact", "icontains"],
-        "place_name": ["exact", "icontains"],
+        "country_code": ["exact"],
+        "postal_code": ["exact"],
+        "place_name": ["exact"],
         "is_active": ["exact"],
     }
 
@@ -202,41 +206,55 @@ class PostalCodeViewSet(BaseViewSet):
         """
         query_params = self.request.query_params.copy()
         postal_code_exact = query_params.get("postal_code")
-        postal_code_icontains = query_params.get("postal_code__icontains")
         search_term = query_params.get("search")
-
-        if postal_code_exact or postal_code_icontains or search_term:
-            # Annotate with stripped postal code ONLY when active search/filtering is requested
-            queryset = queryset.annotate(
-                postal_code_stripped=Func(
-                    F('postal_code'),
-                    Value(' '),
-                    Value(''),
-                    function='REPLACE'
-                )
-            )
 
         # 1. Handle exact postal code filter (ignoring spaces)
         if postal_code_exact:
             stripped = postal_code_exact.replace(" ", "")
-            queryset = queryset.filter(postal_code_stripped=stripped)
-            query_params.pop("postal_code", None)
+            lookup_candidates = list(filter(None, {postal_code_exact, stripped}))
 
-        # 2. Handle icontains postal code filter (ignoring spaces)
-        if postal_code_icontains:
-            stripped = postal_code_icontains.replace(" ", "")
-            queryset = queryset.filter(postal_code_stripped__icontains=stripped)
-            query_params.pop("postal_code__icontains", None)
+            if queryset.filter(postal_code__in=lookup_candidates).exists():
+                queryset = queryset.filter(postal_code__in=lookup_candidates)
+            else:
+                queryset = queryset.annotate(
+                    postal_code_stripped=Func(
+                        F('postal_code'),
+                        Value(' '),
+                        Value(''),
+                        function='REPLACE'
+                    )
+                ).filter(postal_code_stripped=stripped)
+            query_params.pop("postal_code", None)
 
         # 3. Handle search parameter (ignoring spaces on postal_code field)
         if search_term:
             stripped_search = search_term.replace(" ", "")
-            queryset = queryset.filter(
-                Q(postal_code_stripped__icontains=stripped_search) |
+            standard_q = (
+                Q(postal_code__icontains=stripped_search) |
+                Q(postal_code__icontains=search_term) |
                 Q(place_name__icontains=search_term) |
                 Q(country_code__icontains=search_term) |
                 Q(admin_name1__icontains=search_term)
             )
+
+            if queryset.filter(standard_q).exists():
+                queryset = queryset.filter(standard_q)
+            else:
+                if not hasattr(queryset, 'postal_code_stripped'):
+                    queryset = queryset.annotate(
+                        postal_code_stripped=Func(
+                            F('postal_code'),
+                            Value(' '),
+                            Value(''),
+                            function='REPLACE'
+                        )
+                    )
+                queryset = queryset.filter(
+                    Q(postal_code_stripped__icontains=stripped_search) |
+                    Q(place_name__icontains=search_term) |
+                    Q(country_code__icontains=search_term) |
+                    Q(admin_name1__icontains=search_term)
+                )
             query_params.pop("search", None)
 
         # Temporarily mock the query params so DjangoFilterBackend and SearchFilter
@@ -293,6 +311,7 @@ class PostalCodeViewSet(BaseViewSet):
         and a hard-capped page size.
         """
         queryset = self.filter_queryset(self.get_queryset())
+        logger.info(f"PostalCodeViewSet list query: {queryset.query}")
 
         def run_query():
             page = self.paginate_queryset(queryset)
@@ -305,7 +324,7 @@ class PostalCodeViewSet(BaseViewSet):
             serializer = self.get_serializer(limited_queryset, many=True)
             return self.success(data=serializer.data, message="Listed successfully")
 
-        return self._execute_with_timeout(2000, run_query)
+        return self._execute_with_timeout(20000, run_query)
 
     @action(detail=False, methods=["get"])
     def dropdown(self, request):
@@ -314,6 +333,7 @@ class PostalCodeViewSet(BaseViewSet):
         a hard limit of 100 records.
         """
         queryset = self.filter_queryset(self.get_queryset())
+        logger.info(f"PostalCodeViewSet dropdown query: {queryset.query}")
 
         def run_query():
             limit_param = request.query_params.get("limit")

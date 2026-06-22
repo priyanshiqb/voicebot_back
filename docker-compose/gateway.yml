@@ -1,0 +1,30 @@
+services:
+  # 12. Caddy Reverse Proxy (API Gateway)
+  caddy:
+    image: caddy:2.7-alpine
+    container_name: caddy-voicebot
+    profiles:
+      - gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - WSGI_HOST=${WSGI_HOST}
+      - ASGI_HOST=${ASGI_HOST}
+      - ACME_EMAIL=${ACME_EMAIL}
+      - GATEWAY_BASIC_AUTH_USER=${GATEWAY_BASIC_AUTH_USER}
+      - GATEWAY_BASIC_AUTH_PASSWORD_HASH=${GATEWAY_BASIC_AUTH_PASSWORD_HASH}
+    volumes:
+      - ../docker-config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../docker-config/html:/var/www/html:ro
+      - ../.data/caddy/data:/data
+      - ../.data/caddy/config:/config
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

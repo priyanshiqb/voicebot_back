@@ -10,6 +10,16 @@ if 'test' in sys.argv:
     TEST_MEDIA_ROOT = tempfile.mkdtemp(prefix="django_test_media_")
     MEDIA_ROOT = TEST_MEDIA_ROOT
 
+    # Force FileSystemStorage for unit testing isolation
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+
     def cleanup_test_media():
         try:
             shutil.rmtree(TEST_MEDIA_ROOT)

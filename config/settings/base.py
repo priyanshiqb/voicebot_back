@@ -11,18 +11,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 env = environ.Env()
 loaded_files = []
 
-# 1. Read shared environment variables first
-shared_env_path = os.path.join(BASE_DIR, ".env.shared")
-if os.path.exists(shared_env_path):
-    environ.Env.read_env(shared_env_path)
-    loaded_files.append(".env.shared")
+# 1. Read environment-specific overrides first (defaulting to .env.local)
+env_file = os.environ.get("ENV_FILE", ".env.local")
+if env_file != ".env":
+    env_override_path = os.path.join(BASE_DIR, env_file)
+    if os.path.exists(env_override_path):
+        environ.Env.read_env(env_override_path)
+        loaded_files.append(env_file)
 
-# 2. Read environment-specific overrides (defaulting to .env.django.local)
-env_file = os.environ.get("ENV_FILE", ".env.django.local")
-env_path = os.path.join(BASE_DIR, env_file)
+# 2. Read default/base environment variables second (.env)
+env_path = os.path.join(BASE_DIR, ".env")
 if os.path.exists(env_path):
     environ.Env.read_env(env_path)
-    loaded_files.append(env_file)
+    loaded_files.append(".env")
 
 # Log settings initialization details to console
 import sys
@@ -204,6 +205,28 @@ STATICFILES_DIRS = [
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+# # Azure Storage Configuration
+# AZURE_CONNECTION_STRING = env("AZURE_CONNECTION_STRING", default="")
+
+# if AZURE_CONNECTION_STRING:
+#     STORAGES = {
+#         "default": {
+#             "BACKEND": "utils.azure_blob.storage.AzureBlobDynamicUploadStorage",
+#         },
+#         "staticfiles": {
+#             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+#         },
+#     }
+# else:
+#     STORAGES = {
+#         "default": {
+#             "BACKEND": "django.core.files.storage.FileSystemStorage",
+#         },
+#         "staticfiles": {
+#             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+#         },
+#     }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

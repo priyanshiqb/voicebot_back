@@ -1,0 +1,25 @@
+services:
+  # 5. Database Admin Web UI (pgAdmin)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin-voicebot
+    profiles:
+      - pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    volumes:
+      - ../.data/pgadmin:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_BIND_IP:-${BIND_IP}}:${PGADMIN_PORT}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -217,8 +217,7 @@ services:
     ports:
       - "8000:8000" # Expose container port 8000 to host port 8000 (forwarded port)
     env_file:
-      - .env.shared
-      - .env.django.docker
+      - .env
 ```
 
 ### B. Self-Contained Static File Serving (WhiteNoise)

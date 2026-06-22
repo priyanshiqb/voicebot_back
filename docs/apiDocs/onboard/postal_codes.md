@@ -15,11 +15,15 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `is_active` | Boolean | No | Filter by active state. |
-| `country_code` | String | No | Filter by exact country code (e.g. `AE`, `IN`). |
-| `postal_code` | String | No | Filter by exact postal code value (space-insensitive, e.g. `3286798458` matches `32867 98458`). |
-| `place_name` | String | No | Filter by place name. |
-| `search` | String | No | Search text matching postal code (space-insensitive), place name, country code, or admin name 1. |
+| `is_active` | Boolean | No | Filter by active state (`true` or `false`). |
+| `country_code` | String | No | Filter by exact country code (e.g., `AE`, `IN`). |
+| `country_code__icontains` | String | No | Case-insensitive substring match on country code. |
+| `postal_code` | String | No | Filter by exact postal code (space-insensitive, e.g., `3286798458` matches `32867 98458`). |
+| `place_name` | String | No | Filter by exact place name (e.g., `Al Wuheida`). |
+| `place_name__icontains` | String | No | Case-insensitive substring match on place name (e.g., `wuheida`). |
+| `search` | String | No | Multi-field search term matching postal code (space-insensitive), place name, country code, or admin name 1. |
+| `page` | Integer | No | Page number for pagination. |
+| `page_size` | Integer | No | Number of records per page (capped at 100). |
 
 ### Responses
 
@@ -265,6 +269,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `limit` | Integer | No | Maximum number of records to return (defaults to 100, maximum allowed value is 100). |
+| `value_field` | String | No | The model field to return as the `"value"` in selection pairs (e.g. `postal_code`, defaults to `id`). |
 
 ### Responses
 
@@ -277,7 +282,8 @@ This document covers endpoints related to listing, creating, retrieving, updatin
   "data": [
     {
       "label": "32867 98458 - Al Wuheida (AE)",
-      "value": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1"
+      "value": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
+      "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1"
     }
   ],
   "errors": null

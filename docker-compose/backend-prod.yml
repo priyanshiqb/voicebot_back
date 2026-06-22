@@ -1,0 +1,88 @@
+services:
+  # 1. Production Django WSGI Server (Gunicorn)
+  backend-wsgi:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    profiles:
+      - prod
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2
+    ports:
+      - "${BACKEND_WSGI_BIND_IP:-${BIND_IP}}:${WSGI_PORT}:8000"
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.production}
+      - ENV_FILE=.env
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - shared_network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 1b. Production Django ASGI Server (Daphne)
+  backend-asgi:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    profiles:
+      - prod
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    ports:
+      - "${BACKEND_ASGI_BIND_IP:-${BIND_IP}}:${ASGI_PORT}:8000"
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.production}
+      - ENV_FILE=.env
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - shared_network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 2b. Celery Worker (Production)
+  celery-prod:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: celery-prod-voicebot
+    profiles:
+      - prod
+    command: celery -A config worker --loglevel=info
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.production}
+      - ENV_FILE=.env
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

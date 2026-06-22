@@ -86,17 +86,32 @@ class PostalCodeDropdownSerializer(serializers.ModelSerializer):
     """
     PostalCode Dropdown Serializer.
     Returns label/value pairs matching unified selection patterns.
+    Allows specifying the output field to return in 'value' via query param ?value_field=
     """
     label = serializers.SerializerMethodField()
-    value = serializers.UUIDField(source="id")
+    value = serializers.SerializerMethodField()
 
     class Meta:
         model = PostalCode
         fields = (
             "label",
             "value",
+            "id",
         )
         read_only_fields = fields
 
     def get_label(self, obj) -> str:
         return f"{obj.postal_code} - {obj.place_name} ({obj.country_code})"
+
+    def get_value(self, obj) -> str:
+        request = self.context.get("request")
+        value_field = "id"
+        if request:
+            val_param = request.query_params.get("value_field", "id")
+            if hasattr(obj, val_param):
+                value_field = val_param
+        
+        val = getattr(obj, value_field, obj.id)
+        if val is not None:
+            return str(val)
+        return ""
