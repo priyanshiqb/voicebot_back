@@ -1,17 +1,15 @@
 import csv
-import gzip
 import os
 import logging
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
-from django.conf import settings
 from onboard.models import Country, Admin1, Admin2, Admin3, Place
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Unified loader for global postal codes from raw CSV or compressed SQL fixtures"
+    help = "Unified loader for global geography data from raw CSV"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -28,6 +26,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         csv_path = options['csv']
         force = options['force']
+        
+        if not csv_path:
+            self.stdout.write(self.style.ERROR("Error: You must provide a path to the CSV file using --csv"))
+            return
         
         # 1. Safety Check: Skip if database already has data
         if Place.objects.exists() and not force:
@@ -53,12 +55,7 @@ class Command(BaseCommand):
                     cursor.execute("TRUNCATE TABLE onboard_place, onboard_admin3, onboard_admin2, onboard_admin1, onboard_country RESTART IDENTITY CASCADE;")
 
         # 3. Flow A: Import and validate from raw CSV
-        if csv_path:
-            self.import_from_csv(csv_path)
-            return
-
-        # 4. Flow B: Restore from compressed SQL fixture (default behavior for CI/CD)
-        self.restore_from_sql_fixture()
+        self.import_from_csv(csv_path)
 
     def import_from_csv(self, csv_path):
         if not os.path.exists(csv_path):
@@ -191,28 +188,3 @@ class Command(BaseCommand):
                 count += len(batch)
 
         self.stdout.write(self.style.SUCCESS(f"Import complete! {count} clean records saved."))
-
-    def restore_from_sql_fixture(self):
-        fixture_path = os.path.join(settings.BASE_DIR, 'onboard', 'fixtures', 'postal_codes.sql.gz')
-        
-        if not os.path.exists(fixture_path):
-            self.stdout.write(
-                self.style.ERROR(
-                    f"Fixture file not found: {fixture_path}\n"
-                    "Please run with '--csv' first to generate your initial data."
-                )
-            )
-            return
-
-        self.stdout.write(self.style.WARNING("Decompressing and seeding from SQL fixture..."))
-
-        # Decompress and read raw SQL queries
-        with gzip.open(fixture_path, 'rt', encoding='utf-8') as f:
-            sql_data = f.read()
-
-        # Execute the raw inserts inside an atomic database block
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute(sql_data)
-
-        self.stdout.write(self.style.SUCCESS("Database seeded successfully from SQL fixture!"))
