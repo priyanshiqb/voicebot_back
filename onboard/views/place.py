@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.db.models import Q, Func, F, Value
+from django.db.models import Q, Func, F, Value, Case, When, IntegerField
 from onboard.models import Place
 from onboard.serializers import PlaceDropdownSerializer, PlacePostalCodeDropdownSerializer, PlaceSerializer
 from .geography_pagination import GeographyDropdownPagination
@@ -9,8 +9,9 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from django.shortcuts import get_object_or_404
 from onboard.authentication import CombinedOnboardingAuthentication
+from .mixins import GeographyTimeoutMixin
 
-class PlaceDropdownAPIView(APIView):
+class PlaceDropdownAPIView(GeographyTimeoutMixin, APIView):
     authentication_classes = [CombinedOnboardingAuthentication]
     permission_classes = (IsAuthenticated,)
     
@@ -21,6 +22,7 @@ class PlaceDropdownAPIView(APIView):
             OpenApiParameter(name="admin1_id", description="Filter by parent state (Admin1) UUID", required=False, type=OpenApiTypes.UUID),
             OpenApiParameter(name="admin2_id", description="Filter by parent district (Admin2) UUID", required=False, type=OpenApiTypes.UUID),
             OpenApiParameter(name="admin3_id", description="Filter by parent sub-district (Admin3) UUID", required=False, type=OpenApiTypes.UUID),
+            OpenApiParameter(name="postal_code", description="Filter exactly by postal code", required=False, type=OpenApiTypes.STR),
             OpenApiParameter(name="search", description="Search by place name or postal code", required=False, type=OpenApiTypes.STR),
             OpenApiParameter(name="page", description="Page number", required=False, type=OpenApiTypes.INT),
             OpenApiParameter(name="page_size", description="Number of results per page", required=False, type=OpenApiTypes.INT),
@@ -46,13 +48,17 @@ class PlaceDropdownAPIView(APIView):
         if admin3_id:
             queryset = queryset.filter(admin3_id=admin3_id)
             
+        postal_code = request.query_params.get('postal_code')
+        if postal_code:
+            queryset = queryset.filter(postal_code=postal_code)
+            
         search = request.query_params.get('search')
         if search:
             stripped_search = search.replace(" ", "")
             queryset = queryset.annotate(
                 stripped_postal=Func(F('postal_code'), Value(' '), Value(''), function='REPLACE')
             ).filter(
-                Q(name__icontains=search) | Q(stripped_postal__icontains=stripped_search)
+                Q(name__icontains=search) | Q(stripped_postal__istartswith=stripped_search)
             )
             
         paginator = GeographyDropdownPagination()
@@ -69,7 +75,7 @@ class PlaceDropdownAPIView(APIView):
             "errors": None
         })
 
-class PlacePostalCodeDropdownAPIView(APIView):
+class PlacePostalCodeDropdownAPIView(GeographyTimeoutMixin, APIView):
     authentication_classes = [CombinedOnboardingAuthentication]
     permission_classes = (IsAuthenticated,)
     
@@ -95,10 +101,15 @@ class PlacePostalCodeDropdownAPIView(APIView):
             stripped_search = search.replace(" ", "")
             queryset = queryset.annotate(
                 stripped_postal=Func(F('postal_code'), Value(' '), Value(''), function='REPLACE')
-            ).filter(stripped_postal__icontains=stripped_search)
-            
-        # Select distinct postal codes to prevent duplicates in dropdown
-        queryset = queryset.values('postal_code').distinct().order_by('postal_code')
+            ).filter(stripped_postal__istartswith=stripped_search).annotate(
+                priority=Case(
+                    When(stripped_postal=stripped_search, then=Value(1)),
+                    default=Value(2),
+                    output_field=IntegerField()
+                )
+            ).order_by('priority', 'postal_code', 'name')
+        else:
+            queryset = queryset.order_by('postal_code', 'name')
             
         paginator = GeographyDropdownPagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
@@ -114,7 +125,7 @@ class PlacePostalCodeDropdownAPIView(APIView):
             "errors": None
         })
 
-class PlaceDetailAPIView(APIView):
+class PlaceDetailAPIView(GeographyTimeoutMixin, APIView):
     authentication_classes = [CombinedOnboardingAuthentication]
     permission_classes = (IsAuthenticated,)
 

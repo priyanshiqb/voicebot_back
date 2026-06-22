@@ -8,8 +8,9 @@ from .geography_pagination import GeographyDropdownPagination
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 from onboard.authentication import CombinedOnboardingAuthentication
+from .mixins import GeographyTimeoutMixin
 
-class Admin2DropdownAPIView(APIView):
+class Admin2DropdownAPIView(GeographyTimeoutMixin, APIView):
     authentication_classes = [CombinedOnboardingAuthentication]
     permission_classes = (IsAuthenticated,)
     

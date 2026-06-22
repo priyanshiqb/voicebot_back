@@ -11,6 +11,42 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = "Unified loader for global geography data from raw CSV"
 
+    COUNTRY_MAPPING = {
+        'PT': 'Portugal', 'AE': 'United Arab Emirates', 'IN': 'India', 'JP': 'Japan',
+        'MX': 'Mexico', 'SG': 'Singapore', 'PE': 'Peru', 'ID': 'Indonesia',
+        'PL': 'Poland', 'FR': 'France', 'RU': 'Russia', 'US': 'United States',
+        'RO': 'Romania', 'ES': 'Spain', 'TR': 'Turkey', 'KR': 'South Korea',
+        'UA': 'Ukraine', 'GB': 'United Kingdom', 'DE': 'Germany', 'LT': 'Lithuania',
+        'AR': 'Argentina', 'AT': 'Austria', 'SE': 'Sweden', 'AU': 'Australia',
+        'IT': 'Italy', 'DZ': 'Algeria', 'CZ': 'Czech Republic', 'HR': 'Croatia',
+        'LV': 'Latvia', 'BR': 'Brazil', 'EE': 'Estonia', 'BG': 'Bulgaria',
+        'SK': 'Slovakia', 'NO': 'Norway', 'LU': 'Luxembourg', 'CH': 'Switzerland',
+        'NL': 'Netherlands', 'ZA': 'South Africa', 'CO': 'Colombia', 'FI': 'Finland',
+        'HU': 'Hungary', 'BY': 'Belarus', 'MY': 'Malaysia', 'BE': 'Belgium',
+        'PK': 'Pakistan', 'CN': 'China', 'PH': 'Philippines', 'UY': 'Uruguay',
+        'LK': 'Sri Lanka', 'MD': 'Moldova', 'NZ': 'New Zealand', 'CA': 'Canada',
+        'BD': 'Bangladesh', 'MA': 'Morocco', 'EC': 'Ecuador', 'AZ': 'Azerbaijan',
+        'DK': 'Denmark', 'RS': 'Serbia', 'CY': 'Cyprus', 'TH': 'Thailand',
+        'KE': 'Kenya', 'PA': 'Panama', 'SI': 'Slovenia', 'GT': 'Guatemala',
+        'DO': 'Dominican Republic', 'AL': 'Albania', 'MW': 'Malawi', 'CR': 'Costa Rica',
+        'CL': 'Chile', 'HT': 'Haiti', 'MK': 'North Macedonia', 'PF': 'French Polynesia',
+        'IS': 'Iceland', 'PR': 'Puerto Rico', 'RE': 'Réunion', 'IE': 'Ireland',
+        'FO': 'Faroe Islands', 'BM': 'Bermuda', 'GP': 'Guadeloupe', 'MQ': 'Martinique',
+        'IM': 'Isle of Man', 'GF': 'French Guiana', 'MT': 'Malta', 'NC': 'New Caledonia',
+        'HN': 'Honduras', 'AX': 'Åland Islands', 'GL': 'Greenland', 'MC': 'Monaco',
+        'SM': 'San Marino', 'GU': 'Guam', 'YT': 'Mayotte', 'VI': 'United States Virgin Islands',
+        'GG': 'Guernsey', 'LI': 'Liechtenstein', 'SJ': 'Svalbard and Jan Mayen',
+        'AD': 'Andorra', 'JE': 'Jersey', 'FM': 'Micronesia', 'MP': 'Northern Mariana Islands',
+        'WF': 'Wallis and Futuna', 'MH': 'Marshall Islands', 'PM': 'Saint Pierre and Miquelon',
+        'AI': 'Anguilla', 'AS': 'American Samoa', 'CC': 'Cocos (Keeling) Islands',
+        'CX': 'Christmas Island', 'FK': 'Falkland Islands', 'GI': 'Gibraltar',
+        'GS': 'South Georgia and the South Sandwich Islands', 'HK': 'Hong Kong',
+        'HM': 'Heard Island and McDonald Islands', 'IO': 'British Indian Ocean Territory',
+        'MO': 'Macao', 'NF': 'Norfolk Island', 'NR': 'Nauru', 'NU': 'Niue',
+        'PN': 'Pitcairn Islands', 'PW': 'Palau', 'TC': 'Turks and Caicos Islands',
+        'VA': 'Vatican City', 'WS': 'Samoa'
+    }
+
     def add_arguments(self, parser):
         parser.add_argument(
             '--csv',
@@ -96,7 +132,7 @@ class Command(BaseCommand):
                 
                 # 1. Country
                 if country_code not in country_cache:
-                    country_name = country_code # Fallback name
+                    country_name = self.COUNTRY_MAPPING.get(country_code, country_code)
                     country_obj = Country.objects.create(code=country_code, name=country_name)
                     country_cache[country_code] = country_obj
                 country_obj = country_cache[country_code]

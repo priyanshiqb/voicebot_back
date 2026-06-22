@@ -10,9 +10,16 @@ class PlaceDropdownSerializer(serializers.ModelSerializer):
         model = Place
         fields = ['id', 'cities', 'postal_code']
 
-class PlacePostalCodeDropdownSerializer(serializers.Serializer):
-    value = serializers.CharField(source='postal_code', read_only=True)
-    label = serializers.CharField(source='postal_code', read_only=True)
+class PlacePostalCodeDropdownSerializer(serializers.ModelSerializer):
+    value = serializers.UUIDField(source='id', read_only=True)
+    label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Place
+        fields = ['value', 'label']
+
+    def get_label(self, obj):
+        return f"{obj.name} | {obj.postal_code}"
 
 from utils.serializers.hybrid_related_field import HybridRelatedField
 from .country import CountryRefSerializer
