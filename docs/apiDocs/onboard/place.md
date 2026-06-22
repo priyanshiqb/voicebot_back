@@ -20,7 +20,8 @@ This API provides a list of places/cities and their postal codes, filtered by an
 | `admin1_id`  | UUID   | No       | Filter by parent state (Admin1) UUID.                        |
 | `admin2_id`  | UUID   | No       | Filter by parent district (Admin2) UUID.                     |
 | `admin3_id`  | UUID   | No       | Filter by parent sub-district (Admin3) UUID.                 |
-| `search`     | String | No       | Search term. Matches against `name` (case-insensitive) OR `postal_code` (ignoring spaces). |
+| `postal_code`| String | No       | Exact match for postal code.                                 |
+| `search`     | String | No       | Search term. Matches against `name` (case-insensitive) OR `postal_code` (ignoring spaces starts-with). |
 | `page`       | Int    | No       | Page number for pagination (default: 1).                     |
 | `page_size`  | Int    | No       | Number of items per page (default: 10, max: 25).             |
 

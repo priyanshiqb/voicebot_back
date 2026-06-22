@@ -6,7 +6,14 @@ This document outlines the API available for retrieving unique postal codes.
 
 ## Postal Code Dropdown API
 
-Returns a list of unique postal codes from the system. Supports dynamic space-ignoring searches.
+Returns a dropdown-ready list of places matching a specific postal code. Supports dynamic space-ignoring searches.
+
+> [!NOTE]
+> **Priority Sorting System**:
+> 1. **Priority 1**: Exact match (ignoring spaces). E.g. searching "365620" exactly matches "36 56 20".
+> 2. **Priority 2**: Starts-with match (ignoring spaces). E.g. searching "365" matches "365620".
+> 
+> The results are ordered first by priority, then alphanumerically by postal code and place name.
 
 ### Endpoint
 
@@ -29,8 +36,12 @@ Returns a list of unique postal codes from the system. Supports dynamic space-ig
     "message": "success",
     "data": [
         {
-            "value": "395006",
-            "label": "395006"
+            "value": "b53f68d7-4b7b-40aa-a51c-34f71a4c90e1",
+            "label": "Amreli | 365620"
+        },
+        {
+            "value": "c81d11e1-1b2c-48bb-b32b-11d73a4b91f2",
+            "label": "Bagasara | 365620"
         }
     ],
     "errors": null,

@@ -1,5 +1,5 @@
 from django.urls import path
-from onboard.views import (
+from onboard.views.geography import (
     CountryDropdownAPIView,
     Admin1DropdownAPIView,
     Admin2DropdownAPIView,

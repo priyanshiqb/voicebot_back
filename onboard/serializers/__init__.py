@@ -27,11 +27,13 @@ from .language import (
     LanguageListSerializer,
     LanguageDropdownSerializer,
 )
-from .country import CountryDropdownSerializer, CountryRefSerializer
-from .admin1 import Admin1DropdownSerializer, Admin1RefSerializer
-from .admin2 import Admin2DropdownSerializer, Admin2RefSerializer
-from .admin3 import Admin3DropdownSerializer, Admin3RefSerializer
-from .place import PlaceDropdownSerializer, PlacePostalCodeDropdownSerializer, PlaceSerializer
+from .geography import (
+    CountryDropdownSerializer, CountryRefSerializer,
+    Admin1DropdownSerializer, Admin1RefSerializer,
+    Admin2DropdownSerializer, Admin2RefSerializer,
+    Admin3DropdownSerializer, Admin3RefSerializer,
+    PlaceDropdownSerializer, PlacePostalCodeDropdownSerializer, PlaceSerializer
+)
 
 __all__ = [
     "PlanRefSerializer",
