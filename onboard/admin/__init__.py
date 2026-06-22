@@ -4,7 +4,11 @@ from .temp_user import TempUserAdmin
 from .transaction import TransactionAdmin
 from .webhook_log import RazorpayWebhookLogAdmin
 from .subscription import SubscriptionAdmin
-from .postal_code_admin import PostalCodeAdmin
+from .country_admin import CountryAdmin
+from .admin1_admin import Admin1Admin
+from .admin2_admin import Admin2Admin
+from .admin3_admin import Admin3Admin
+from .place_admin import PlaceAdmin
 
 __all__ = [
     "PlanAdmin",
@@ -13,5 +17,9 @@ __all__ = [
     "TransactionAdmin",
     "RazorpayWebhookLogAdmin",
     "SubscriptionAdmin",
-    "PostalCodeAdmin",
+    "CountryAdmin",
+    "Admin1Admin",
+    "Admin2Admin",
+    "Admin3Admin",
+    "PlaceAdmin",
 ]

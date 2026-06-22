@@ -3,6 +3,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.core import signing
 from django.conf import settings
 from onboard.models import TempUser
+from user.authentication import CachedJWTAuthentication
 
 
 class TempUserAuthentication(BaseAuthentication):
@@ -58,5 +59,54 @@ try:
                 "name": "Authorization",
                 "description": "Scoped temporary onboarding token prefixed with 'Bearer '"
             }
+
+    class CombinedOnboardingAuthenticationScheme(OpenApiAuthenticationExtension):
+        target_class = "onboard.authentication.CombinedOnboardingAuthentication"
+        name = "CombinedOnboardingAuth"
+
+        def get_security_definition(self, auto_schema):
+            # This is a combined scheme that delegates to JWT and TempUserTokenAuth.
+            # We return an empty dict since it references the target security definitions.
+            return {}
+
+        def get_security_requirement(self, auto_schema):
+            return [
+                {"jwt": []},
+                {"TempUserTokenAuth": []}
+            ]
 except ImportError:
     pass
+
+class CombinedOnboardingAuthentication(BaseAuthentication):
+    """
+    Combined authentication class that tries CachedJWTAuthentication first.
+    If that fails, it falls back to TempUserAuthentication.
+    Only if both fail does it raise an AuthenticationFailed exception.
+    """
+    def authenticate(self, request):
+        jwt_auth = CachedJWTAuthentication()
+        temp_auth = TempUserAuthentication()
+
+        # Try CachedJWTAuthentication
+        try:
+            jwt_res = jwt_auth.authenticate(request)
+            if jwt_res is not None:
+                return jwt_res
+        except AuthenticationFailed:
+            # Ignore JWT failures and try TempUserAuthentication
+            pass
+
+        # Try TempUserAuthentication
+        try:
+            temp_res = temp_auth.authenticate(request)
+            if temp_res is not None:
+                return temp_res
+        except AuthenticationFailed:
+            # If temp user auth failed with an explicit error, bubble it up
+            raise
+
+        return None
+
+    def authenticate_header(self, request):
+        return "Bearer"
+
