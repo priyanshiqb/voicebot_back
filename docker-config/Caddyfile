@@ -40,7 +40,7 @@
 }
 
 # 1a. REST API Gateway (Django WSGI Gunicorn Server)
-api.{$DOMAIN} {
+{$SCHEME}api{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -55,7 +55,7 @@ api.{$DOMAIN} {
 }
 
 # 1b. WebSockets Gateway (Django ASGI Daphne Server)
-ws.{$DOMAIN} {
+{$SCHEME}ws{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -70,7 +70,7 @@ ws.{$DOMAIN} {
 }
 
 # 2. Database Administration (pgAdmin)
-pgadmin.{$DOMAIN} {
+{$SCHEME}pgadmin{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -78,7 +78,7 @@ pgadmin.{$DOMAIN} {
 }
 
 # 3. Redis Dashboard (RedisInsight)
-redisinsight.{$DOMAIN} {
+{$SCHEME}redisinsight{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import basic_auth
     import security_headers
@@ -87,7 +87,7 @@ redisinsight.{$DOMAIN} {
 }
 
 # 4. Observability Dashboard (Grafana)
-grafana.{$DOMAIN} {
+{$SCHEME}grafana{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -95,7 +95,7 @@ grafana.{$DOMAIN} {
 }
 
 # 5. Metrics Engine (Prometheus)
-prometheus.{$DOMAIN} {
+{$SCHEME}prometheus{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import basic_auth
     import security_headers
@@ -104,7 +104,7 @@ prometheus.{$DOMAIN} {
 }
 
 # 6. Log Engine (Loki)
-loki.{$DOMAIN} {
+{$SCHEME}loki{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import basic_auth
     import security_headers
@@ -113,13 +113,13 @@ loki.{$DOMAIN} {
 }
 
 # 7. MinIO S3 Emulator Services
-minio.{$DOMAIN} {
+{$SCHEME}minio{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
     reverse_proxy minio:9000
 }
-minio-console.{$DOMAIN} {
+{$SCHEME}minio-console{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -127,7 +127,7 @@ minio-console.{$DOMAIN} {
 }
 
 # 8a. Secure Fallback Subdomain (Contains Valid SSL)
-notfound.{$DOMAIN} {
+{$SCHEME}notfound{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
     import compression
@@ -137,7 +137,7 @@ notfound.{$DOMAIN} {
 }
 
 # 8b. HTTP Redirection Catch-all
-http://*.{$DOMAIN} {
-    redir https://notfound.{$DOMAIN}
+{$SCHEME}*.{$DOMAIN} {
+    redir {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN}
 }
 

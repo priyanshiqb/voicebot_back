@@ -71,14 +71,17 @@ When the `gateway` profile is active, Caddy exposes ports `80` and `443` on the 
 
 | Service | Address | Proxies To (Internal Network) |
 | :--- | :--- | :--- |
-| **Django WSGI / Dev** | `http://localhost` | `backend-wsgi:8000` (production HTTP) or `backend-dev:8000` (development) |
-| **Django ASGI / Dev** | `http://localhost` (WebSocket headers) | `backend-asgi:8000` (production WS) or `backend-dev:8000` (development) |
-| **pgAdmin** | `http://pgadmin.localhost` | `pgadmin:80` |
-| **RedisInsight** | `http://redisinsight.localhost` | `redis-insight:5540` |
-| **Grafana** | `http://grafana.localhost` | `grafana:3000` |
-| **Prometheus** | `http://prometheus.localhost` | `prometheus:9090` |
+| **Django WSGI / Dev** | `{$SCHEME}api{$ENV_NAME}.localhost` | `backend-wsgi:8000` (production HTTP) or `backend-dev:8000` (development) |
+| **Django ASGI / Dev** | `{$SCHEME}ws{$ENV_NAME}.localhost` (WebSocket headers) | `backend-asgi:8000` (production WS) or `backend-dev:8000` (development) |
+| **pgAdmin** | `{$SCHEME}pgadmin{$ENV_NAME}.localhost` | `pgadmin:80` |
+| **RedisInsight** | `{$SCHEME}redisinsight{$ENV_NAME}.localhost` | `redis-insight:5540` |
+| **Grafana** | `{$SCHEME}grafana{$ENV_NAME}.localhost` | `grafana:3000` |
+| **Prometheus** | `{$SCHEME}prometheus{$ENV_NAME}.localhost` | `prometheus:9090` |
+| **Loki** | `{$SCHEME}loki{$ENV_NAME}.localhost` | `loki:3100` |
+| **MinIO API** | `{$SCHEME}minio{$ENV_NAME}.localhost` | `minio:9000` |
+| **MinIO Console** | `{$SCHEME}minio-console{$ENV_NAME}.localhost` | `minio:9001` |
 
-*Note: For production, you can replace `localhost` by setting `DOMAIN=yourdomain.com` in your environment file, and Caddy will automatically manage Let's Encrypt SSL certificates using the configured `ACME_EMAIL`.*
+*Note: For production/QA, set `ENV_NAME=qa` or `ENV_NAME=prod` to dynamically prefix your subdomains. Set `SCHEME="http://"` if you are placing this Caddy behind a Master Load Balancer that already handles SSL. Set `SCHEME="https://"` (or leave it blank) if you want this local Caddy to handle Let's Encrypt SSL certificates automatically. You can replace `localhost` by setting `DOMAIN=yourdomain.com` in your `.env`.*
 
 ---
 

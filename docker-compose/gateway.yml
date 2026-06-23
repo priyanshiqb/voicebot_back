@@ -9,7 +9,9 @@ services:
       - "80:80"
       - "443:443"
     environment:
+      - SCHEME=${SCHEME}
       - DOMAIN=${DOMAIN}
+      - ENV_NAME=${ENV_NAME}
       - WSGI_HOST=${WSGI_HOST}
       - ASGI_HOST=${ASGI_HOST}
       - ACME_EMAIL=${ACME_EMAIL}
