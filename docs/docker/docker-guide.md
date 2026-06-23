@@ -104,3 +104,15 @@ To bypass password prompts and enter the container as **`root`** for hot-fixes, 
 ```bash
 docker compose exec -u root backend-dev bash
 ```
+
+---
+
+## 7. Common Commands & Maintenance
+
+### Rebuilding Production Containers
+Whenever you change Python dependencies (e.g., adding `whitenoise` to `pyproject.toml`) or modify the `Dockerfile`, you must rebuild your backend containers so the changes take effect:
+
+```bash
+docker compose build backend-wsgi backend-asgi celery-prod
+docker compose --profile prod up -d
+```
