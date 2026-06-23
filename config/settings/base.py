@@ -130,6 +130,7 @@ MIDDLEWARE = [
     "config.middleware.RequestTracingMiddleware",  # Dynamic Request ID tracking
     "config.middleware.ReCaptchaMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
