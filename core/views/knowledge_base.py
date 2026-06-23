@@ -2,10 +2,15 @@ from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status
-from drf_spectacular.utils import extend_schema, OpenApiExample, extend_schema_view, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiExample, extend_schema_view, OpenApiResponse, OpenApiParameter, inline_serializer
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import serializers
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.knowledge_base import KnowledgeBase, KBFiles, KBWebsite
-from core.serializers.kb_files import KBFilesSerializer
+import uuid
+import os
+from core.serializers.kb_files import KBFilesSerializer, RequestUploadUrlSerializer, ConfirmUploadSerializer
+from utils.s3_storage.service import S3StorageService
 from core.serializers.knowledge_base import (
     KnowledgeBaseSerializer,
     KnowledgeBaseListSerializer,
@@ -139,6 +144,160 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             },
             status=status.HTTP_201_CREATED
         )
+
+    @extend_schema(
+        summary="Request a secure S3 upload URL",
+        description="Generates a temporary Presigned PUT URL allowing the frontend to upload a file directly to the storage bucket.",
+        request=RequestUploadUrlSerializer,
+        responses={
+            200: inline_serializer(
+                name="RequestUploadUrlResponse",
+                fields={
+                    "status": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "data": inline_serializer(
+                        name="RequestUploadUrlData",
+                        fields={
+                            "upload_url": serializers.CharField(),
+                            "object_key": serializers.CharField()
+                        }
+                    )
+                }
+            ),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="request-upload-url")
+    def request_upload_url(self, request, *args, **kwargs):
+        serializer = RequestUploadUrlSerializer(data=request.data)
+        if not serializer.is_valid():
+            first_error = next(iter(serializer.errors.values()))[0]
+            return Response({"status": False, "message": str(first_error)}, status=status.HTTP_400_BAD_REQUEST)
+        
+        filename = serializer.validated_data["filename"]
+        content_type = serializer.validated_data["content_type"]
+        file_size_in_bytes = serializer.validated_data["file_size_in_bytes"]
+        tenant_id = request.user.tenant_mapping.tenant_id
+        
+        # Generate a secure object key
+        file_uuid = uuid.uuid4()
+        object_key = f"t-{tenant_id}/kb_files/{file_uuid}_{filename}"
+        
+        storage_service = S3StorageService()
+        try:
+            upload_url = storage_service.get_presigned_put_url(object_key, content_type, file_size_in_bytes)
+        except Exception as e:
+            return Response({"status": False, "message": "Failed to generate upload URL."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        return Response({
+            "status": True,
+            "message": "Upload URL generated successfully.",
+            "data": {
+                "upload_url": upload_url,
+                "object_key": object_key
+            }
+        }, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Confirm a direct S3 upload",
+        description="Verifies the file arrived in S3 and creates the Knowledge Base File record.",
+        request=ConfirmUploadSerializer,
+        responses={
+            201: inline_serializer(
+                name="ConfirmUploadResponse",
+                fields={
+                    "status": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "data": KBFilesSerializer()
+                }
+            ),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or file missing in S3.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="confirm-upload")
+    def confirm_upload(self, request, *args, **kwargs):
+        serializer = ConfirmUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            first_error = next(iter(serializer.errors.values()))[0]
+            return Response({"status": False, "message": str(first_error)}, status=status.HTTP_400_BAD_REQUEST)
+            
+        object_key = serializer.validated_data["object_key"]
+        original_name = serializer.validated_data["original_name"]
+        
+        extension = serializer.validated_data.get("extension")
+        if not extension:
+            extension = os.path.splitext(original_name)[1].lower()
+            
+        storage_service = S3StorageService()
+        
+        # Security: verify the file actually exists in S3 before recording it
+        try:
+            exists = storage_service.verify_object_exists(object_key)
+            if not exists:
+                return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"status": False, "message": "Failed to verify file upload."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        tenant = request.user.tenant_mapping.tenant
+        
+        kb_file = KBFiles(
+            tenant=tenant,
+            original_name=original_name,
+            extension=extension,
+            is_processed=False,
+            processing_status='PENDING'
+        )
+        
+        # We assign the raw object key to the file field. Django Storages handles the resolution transparently.
+        # This prevents it from attempting to re-upload.
+        kb_file.file.name = object_key
+        
+        # Manually assign standard fields normally populated by TenantBaseAdmin if missing
+        kb_file.created_by = request.user
+        kb_file.updated_by = request.user
+        
+        kb_file.save()
+        
+        response_serializer = KBFilesSerializer(kb_file)
+        
+        return Response({
+            "status": True,
+            "message": "File confirmed and saved successfully.",
+            "data": response_serializer.data
+        }, status=status.HTTP_201_CREATED)
+        
+    @extend_schema(
+        summary="Discard uploaded Knowledge Base files",
+        description="Permanently deletes an array of uploaded KB files and their associated S3 objects. Use this when a user uploads files but then discards the KB creation process.",
+        request=inline_serializer(
+            name="DiscardFilesRequest",
+            fields={
+                "file_ids": serializers.ListField(child=serializers.UUIDField(), required=True)
+            }
+        ),
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="Files discarded successfully."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="file_ids array is required or invalid."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="discard-files")
+    def discard_files(self, request, *args, **kwargs):
+        file_ids = request.data.get("file_ids", [])
+        if not isinstance(file_ids, list) or not file_ids:
+            return Response({"status": False, "message": "A valid list of file_ids is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            tenant = request.user.tenant_mapping.tenant
+            files = KBFiles.objects.filter(id__in=file_ids, tenant=tenant)
+            deleted_count = 0
+            for f in files:
+                f.delete()
+                deleted_count += 1
+                
+            return Response({"status": True, "message": f"{deleted_count} file(s) discarded successfully."}, status=status.HTTP_200_OK)
+        except Exception:
+            return Response({"status": False, "message": "Permission denied or error occurred."}, status=status.HTTP_403_FORBIDDEN)
 
     @extend_schema(
         summary="Update ETL status of a Knowledge Base component",

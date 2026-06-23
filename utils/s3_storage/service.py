@@ -109,9 +109,64 @@ class S3StorageService:
                 },
                 ExpiresIn=expiry_hours * 3600
             )
+            
+            # If a custom domain is configured (e.g. for localhost routing), replace the internal endpoint
+            if self.custom_domain:
+                parsed_url = urlparse(url)
+                # Parse scheme and netloc from custom domain
+                custom_parsed = urlparse(self.custom_domain)
+                url = url.replace(f"{parsed_url.scheme}://{parsed_url.netloc}", f"{custom_parsed.scheme}://{custom_parsed.netloc}")
+                
             return url
         except ClientError as e:
             logger.error(f"Failed to generate presigned URL for {object_key}: {e}")
+            raise
+
+    def get_presigned_put_url(self, object_key, content_type, file_size_in_bytes, expiry_minutes=15):
+        """
+        Generates a presigned URL for direct frontend PUT uploads.
+        Enforces an exact ContentLength to prevent malicious large file uploads directly to S3.
+        """
+        if not self.bucket_name:
+            raise ValueError("S3_BUCKET_NAME is not configured.")
+
+        try:
+            url = self.client.generate_presigned_url(
+                ClientMethod='put_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': object_key,
+                    'ContentType': content_type,
+                    'ContentLength': file_size_in_bytes,
+                },
+                ExpiresIn=expiry_minutes * 60
+            )
+            
+            if self.custom_domain:
+                parsed_url = urlparse(url)
+                custom_parsed = urlparse(self.custom_domain)
+                url = url.replace(f"{parsed_url.scheme}://{parsed_url.netloc}", f"{custom_parsed.scheme}://{custom_parsed.netloc}")
+                
+            return url
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned PUT URL for {object_key}: {e}")
+            raise
+
+    def verify_object_exists(self, object_key):
+        """
+        Verifies that an object actually exists in the S3 bucket via a HEAD request.
+        Used to securely validate direct frontend uploads before creating DB records.
+        """
+        if not self.bucket_name:
+            raise ValueError("S3_BUCKET_NAME is not configured.")
+            
+        try:
+            self.client.head_object(Bucket=self.bucket_name, Key=object_key)
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == '404':
+                return False
+            logger.error(f"Error verifying object {object_key} exists: {e}")
             raise
 
     def get_presigned_url_for_folder(self, folder_prefix, expiry_hours=1):
@@ -137,6 +192,13 @@ class S3StorageService:
                 },
                 ExpiresIn=expiry_hours * 3600
             )
+            
+            # If a custom domain is configured (e.g. for localhost routing), replace the internal endpoint
+            if self.custom_domain:
+                parsed_url = urlparse(url)
+                custom_parsed = urlparse(self.custom_domain)
+                url = url.replace(f"{parsed_url.scheme}://{parsed_url.netloc}", f"{custom_parsed.scheme}://{custom_parsed.netloc}")
+                
             return url
         except ClientError as e:
             logger.error(f"Failed to generate presigned URL for folder {folder_prefix}: {e}")

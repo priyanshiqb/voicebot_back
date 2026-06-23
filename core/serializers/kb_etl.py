@@ -46,6 +46,17 @@ class KBFilesETLSerializer(serializers.ModelSerializer):
             "is_deleted",
         )
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if instance.file and instance.file.name:
+            if getattr(settings, 'USE_S3_STORAGE', False):
+                from utils.s3_storage.service import S3StorageService
+                try:
+                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                except Exception:
+                    pass
+        return ret
+
 
 class KBWebsiteETLSerializer(serializers.ModelSerializer):
     class Meta:

@@ -44,10 +44,32 @@ class KBFilesSerializer(TenantBaseModelSerializer):
             return val_lower
         return value
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if instance.file and instance.file.name:
+            if getattr(settings, 'USE_S3_STORAGE', False):
+                from utils.s3_storage.service import S3StorageService
+                try:
+                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                except Exception:
+                    pass
+        return ret
+
 class KBFilesListSerializer(serializers.ModelSerializer):
     class Meta:
         model = KBFiles
         fields = ("id", "original_name", "file", "extension", "is_processed", "processing_status", "created_at")
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if instance.file and instance.file.name:
+            if getattr(settings, 'USE_S3_STORAGE', False):
+                from utils.s3_storage.service import S3StorageService
+                try:
+                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                except Exception:
+                    pass
+        return ret
 
 class KBFilesDropdownSerializer(serializers.Serializer):
     label = serializers.CharField(source="original_name")
@@ -84,3 +106,44 @@ class NestedKBFilesSerializer(KBFilesSerializer):
             if 'file' not in attrs:
                 raise serializers.ValidationError({"file": "No file was submitted."})
         return attrs
+
+class RequestUploadUrlSerializer(serializers.Serializer):
+    filename = serializers.CharField(max_length=255)
+    content_type = serializers.CharField(max_length=100)
+    file_size_in_bytes = serializers.IntegerField()
+
+    def validate_file_size_in_bytes(self, value):
+        max_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+        if value > max_size:
+            raise serializers.ValidationError(f"File size exceeds the limit of {max_size / (1024 * 1024)}MB.")
+        return value
+
+    def validate_filename(self, value):
+        allowed_extensions = ['.pdf', '.docx', '.txt']
+        ext = os.path.splitext(value)[1].lower()
+        if ext not in allowed_extensions:
+            raise serializers.ValidationError(f"Unsupported format. Only {', '.join(allowed_extensions)} are allowed.")
+        return value
+
+class ConfirmUploadSerializer(serializers.Serializer):
+    object_key = serializers.CharField(max_length=512)
+    original_name = serializers.CharField(max_length=255)
+    extension = serializers.CharField(max_length=10, required=False)
+
+    def validate_original_name(self, value):
+        allowed_extensions = ['.pdf', '.docx', '.txt']
+        ext = os.path.splitext(value)[1].lower()
+        if ext not in allowed_extensions:
+            raise serializers.ValidationError(f"Unsupported format. Only {', '.join(allowed_extensions)} are allowed.")
+        return value
+
+    def validate_extension(self, value):
+        if value:
+            allowed_extensions = ['.pdf', '.docx', '.txt']
+            val_lower = value.lower()
+            if not val_lower.startswith('.'):
+                val_lower = '.' + val_lower
+            if val_lower not in allowed_extensions:
+                raise serializers.ValidationError(f"Unsupported format. Only {', '.join(allowed_extensions)} are allowed.")
+            return val_lower
+        return value

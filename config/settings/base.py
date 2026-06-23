@@ -227,17 +227,20 @@ if USE_S3_STORAGE:
     AWS_SECRET_ACCESS_KEY = S3_SECRET_ACCESS_KEY
     AWS_STORAGE_BUCKET_NAME = S3_BUCKET_NAME
     AWS_S3_REGION_NAME = S3_REGION_NAME
+    AWS_QUERYSTRING_AUTH = True
 
     if S3_ENDPOINT_URL:
         AWS_S3_ENDPOINT_URL = S3_ENDPOINT_URL
+        AWS_QUERYSTRING_AUTH = False
 
     if S3_CUSTOM_DOMAIN:
-        AWS_S3_CUSTOM_DOMAIN = S3_CUSTOM_DOMAIN
+        custom_domain_parsed = urlparse(S3_CUSTOM_DOMAIN) if "://" in S3_CUSTOM_DOMAIN else urlparse(f"http://{S3_CUSTOM_DOMAIN}")
+        AWS_S3_CUSTOM_DOMAIN = custom_domain_parsed.netloc
+        AWS_S3_URL_PROTOCOL = f"{custom_domain_parsed.scheme}:"
 
     AWS_S3_SIGNATURE_VERSION = "s3v4"
     AWS_S3_FILE_OVERWRITE = False
     AWS_DEFAULT_ACL = None
-    AWS_QUERYSTRING_AUTH = True
 
     STORAGES = {
         "default": {

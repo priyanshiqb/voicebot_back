@@ -93,6 +93,85 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
 
 ---
 
+### 2.2 [NEW] Direct S3 File Upload (Presigned PUT) - Step 1: Request URL
+* **Path**: `POST /api/v1/core/knowledge-base/request-upload-url/`
+* **Request Payload**:
+```json
+{
+  "filename": "document.pdf",
+  "content_type": "application/pdf",
+  "file_size_in_bytes": 102400
+}
+```
+* **Description**: The modern way to upload files. Generates a secure URL allowing the frontend to upload a file directly to the S3/MinIO bucket.
+* **Response (HTTP 200 OK)**:
+```json
+{
+  "status": true,
+  "message": "Upload URL generated successfully.",
+  "data": {
+    "upload_url": "http://localhost:9000/t-1/...pdf?X-Amz-Signature=...",
+    "object_key": "t-1/kb_files/uuid-document.pdf"
+  }
+}
+```
+
+---
+
+### 2.3 [NEW] Direct S3 File Upload (Presigned PUT) - Step 2: Confirm Upload
+* **Path**: `POST /api/v1/core/knowledge-base/confirm-upload/`
+* **Request Payload**:
+```json
+{
+  "object_key": "t-1/kb_files/uuid-document.pdf",
+  "original_name": "document.pdf",
+  "extension": ".pdf"
+}
+```
+* **Description**: To be called *after* the frontend successfully `PUT`s the file to the `upload_url`. The backend will verify the file physically exists in the S3 bucket, and then create the standard `KBFiles` database record.
+* **Response (HTTP 201 Created)**:
+*(Identical to the legacy upload_file response)*
+```json
+{
+  "status": true,
+  "message": "File confirmed and saved successfully.",
+  "data": {
+    "id": "uuid-preuploaded-file-id",
+    "file": "http://localhost:8000/media/t-1/kb_files/uuid-document.pdf",
+    "original_name": "document.pdf",
+    "extension": ".pdf",
+    "is_processed": false,
+    "processing_status": "PENDING"
+  }
+}
+```
+
+---
+
+### 2.1. Discard Uploaded Document Files
+* **Path**: `POST /api/v1/core/knowledge-base/discard-files/`
+* **Request Payload**:
+```json
+{
+  "file_ids": [
+    "uuid-file-id-1",
+    "uuid-file-id-2"
+  ]
+}
+```
+* **Description**: Safely hard-deletes an array of uploaded files that are no longer needed (e.g., when a user uploads files but then cancels/discards the Knowledge Base creation wizard). This deletes both the database records and the underlying S3 storage objects in a single batch operation.
+* **Response (HTTP 200 OK)**:
+```json
+{
+  "status": true,
+  "message": "2 file(s) discarded successfully.",
+  "data": null,
+  "errors": null
+}
+```
+
+---
+
 ### 3. Create Knowledge Base
 * **Path**: `POST /api/v1/core/knowledge-base/`
 * **Request Payload**:

@@ -52,6 +52,7 @@ if 'test' in sys.argv:
 
 # Logging Configuration for Local Development
 DJANGO_JSON_LOGGING = env.bool("DJANGO_JSON_LOGGING", default=False)
+DJANGO_SIMPLE_LOGGING = env.bool("DJANGO_SIMPLE_LOGGING", default=False)
 
 LOGGING = {
     "version": 1,
@@ -65,14 +66,14 @@ LOGGING = {
             "()": "utils.logging.JSONFormatter.JsonFormatter",
         },
         "simple": {
-            "format": "[{levelname}] {message}",
+            "format": "[{levelname}] {asctime} - {message}",
             "style": "{",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "json" if DJANGO_JSON_LOGGING else "verbose",
+            "formatter": "json" if DJANGO_JSON_LOGGING else "simple" if DJANGO_SIMPLE_LOGGING else "verbose",
         },
     },
     "root": {
