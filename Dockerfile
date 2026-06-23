@@ -32,8 +32,8 @@ RUN uv sync --frozen --no-cache --no-install-project
 RUN apt-get purge -y --auto-remove gcc libc-dev
 
 # 6. Create a safe non-root system user and change ownership
-RUN groupadd -r django && useradd -r -g django -s /bin/false django \
-    && mkdir -p /app/media /app/staticfiles \
+RUN groupadd -r django && useradd -r -m -g django -s /bin/false django \
+    && mkdir -p /app/media /app/staticfiles /app/static \
     && chown -R django:django /app
 
 # 7. Copy remaining project files securely
