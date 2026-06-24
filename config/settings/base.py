@@ -52,6 +52,11 @@ if "localhost" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("localhost")
 if "127.0.0.1" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("127.0.0.1")
+# Allow Docker Compose internal service names for Prometheus scraping and inter-container traffic
+if "backend-wsgi" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("backend-wsgi")
+if "backend-asgi" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("backend-asgi")
 
 BACKEND_PROJECT_URL = env('BACKEND_PROJECT_URL')
 be_parsed=urlparse(BACKEND_PROJECT_URL)
