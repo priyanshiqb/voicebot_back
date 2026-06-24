@@ -47,6 +47,12 @@ SECRET_KEY = env('DJANGO_SECRET_KEY')
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
+# Ensure localhost is allowed for Docker healthchecks
+if "localhost" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("localhost")
+if "127.0.0.1" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("127.0.0.1")
+
 BACKEND_PROJECT_URL = env('BACKEND_PROJECT_URL')
 be_parsed=urlparse(BACKEND_PROJECT_URL)
 if be_parsed.hostname and be_parsed.hostname not in ALLOWED_HOSTS:
@@ -286,6 +292,11 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Enterprise production REST API for the Voicebot platform.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "ENUM_NAME_OVERRIDES": {
+        "TransactionStatusEnum": "onboard.models.Transaction.status",
+        "SubscriptionStatusEnum": "onboard.models.Subscription.status",
+        "KBETLTrackerStatusEnum": "core.models.KBETLTracker.status",
+    },
 }
 
 # ReCaptcha Verification Settings

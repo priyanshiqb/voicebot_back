@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     gcc \
     libc-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Leverage super-fast 'uv' package installer

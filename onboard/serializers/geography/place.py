@@ -18,7 +18,7 @@ class PlacePostalCodeDropdownSerializer(serializers.ModelSerializer):
         model = Place
         fields = ['value', 'label']
 
-    def get_label(self, obj):
+    def get_label(self, obj) -> str:
         return f"{obj.name} | {obj.postal_code}"
 
 from utils.serializers.hybrid_related_field import HybridRelatedField
