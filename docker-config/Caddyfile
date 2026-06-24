@@ -126,7 +126,22 @@
     reverse_proxy minio:9001
 }
 
-# 8a. Secure Fallback Subdomain (Contains Valid SSL)
+# 8. Web Frontend (Next.js Application)
+{$SCHEME}app{$ENV_NAME}.{$DOMAIN} {
+    import error_handler
+    import security_headers
+    import compression
+    reverse_proxy voiceos-frontend-prod:3000
+
+    log {
+        output file /var/log/caddy/frontend_access.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
+
+# 9a. Secure Fallback Subdomain (Contains Valid SSL)
 {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN} {
     import error_handler
     import security_headers
@@ -136,7 +151,7 @@
     rewrite * /unconfigured.html
 }
 
-# 8b. HTTP Redirection Catch-all
+# 9b. HTTP Redirection Catch-all
 {$SCHEME}*.{$DOMAIN} {
     redir {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN}
 }

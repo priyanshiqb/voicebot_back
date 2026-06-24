@@ -1,0 +1,38 @@
+services:
+  voiceos-frontend:
+    build:
+      context: ./qb-voice-ai
+      dockerfile: Dockerfile
+    image: quantumbot/voiceos-frontend:latest
+    container_name: voiceos-frontend-prod
+    profiles:
+      - frontend
+    restart: unless-stopped
+    env_file:
+      - ./qb-voice-ai/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    ports:
+      - "${FRONTEND_BIND_IP:-${BIND_IP}}:${FRONTEND_PORT:-3000}:3000"
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: "4G"
+        reservations:
+          cpus: "0.5"
+          memory: "1G"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
