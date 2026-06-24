@@ -13,7 +13,7 @@
 * **📝 Onboard APIs**
   * [Plans](apiDocs/onboard/plans.md)
   * [Signup Flow](apiDocs/onboard/signup_flow.md)
-  * [Postal Codes](apiDocs/onboard/postal_codes.md)
+  <!-- * [Postal Codes](apiDocs/onboard/postal_codes.md) -->
   * [Geography - Country](apiDocs/onboard/country.md)
   * [Geography - Admin1](apiDocs/onboard/admin1.md)
   * [Geography - Admin2](apiDocs/onboard/admin2.md)

@@ -25,6 +25,10 @@ Returns a dropdown-ready list of places matching a specific postal code. Support
 | :------------ | :----- | :------- | :----------------------------------------------------------- |
 | `search`      | String | No       | Search term. Spaces are dynamically stripped before matching. |
 | `postal_code` | String | No       | Exact match for postal code.                                 |
+| `country_id`  | UUID   | No       | Filter places by exact Country ID.                           |
+| `admin1_id`   | UUID   | No       | Filter places by exact Admin1 (State/Province) ID.           |
+| `admin2_id`   | UUID   | No       | Filter places by exact Admin2 (County/District) ID.          |
+| `admin3_id`   | UUID   | No       | Filter places by exact Admin3 (City/Municipality) ID.        |
 | `page`        | Int    | No       | Page number for pagination (default: 1).                     |
 | `page_size`   | Int    | No       | Number of items per page (default: 10, max: 25).             |
 

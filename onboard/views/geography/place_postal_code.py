@@ -19,6 +19,10 @@ class PlacePostalCodeDropdownAPIView(GeographyTimeoutMixin, APIView):
         parameters=[
             OpenApiParameter(name="search", description="Search postal code ignoring spaces", required=False, type=OpenApiTypes.STR),
             OpenApiParameter(name="postal_code", description="Filter exactly by postal code", required=False, type=OpenApiTypes.STR),
+            OpenApiParameter(name="country_id", description="Filter by country ID", required=False, type=OpenApiTypes.UUID),
+            OpenApiParameter(name="admin1_id", description="Filter by admin1 ID", required=False, type=OpenApiTypes.UUID),
+            OpenApiParameter(name="admin2_id", description="Filter by admin2 ID", required=False, type=OpenApiTypes.UUID),
+            OpenApiParameter(name="admin3_id", description="Filter by admin3 ID", required=False, type=OpenApiTypes.UUID),
             OpenApiParameter(name="page", description="Page number", required=False, type=OpenApiTypes.INT),
             OpenApiParameter(name="page_size", description="Number of results per page", required=False, type=OpenApiTypes.INT),
         ],
@@ -27,6 +31,22 @@ class PlacePostalCodeDropdownAPIView(GeographyTimeoutMixin, APIView):
     def get(self, request, *args, **kwargs):
         queryset = Place.objects.all()
         
+        country_id = request.query_params.get('country_id')
+        if country_id:
+            queryset = queryset.filter(country_id=country_id)
+            
+        admin1_id = request.query_params.get('admin1_id')
+        if admin1_id:
+            queryset = queryset.filter(admin1_id=admin1_id)
+            
+        admin2_id = request.query_params.get('admin2_id')
+        if admin2_id:
+            queryset = queryset.filter(admin2_id=admin2_id)
+            
+        admin3_id = request.query_params.get('admin3_id')
+        if admin3_id:
+            queryset = queryset.filter(admin3_id=admin3_id)
+            
         postal_code = request.query_params.get('postal_code')
         if postal_code:
             queryset = queryset.filter(postal_code=postal_code)

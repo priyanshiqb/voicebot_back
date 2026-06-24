@@ -22,9 +22,9 @@ class AgentTokenAuthentication(BaseAuthentication):
         except ValueError:
             return None
 
-        # Token should be in format `prefix_secret`
-        if '_' not in token:
-            raise AuthenticationFailed("Invalid token format.")
+        # Token should be in format `prefix_secret` and ideally start with `vb_`
+        if '_' not in token or not token.startswith('vb_'):
+            return None  # This is likely a JWT or other token. Pass it to the next auth class.
             
         prefix, secret = token.split('_', 1)
 

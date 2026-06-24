@@ -265,8 +265,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # DRF Configurations
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "user.authentication.CachedJWTAuthentication",
         "user.authentication.agent_token.AgentTokenAuthentication",
+        "user.authentication.CachedJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
