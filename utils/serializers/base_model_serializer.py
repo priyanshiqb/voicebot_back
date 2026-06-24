@@ -41,6 +41,11 @@ class BaseModelSerializer(BaseModelCoreSerializer):
 
     class Meta(BaseModelCoreSerializer.Meta):
         abstract = True
+        fields = BaseModelCoreSerializer.Meta.fields + [
+            "created_by",
+            "updated_by",
+            "deleted_by",
+        ]
         read_only_fields = (
             *BaseModelCoreSerializer.Meta.read_only_fields,
             "created_by",

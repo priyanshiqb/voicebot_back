@@ -374,3 +374,47 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
   "errors": ["TOKEN_ALREADY_USED"]
 }
 ```
+
+---
+
+## 🤖 8. Voicebot Agent Authentication
+
+* **Description**: Programmatic API access for voicebot agents is secured using long-lived static tokens managed via the Django Admin interface.
+* **Authentication Scheme**: Bearer Token
+* **Header Format**: `Authorization: Bearer <agent_token_key>`
+
+### Usage Requirements
+- The user account associated with the token must have `user_type` set to `VB_AGENT`.
+- The user account must be active.
+- The `AgentToken` record must be active (`is_active=True`) and not expired (`expires_at` > now, if set).
+
+### Example Request
+```bash
+curl -X GET "https://api.example.com/api/v1/some-agent-endpoint/" \
+  -H "Authorization: Bearer <agent_token_key>"
+```
+
+### Responses
+
+#### 403 Forbidden (Invalid Token)
+If the token is invalid, expired, or inactive:
+```json
+{
+  "detail": "Invalid or inactive agent token."
+}
+```
+
+#### 403 Forbidden (Expired Token)
+```json
+{
+  "detail": "Agent token has expired."
+}
+```
+
+#### 403 Forbidden (Invalid User)
+If the user account is inactive or not of type `VB_AGENT`:
+```json
+{
+  "detail": "User is inactive or not an agent."
+}
+```

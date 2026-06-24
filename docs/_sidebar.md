@@ -5,6 +5,7 @@
 
 * **🌐 Core APIs**
   * [Agent Management](apiDocs/core/agent.md)
+  * [Agent Call Logs](apiDocs/core/agent_call_log.md)
   * [Agent Templates](apiDocs/core/agent_template.md)
   * [Knowledge Base](apiDocs/core/knowledge_base.md)
   * [Probing Questions](apiDocs/core/probing_question.md)

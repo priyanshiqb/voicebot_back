@@ -10,6 +10,7 @@ from core.models.kb_etl_tracker import KBETLTracker
 from core.models.agent_template import AgentTemplate
 from core.models.probing_question import ProbingQuestion
 from core.models.agent import Agent
+from core.models.agent_call_log import AgentCallLog
 
 __all__ = [
     "KBText",
@@ -21,7 +22,8 @@ __all__ = [
     "KBETLTracker",
     "AgentTemplate",
     "ProbingQuestion",
-    "Agent"
+    "Agent",
+    "AgentCallLog",
 ]
 
 

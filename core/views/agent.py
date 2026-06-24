@@ -8,7 +8,8 @@ from core.serializers.agent import (
     AgentDropdownSerializer,
 )
 from onboard.serializers.onboarding import GeneralResponseSerializer
-
+from utils.views.base_model_viewset import BaseViewSet
+from user.models.CustomUser import CustomUser
 
 class AgentFilter(django_filters.FilterSet):
     industry = django_filters.CharFilter(field_name="agent_template__industry")
@@ -119,3 +120,15 @@ class AgentViewSet(TenantBaseViewSet):
 
     select_related_fields = ["agent_template"]
     prefetch_related_fields = ["knowledge_bases", "probing_questions"]
+
+    def get_queryset(self):
+        user = self.request.user
+        
+        # VB_AGENT users can globally read all agents across tenants
+        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
+            if self.action in ["list", "retrieve", "dropdown"]:
+                # Bypass TenantBaseViewSet tenant scoping and call BaseViewSet directly
+                # This applies is_deleted=False and select/prefetch fields globally
+                return BaseViewSet.get_queryset(self)
+                
+        return super().get_queryset()

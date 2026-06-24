@@ -48,6 +48,7 @@ class CustomUser(AbstractUser, BaseModelCore):
         ADMIN = "ADMIN", "Admin"
         USER = "USER", "User"
         ETL = "ETL", "ETL"
+        VB_AGENT = "VB_AGENT", "Voicebot Agent"
 
     user_type = models.CharField(
         max_length=10,

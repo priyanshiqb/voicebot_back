@@ -2,6 +2,11 @@
 
 Manage configured Voicebot Agents under the active tenant context.
 
+## General Rules
+- **Authentication**: `Bearer <token>` (JWT or VB_AGENT token)
+- **Tenant Scoping**: All records are isolated per tenant by default.
+- **VB_AGENT Access**: Tokens with `VB_AGENT` user type automatically bypass tenant-scoping for `GET` requests (`list`, `retrieve`, `dropdown`) and can access all active agents system-wide.
+
 ## Endpoints Summary
 - `GET /api/v1/core/agents/` - List all agents (paginated)
 - `GET /api/v1/core/agents/dropdown/` - Get label/value pairs

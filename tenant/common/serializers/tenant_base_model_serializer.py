@@ -17,6 +17,9 @@ class TenantBaseModelSerializer(BaseModelSerializer):
 
     class Meta(BaseModelSerializer.Meta):
         abstract = True
+        fields = BaseModelSerializer.Meta.fields + [
+            "tenant",
+        ]
         read_only_fields = (
             *BaseModelSerializer.Meta.read_only_fields,
             "tenant",

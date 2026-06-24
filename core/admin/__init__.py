@@ -8,6 +8,7 @@ from core.admin.kb_etl_tracker_admin import KBETLTrackerAdmin
 from core.admin.agent_template_admin import AgentTemplateAdmin
 from core.admin.probing_question_admin import ProbingQuestionAdmin
 from core.admin.agent_admin import AgentAdmin
+from core.admin.agent_call_log_admin import AgentCallLogAdmin
 
 __all__ = [
     "KBTextAdmin",
@@ -19,7 +20,8 @@ __all__ = [
     "KBETLTrackerAdmin",
     "AgentTemplateAdmin",
     "ProbingQuestionAdmin",
-    "AgentAdmin"
+    "AgentAdmin",
+    "AgentCallLogAdmin",
 ]
 
 

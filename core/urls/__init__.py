@@ -8,4 +8,5 @@ urlpatterns = [
     path("", include("core.urls.agent_template")),
     path("", include("core.urls.probing_question")),
     path("", include("core.urls.agent")),
+    path("", include("core.urls.agent_call_log")),
 ]
