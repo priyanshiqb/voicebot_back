@@ -298,9 +298,9 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "ENUM_NAME_OVERRIDES": {
-        "TransactionStatusEnum": "onboard.models.Transaction.status",
-        "SubscriptionStatusEnum": "onboard.models.Subscription.status",
-        "KBETLTrackerStatusEnum": "core.models.KBETLTracker.status",
+        "TransactionStatusEnum": "onboard.models.transaction.Transaction.TransactionStatusChoices",
+        "SubscriptionStatusEnum": "onboard.models.subscription.Subscription.SubscriptionStatusChoices",
+        "KBETLTrackerStatusEnum": "core.models.kb_etl_tracker.KBETLTracker.OverallStatus",
     },
 }
 
