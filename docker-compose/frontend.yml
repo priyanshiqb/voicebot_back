@@ -1,7 +1,7 @@
 services:
   voiceos-frontend:
     build:
-      context: ./qb-voice-ai
+      context: ../qb-voice-ai
       dockerfile: Dockerfile
     image: quantumbot/voiceos-frontend:latest
     container_name: voiceos-frontend-prod
@@ -9,7 +9,7 @@ services:
       - frontend
     restart: unless-stopped
     env_file:
-      - ./qb-voice-ai/.env
+      - ../qb-voice-ai/.env
     environment:
       - NODE_ENV=production
       - PORT=3000
