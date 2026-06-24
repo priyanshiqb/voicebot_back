@@ -38,6 +38,41 @@ class VerifyPaymentView(ResponseMixin, APIView):
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = VerifyPaymentSerializer
 
+        from datetime import timezone as dt_timezone
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            refresh_jti = refresh.get("jti")
+            access_jti = access.get("jti")
+            
+            refresh_iat_val = refresh.get("iat")
+            refresh_exp_val = refresh.get("exp")
+            access_iat_val = access.get("iat")
+            access_exp_val = access.get("exp")
+            
+            refresh_iat = datetime.datetime.fromtimestamp(refresh_iat_val, tz=dt_timezone.utc) if refresh_iat_val else None
+            refresh_exp = datetime.datetime.fromtimestamp(refresh_exp_val, tz=dt_timezone.utc) if refresh_exp_val else None
+            access_iat = datetime.datetime.fromtimestamp(access_iat_val, tz=dt_timezone.utc) if access_iat_val else None
+            access_exp = datetime.datetime.fromtimestamp(access_exp_val, tz=dt_timezone.utc) if access_exp_val else None
+            
+            expires_at = refresh_exp or (datetime.datetime.now(tz=dt_timezone.utc) + datetime.timedelta(days=1))
+
+            UserSession.objects.create(
+                user=user,
+                refresh_jti=refresh_jti,
+                access_jti=access_jti,
+                access_iat=access_iat,
+                access_exp=access_exp,
+                refresh_iat=refresh_iat,
+                refresh_exp=refresh_exp,
+                device_name=parse_user_agent(request.headers.get("User-Agent")),
+                ip_address=get_client_ip(request),
+                expires_at=expires_at
+            )
+        except Exception as session_err:
+            logger.warning("Failed to create UserSession: %s", str(session_err))
+
     def post(self, request):
         temp_user = request.user
         serializer = VerifyPaymentSerializer(data=request.data)
@@ -78,6 +113,9 @@ class VerifyPaymentView(ResponseMixin, APIView):
                     user = transaction.user or User.objects.get(email=temp_user.email)
                     refresh = RefreshToken.for_user(user)
                     access = refresh.access_token
+
+                    # Create active UserSession record
+                    self._create_user_session(user, request, refresh, access)
 
                     return self.success(
                         data={
@@ -169,6 +207,9 @@ class VerifyPaymentView(ResponseMixin, APIView):
         # Generate permanent simplejwt access and refresh tokens
         refresh = RefreshToken.for_user(user)
         access = refresh.access_token
+
+        # Create active UserSession record
+        self._create_user_session(user, request, refresh, access)
 
         return self.success(
             data={

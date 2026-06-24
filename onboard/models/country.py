@@ -5,6 +5,8 @@ class Country(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.CharField(max_length=10, unique=True, help_text="Country Code (e.g., IN, US)")
     name = models.CharField(max_length=100, db_index=True)
+    dial_code = models.CharField(max_length=10, blank=True, null=True, help_text="Country dialing code (e.g., +91)")
+    format_mask = models.CharField(max_length=50, blank=True, null=True, help_text="Phone format mask (e.g., XXXXX XXXXX)")
 
     class Meta:
         db_table = "onboard_country"

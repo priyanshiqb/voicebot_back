@@ -4,7 +4,7 @@ from onboard.models import Country
 class CountryRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Country
-        fields = ['id', 'code', 'name']
+        fields = ['id', 'code', 'name', 'dial_code', 'format_mask']
         read_only_fields = fields
 
 class CountryDropdownSerializer(serializers.ModelSerializer):
@@ -13,4 +13,4 @@ class CountryDropdownSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Country
-        fields = ['value', 'label']
+        fields = ['value', 'label', 'dial_code', 'format_mask']
