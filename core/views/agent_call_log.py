@@ -85,6 +85,21 @@ class AgentCallLogViewSet(TenantBaseViewSet):
                 
         return super().get_queryset()
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        
+        # VB_AGENT bypasses the standard user tenant mapping constraint
+        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
+            # Derive the tenant from the associated Voicebot Agent instead
+            agent = serializer.validated_data.get('agent')
+            if not agent:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"agent": "Agent must be specified."})
+            serializer.save(tenant=agent.tenant)
+            return
+
+        super().perform_create(serializer)
+
     @extend_schema(exclude=True)
     def bulk_delete(self, request, *args, **kwargs):
         from rest_framework.exceptions import MethodNotAllowed

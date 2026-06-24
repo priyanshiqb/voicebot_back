@@ -14,6 +14,7 @@ class CustomUserAdmin(UserAdmin):
         "email",
         "first_name",
         "last_name",
+        "user_type",
         "is_active",
         "is_verified",
         "is_staff",
@@ -21,6 +22,7 @@ class CustomUserAdmin(UserAdmin):
     )
 
     list_filter = (
+        "user_type",
         "is_active",
         "is_verified",
         "is_staff",
@@ -63,6 +65,7 @@ class CustomUserAdmin(UserAdmin):
 
         ("Permissions", {
             "fields": (
+                "user_type",
                 "is_active",
                 "is_verified",
 
@@ -99,6 +102,8 @@ class CustomUserAdmin(UserAdmin):
 
                 "password1",
                 "password2",
+                
+                "user_type",
 
                 "is_active",
                 "is_verified",

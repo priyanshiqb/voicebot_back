@@ -22,11 +22,14 @@ class AgentTokenAuthentication(BaseAuthentication):
         except ValueError:
             return None
 
-        # Token should be in format `prefix_secret` and ideally start with `vb_`
-        if '_' not in token or not token.startswith('vb_'):
+        # Token should be in format `vb_prefix_secret`
+        parts = token.split('_')
+        if len(parts) < 3 or parts[0] != 'vb':
             return None  # This is likely a JWT or other token. Pass it to the next auth class.
             
-        prefix, secret = token.split('_', 1)
+        prefix = f"{parts[0]}_{parts[1]}"
+        secret = '_'.join(parts[2:])
+        print(f"Agent token authentication: {prefix}:{secret}")
 
         from user.models.agent_token import AgentToken
 
@@ -51,6 +54,9 @@ class AgentTokenAuthentication(BaseAuthentication):
         agent_token.save(update_fields=['last_used_at'])
 
         return (user, agent_token)
+
+    def authenticate_header(self, request):
+        return 'Bearer'
 
 
 try:
