@@ -38,6 +38,10 @@ class VerifyPaymentView(ResponseMixin, APIView):
     permission_classes = [IsTempUserAuthenticated]
     serializer_class = VerifyPaymentSerializer
 
+    def _create_user_session(self, user, request, refresh, access):
+        from user.models.user_session import UserSession
+        from utils.device_utils import parse_user_agent, get_client_ip
+        import datetime
         from datetime import timezone as dt_timezone
         import logging
         logger = logging.getLogger(__name__)
