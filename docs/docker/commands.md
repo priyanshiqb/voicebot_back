@@ -223,3 +223,33 @@ docker compose exec backend-dev python manage.py load_postal_data
 > ```bash
 > docker compose exec backend-dev python manage.py load_postal_data --force
 > ```
+
+---
+
+## 🌿 6. Git Submodule Updates (Frontend UI)
+
+The Next.js frontend (`qb-voice-ai`) is integrated as a Git submodule. When pulling code on the server, you must use special `git` commands to ensure the frontend code is pulled alongside the backend.
+
+### First-time Setup ONLY
+To clone the frontend files into the empty submodule folder:
+```bash
+git submodule update --init --recursive
+```
+
+### Pulling Future Updates
+For all future updates, pull both the backend AND frontend code at the exact same time:
+```bash
+git pull --recurse-submodules
+```
+
+### Automate Submodule Pulls (Optional but Recommended)
+Tell Git to ALWAYS pull submodules automatically on this server so a regular `git pull` does everything:
+```bash
+git config --global submodule.recurse true
+```
+
+### Rebuilding Only the Frontend Container
+After pulling new frontend code, you can build and start **only** the frontend container without restarting the backend services:
+```bash
+docker compose up -d --build voiceos-frontend
+```

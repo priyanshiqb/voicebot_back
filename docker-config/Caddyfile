@@ -1,158 +1,157 @@
 (error_handler) {
-    handle_errors {
-        @offline expression {err.status_code} in [502, 503]
-        handle @offline {
-            rewrite * /error-502.html
-            file_server {
-                root /var/www/html
-            }
-        }
-    }
+	handle_errors {
+		@offline expression {err.status_code} in [502, 503]
+		handle @offline {
+			rewrite * /error-502.html
+			file_server {
+				root /var/www/html
+			}
+		}
+	}
 }
 
 (basic_auth) {
-    basicauth {
-        {$GATEWAY_BASIC_AUTH_USER} {$GATEWAY_BASIC_AUTH_PASSWORD_HASH}
-    }
+	basicauth {
+		{$GATEWAY_BASIC_AUTH_USER} {$GATEWAY_BASIC_AUTH_PASSWORD_HASH}
+	}
 }
 
 (security_headers) {
-    header {
-        X-Frame-Options "DENY"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Permissions-Policy "interest-cohort=()"
-        Cross-Origin-Opener-Policy "same-origin"
-        Cross-Origin-Resource-Policy "same-origin"
-        -Server
-    }
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		Permissions-Policy "interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		-Server
+	}
 }
 
 (compression) {
-    encode zstd gzip
+	encode zstd gzip
 }
 
 # Global configuration block
 {
-    email {$ACME_EMAIL}
+	email {$ACME_EMAIL}
 }
 
 # 1a. REST API Gateway (Django WSGI Gunicorn Server)
 {$SCHEME}api{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy {$WSGI_HOST}:8000
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy {$WSGI_HOST}:8000
 
-    log {
-        output file /var/log/caddy/api_access.log {
-            roll_size 10mb
-            roll_keep 3
-        }
-    }
+	log {
+		output file /var/log/caddy/api_access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
 }
 
 # 1b. WebSockets Gateway (Django ASGI Daphne Server)
 {$SCHEME}ws{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy {$ASGI_HOST}:8000
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy {$ASGI_HOST}:8000
 
-    log {
-        output file /var/log/caddy/ws_access.log {
-            roll_size 10mb
-            roll_keep 3
-        }
-    }
+	log {
+		output file /var/log/caddy/ws_access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
 }
 
 # 2. Database Administration (pgAdmin)
 {$SCHEME}pgadmin{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy pgadmin:80
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy pgadmin:80
 }
 
 # 3. Redis Dashboard (RedisInsight)
 {$SCHEME}redisinsight{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import basic_auth
-    import security_headers
-    import compression
-    reverse_proxy redis-insight:5540
+	import error_handler
+	import basic_auth
+	import security_headers
+	import compression
+	reverse_proxy redis-insight:5540
 }
 
 # 4. Observability Dashboard (Grafana)
 {$SCHEME}grafana{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy grafana:3000
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy grafana:3000
 }
 
 # 5. Metrics Engine (Prometheus)
 {$SCHEME}prometheus{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import basic_auth
-    import security_headers
-    import compression
-    reverse_proxy prometheus:9090
+	import error_handler
+	import basic_auth
+	import security_headers
+	import compression
+	reverse_proxy prometheus:9090
 }
 
 # 6. Log Engine (Loki)
 {$SCHEME}loki{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import basic_auth
-    import security_headers
-    import compression
-    reverse_proxy loki:3100
+	import error_handler
+	import basic_auth
+	import security_headers
+	import compression
+	reverse_proxy loki:3100
 }
 
 # 7. MinIO S3 Emulator Services
 {$SCHEME}minio{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy minio:9000
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy minio:9000
 }
 {$SCHEME}minio-console{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy minio:9001
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy minio:9001
 }
 
 # 8. Web Frontend (Next.js Application)
 {$SCHEME}app{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    reverse_proxy voiceos-frontend-prod:3000
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy voiceos-frontend-prod:3000
 
-    log {
-        output file /var/log/caddy/frontend_access.log {
-            roll_size 10mb
-            roll_keep 3
-        }
-    }
+	log {
+		output file /var/log/caddy/frontend_access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
 }
 
 # 9a. Secure Fallback Subdomain (Contains Valid SSL)
 {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN} {
-    import error_handler
-    import security_headers
-    import compression
-    root * /var/www/html
-    file_server
-    rewrite * /unconfigured.html
+	import error_handler
+	import security_headers
+	import compression
+	root * /var/www/html
+	file_server
+	rewrite * /unconfigured.html
 }
 
 # 9b. HTTP Redirection Catch-all
 {$SCHEME}*.{$DOMAIN} {
-    redir {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN}
+	redir {$SCHEME}notfound{$ENV_NAME}.{$DOMAIN}
 }
-
