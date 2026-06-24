@@ -3,6 +3,9 @@ services:
     build:
       context: ../qb-voice-ai
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${BACKEND_PROJECT_URL}/api
+        - NEXT_PUBLIC_RECAPTCHA_SITE_KEY=${NEXT_PUBLIC_RECAPTCHA_SITE_KEY}
     image: quantumbot/voiceos-frontend:latest
     container_name: voiceos-frontend-prod
     profiles:
