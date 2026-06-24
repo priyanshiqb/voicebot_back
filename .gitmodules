@@ -1,0 +1,4 @@
+[submodule "qb-voice-ai"]
+	path = qb-voice-ai
+	url = https://github.com/akash-kanani/qb-voice-ai.git
+	branch = dev
