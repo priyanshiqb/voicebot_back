@@ -29,7 +29,6 @@ class AgentTokenAuthentication(BaseAuthentication):
             
         prefix = f"{parts[0]}_{parts[1]}"
         secret = '_'.join(parts[2:])
-        print(f"Agent token authentication: {prefix}:{secret}")
 
         from user.models.agent_token import AgentToken
 

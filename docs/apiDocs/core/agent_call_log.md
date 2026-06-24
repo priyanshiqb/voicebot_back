@@ -77,6 +77,17 @@ Fetch the full transcript and metadata for a specific call.
     "mood_confidence": 0.85,
     "pii_redacted": false,
     "ai_summary": "Prospect interested in 2BHK property...",
+    "preferred_language": "Spanish",
+    "probing_questions_count": 3,
+    "probing_questions": [
+      {
+        "question": "What is your monthly estimated call volume?",
+        "answerSummary": "Over 50,000 calls per month.",
+        "isPositive": true
+      }
+    ],
+    "follow_up_detail": "Follow-up with alternative plans after contract review.",
+    "human_transfer_detail": null,
     "transcript": [
       {
         "id": "tl-0",
@@ -116,6 +127,17 @@ Ingest a new conversation log from the telephony provider.
     "mood_confidence": 0.85,
     "pii_redacted": false,
     "ai_summary": "Prospect interested in 2BHK property.",
+    "preferred_language": "Spanish",
+    "probing_questions_count": 3,
+    "probing_questions": [
+        {
+            "question": "What is your monthly estimated call volume?",
+            "answerSummary": "Over 50,000 calls per month.",
+            "isPositive": true
+        }
+    ],
+    "follow_up_detail": "Follow-up with alternative plans after contract review.",
+    "human_transfer_detail": null,
     "transcript": [
         {
             "id": "tl-0",

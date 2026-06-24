@@ -27,7 +27,9 @@ This API provides a list of countries for dropdown selection, with built-in sear
     "data": [
         {
             "value": "123e4567-e89b-12d3-a456-426614174000",
-            "label": "India"
+            "label": "India",
+            "dial_code": "+91",
+            "format_mask": "XXXXX XXXXX"
         }
     ],
     "errors": null,

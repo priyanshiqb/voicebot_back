@@ -21,7 +21,13 @@ api_v1_patterns = [
     path("core/", include("core.urls")),
 ]
 
+from django.http import JsonResponse
+
+def health_check(request):
+    return JsonResponse({"status": "healthy"})
+
 urlpatterns = [
+    path("health/", health_check, name="health_check"),
     path("", include(tf_urls)),
     path('admin/defender/', include('defender.urls')),
     path("admin/", admin.site.urls),

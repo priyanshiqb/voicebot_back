@@ -6,7 +6,7 @@ from core.models.agent import Agent
 from core.models.agent_template import AgentTemplate
 from core.models.knowledge_base import KnowledgeBase
 from core.models.probing_question import ProbingQuestion
-from core.serializers.agent_template import AgentTemplateRefSerializer
+from core.serializers.agent_template import AgentTemplateRefSerializer, AgentTemplateRefWithQuestionSerializer
 from core.serializers.knowledge_base import KnowledgeBaseRefSerializer
 from core.serializers.probing_question import ProbingQuestionRefSerializer
 
@@ -19,7 +19,7 @@ class AgentRefSerializer(serializers.ModelSerializer):
 
 class AgentSerializer(TenantBaseModelSerializer):
     agent_template = HybridRelatedField(
-        serializer=AgentTemplateRefSerializer,
+        serializer=AgentTemplateRefWithQuestionSerializer,
         queryset=AgentTemplate.objects.all(),
         required=False,
         allow_null=True,

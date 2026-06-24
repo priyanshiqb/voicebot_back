@@ -38,6 +38,11 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "started_at",
             "ended_at",
             "tags",
+            "preferred_language",
+            "probing_questions_count",
+            "probing_questions",
+            "follow_up_detail",
+            "human_transfer_detail",
         ]
 
 class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):

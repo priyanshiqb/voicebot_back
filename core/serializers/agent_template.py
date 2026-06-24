@@ -6,11 +6,25 @@ from core.models.agent_template import AgentTemplate
 from core.models.probing_question import ProbingQuestion
 from core.serializers.probing_question import ProbingQuestionRefSerializer
 
-
 class AgentTemplateRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgentTemplate
         fields = ("id", "name")
+        read_only_fields = fields
+
+
+class AgentTemplateRefWithQuestionSerializer(serializers.ModelSerializer):
+    probing_questions = HybridRelatedField(
+        serializer=ProbingQuestionRefSerializer,
+        read_only=True,
+        many=True,
+        required=False,
+    )
+    
+    class Meta:
+        model = AgentTemplate
+        fields = ("id", "name", "agent_prompt", "primary_accent", "industry", "strict_facts", "can_user_edit_flow", "is_active", "probing_questions")
+        read_only_fields = fields
 
 
 class AgentTemplateSerializer(TenantBaseModelSerializer):

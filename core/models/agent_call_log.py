@@ -98,6 +98,31 @@ class AgentCallLog(TenantBaseModelCore):
         blank=True,
         help_text=_("List of tags associated with this call.")
     )
+    preferred_language = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text=_("The preferred language detected or chosen by the caller.")
+    )
+    probing_questions_count = models.PositiveIntegerField(
+        default=0,
+        help_text=_("The number of probing questions asked during the call.")
+    )
+    probing_questions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Structured JSON array of probing questions and answers.")
+    )
+    follow_up_detail = models.TextField(
+        blank=True,
+        null=True,
+        help_text=_("Details regarding follow-up actions required.")
+    )
+    human_transfer_detail = models.TextField(
+        blank=True,
+        null=True,
+        help_text=_("Details regarding why or how the call was transferred to a human.")
+    )
 
     class Meta:
         db_table = "core_agent_call_log"

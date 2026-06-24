@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, OpenApiExample
 from rest_framework.permissions import IsAuthenticated
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from user.permissions import IsVoicebotAgent
@@ -18,6 +18,44 @@ class AgentCallLogFilter(django_filters.FilterSet):
         model = AgentCallLog
         fields = ["direction", "outcome", "agent", "campaign_id"]
 
+CALL_LOG_EXAMPLE = {
+    "provider_call_id": "call-001",
+    "agent": "agent-uuid-string",
+    "caller_number": "+91 93880 25735",
+    "caller_name": "Nisha Patel",
+    "direction": "inbound",
+    "duration_seconds": 326,
+    "outcome": "order_placed",
+    "mood": "neutral",
+    "mood_confidence": 0.85,
+    "pii_redacted": False,
+    "ai_summary": "Prospect interested in 2BHK property.",
+    "preferred_language": "Spanish",
+    "probing_questions_count": 3,
+    "probing_questions": [
+        {
+            "question": "What is your monthly estimated call volume?",
+            "answerSummary": "Over 50,000 calls per month.",
+            "isPositive": True
+        }
+    ],
+    "follow_up_detail": "Follow-up with alternative plans after contract review.",
+    "human_transfer_detail": None,
+    "transcript": [
+        {
+            "id": "tl-0",
+            "speaker": "bot",
+            "text": "Hello! Thank you for calling.",
+            "timestamp": 0,
+            "isRedacted": False
+        }
+    ],
+    "recording_url": "/recordings/call-1.mp3",
+    "started_at": "2026-06-23T17:33:31.671Z",
+    "ended_at": "2026-06-23T17:38:57.671Z",
+    "tags": ["urgent"]
+}
+
 @extend_schema(tags=["Agent Call Log"])
 @extend_schema_view(
     list=extend_schema(
@@ -34,6 +72,14 @@ class AgentCallLogFilter(django_filters.FilterSet):
         summary="Create Call Log",
         description="Create a new call log. STRICTLY RESTRICTED to Voicebot Agent tokens.",
         request=AgentCallLogSerializer,
+        examples=[
+            OpenApiExample(
+                name="Standard Call Telemetry",
+                description="A complete call log telemetry payload",
+                value=CALL_LOG_EXAMPLE,
+                request_only=True
+            )
+        ],
         responses={
             201: AgentCallLogSerializer,
             400: OpenApiResponse(response=GeneralResponseSerializer, description="Invalid input values or validation error."),

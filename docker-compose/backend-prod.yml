@@ -19,6 +19,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - backend
       - shared_network
@@ -49,6 +55,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend-wsgi:
+        condition: service_healthy
     networks:
       - backend
       - shared_network
@@ -77,6 +85,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      backend-wsgi:
         condition: service_healthy
     networks:
       - backend
