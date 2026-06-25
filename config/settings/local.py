@@ -93,3 +93,6 @@ LOGGING = {
         },
     },
 }
+
+# Allow all CORS origins if explicitly set in local .env
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=False)
