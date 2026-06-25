@@ -8,8 +8,8 @@ class CreateOrderJustInTimeSerializer(serializers.Serializer):
         required=True,
         validators=[
             RegexValidator(
-                regex=r"^\d{7,15}$",
-                message="Phone number must be between 7 and 15 digits and contain numbers only."
+                regex=r"^[0-9+\s()-]{7,20}$",
+                message="Phone number must be between 7 and 20 characters and may contain numbers, spaces, plus signs, and parentheses."
             )
         ]
     )

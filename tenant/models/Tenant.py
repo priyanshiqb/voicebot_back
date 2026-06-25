@@ -11,7 +11,13 @@ class Tenant(BaseModelCore):
     Inherits from BaseModelCore for UUID primary keys, soft deletion, and timestamps.
     """
     name = models.CharField(max_length=255)
-    subdomain = models.CharField(max_length=100, unique=True, db_index=True)
+    subdomain = models.CharField(max_length=100, db_index=True)
+    phone_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Tenant organization contact phone number."
+    )
 
     referred_by_code = models.CharField(
         max_length=50,
@@ -46,6 +52,13 @@ class Tenant(BaseModelCore):
     class Meta(BaseModelCore.Meta):
         verbose_name = "Tenant"
         verbose_name_plural = "Tenants"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subdomain"],
+                condition=models.Q(is_deleted=False),
+                name="unique_active_tenant_subdomain"
+            )
+        ]
 
     def __str__(self):
         return self.name

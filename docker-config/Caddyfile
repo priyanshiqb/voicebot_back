@@ -117,7 +117,9 @@
 	import error_handler
 	import security_headers
 	import compression
-	reverse_proxy minio:9000
+	reverse_proxy minio:9000 {
+		header_up Host {upstream_hostport}
+	}
 }
 {$SCHEME}minio-console{$ENV_NAME}.{$DOMAIN} {
 	import error_handler

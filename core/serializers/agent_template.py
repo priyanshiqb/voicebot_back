@@ -85,8 +85,8 @@ class AgentTemplateSerializer(TenantBaseModelSerializer):
         return value
 
     def validate_agent_prompt(self, value):
-        if len(value) < 30 or len(value) > 5000:
-            raise serializers.ValidationError("Agent prompt must be between 30 and 5000 characters.")
+        if len(value) < 30 or len(value) > 50000:
+            raise serializers.ValidationError("Agent prompt must be between 30 and 50000 characters.")
         return value
 
     def validate_primary_accent(self, value):

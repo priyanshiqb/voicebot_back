@@ -50,7 +50,7 @@ class AgentTemplate(TenantBaseModel):
     agent_prompt = models.TextField(
         validators=[
             MinLengthValidator(30),
-            MaxLengthValidator(5000),
+            MaxLengthValidator(50000),
         ],
         help_text="Core instruction prompt defining personality, constraints, and behavior.",
     )

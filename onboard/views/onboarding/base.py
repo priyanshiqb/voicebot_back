@@ -45,6 +45,7 @@ def create_tenant_and_mapping(temp_user, user):
     tenant = Tenant.objects.create(
         name=temp_user.business_name,
         subdomain=subdomain,
+        phone_number=temp_user.phone_number,
         referred_by_code=temp_user.referral_code,
         timezone=temp_user.timezone,
         language=temp_user.language
