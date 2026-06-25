@@ -34,8 +34,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    extra_hosts:
-      - "${ETL_DOMAIN:-api.dev.voicebot-etl.quantumbot.ai}:${ETL_INTERNAL_IP:-host-gateway}"
 
   # 1b. Production Django ASGI Server (Daphne)
   backend-asgi:
@@ -68,8 +66,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    extra_hosts:
-      - "${ETL_DOMAIN:-api.dev.voicebot-etl.quantumbot.ai}:${ETL_INTERNAL_IP:-host-gateway}"
 
   # 2b. Celery Worker (Production)
   celery-prod:
@@ -100,5 +96,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    extra_hosts:
-      - "${ETL_DOMAIN:-api.dev.voicebot-etl.quantumbot.ai}:${ETL_INTERNAL_IP:-host-gateway}"
