@@ -137,7 +137,7 @@ class S3StorageService:
                     'Bucket': self.bucket_name,
                     'Key': object_key,
                     'ContentType': content_type,
-                    'ContentLength': file_size_in_bytes,
+                    # 'ContentLength': file_size_in_bytes,
                 },
                 ExpiresIn=expiry_minutes * 60
             )
