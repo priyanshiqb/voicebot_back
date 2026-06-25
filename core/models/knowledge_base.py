@@ -34,7 +34,8 @@ class KBText(KBBaseModel):
 class KBFiles(KBBaseModel):
     file = models.FileField(
         upload_to=kb_file_upload_path,
-        validators=[validate_file_size]
+        validators=[validate_file_size],
+        max_length=500
     )
     original_name = models.CharField(
         max_length=255,
