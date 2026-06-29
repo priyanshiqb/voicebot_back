@@ -139,7 +139,9 @@ class KnowledgeBaseETLSerializer(TenantBaseModelSerializer):
                 if force_https and url.startswith("http://") and "localhost" not in url and "127.0.0.1" not in url:
                     logger.warning("Forcing HTTPS for callback URL")
                     url = url.replace("http://", "https://", 1)
+                print(f"================> callback_url = {url}")
                 return url
+            
             except Exception as e:
                 logger.warning(f"Failed to reverse update-etl-status URL: {e}")
 
