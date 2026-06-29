@@ -8,7 +8,6 @@ include:
   - docker-compose/local-storage.yml
   - docker-compose/gateway.yml
   - docker-compose/backend-docs.yml
-  - docker-compose/frontend.yml
 
 networks:
   backend:
