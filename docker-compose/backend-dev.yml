@@ -8,7 +8,7 @@ services:
       - dev
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     ports:
-      - "${BACKEND_DEV_BIND_IP:-${BIND_IP}}:${DAPHNE_PORT}:8000"
+      - "${BACKEND_DEV_BIND_IP:-${BI  ND_IP}}:${DAPHNE_PORT}:8000"
     env_file:
       - ../.env
     environment:
@@ -31,6 +31,8 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    extra_hosts:
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
 
   # 2b. Local Development Celery Worker
   celery-dev:
@@ -62,3 +64,5 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    extra_hosts:
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"

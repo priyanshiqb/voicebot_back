@@ -35,8 +35,7 @@ services:
         max-size: "10m"
         max-file: "3"
     extra_hosts:
-      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
-      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
 
   # 1b. Production Django ASGI Server (Daphne)
   backend-asgi:
@@ -70,8 +69,7 @@ services:
         max-size: "10m"
         max-file: "3"
     extra_hosts:
-      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
-      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
 
   # 2b. Celery Worker (Production)
   celery-prod:
@@ -103,5 +101,4 @@ services:
         max-size: "10m"
         max-file: "3"
     extra_hosts:
-      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
-      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
