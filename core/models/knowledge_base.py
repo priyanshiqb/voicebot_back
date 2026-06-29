@@ -264,6 +264,7 @@ class KnowledgeBase(KBBaseModel):
 
         # 3. Prepare payload for the external ETL server
         etl_server_url = getattr(settings, "ETL_SERVER_URL", "http://localhost:5001/api/v1/etl/")
+        etl_system_token = getattr(settings, "ETL_SYSTEM_TOKEN", "")
 
         # Generate task name at runtime
         task_name = f"knowledge_base_ingestion_{self.id}_{new_etl_id}"
@@ -272,10 +273,15 @@ class KnowledgeBase(KBBaseModel):
             "task_name": task_name,
             "payload": serialized_kb_data,
         }
+        
+        headers = {
+            "Authorization": f"Bearer {etl_system_token}",
+            "Content-Type": "application/json"
+        }
 
         try:
             logger.info(f"Triggering external ETL at {etl_server_url} for KB {self.id} with task: {task_name}")
-            response = requests.post(etl_server_url, json=payload, timeout=10)
+            response = requests.post(etl_server_url, json=payload, headers=headers, timeout=10)
             response.raise_for_status()
         except Exception as e:
             logger.error(f"Failed to contact external ETL server at {etl_server_url}: {e}")
