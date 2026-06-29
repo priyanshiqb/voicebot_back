@@ -134,7 +134,11 @@ class KnowledgeBaseETLSerializer(TenantBaseModelSerializer):
         request = self.context.get('request')
         if request:
             try:
-                return request.build_absolute_uri(path)
+                url = request.build_absolute_uri(path)
+                # Force HTTPS when behind a proxy (unless testing locally)
+                if "localhost" not in url and "127.0.0.1" not in url and url.startswith("http://"):
+                    url = url.replace("http://", "https://", 1)
+                return url
             except Exception as e:
                 logger.warning(f"Failed to reverse update-etl-status URL: {e}")
 
