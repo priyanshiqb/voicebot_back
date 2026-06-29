@@ -34,6 +34,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    extra_hosts:
+      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
+      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
 
   # 1b. Production Django ASGI Server (Daphne)
   backend-asgi:
@@ -66,6 +69,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    extra_hosts:
+      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
+      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
 
   # 2b. Celery Worker (Production)
   celery-prod:
@@ -96,3 +102,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    extra_hosts:
+      - "apidev.voicebot.quantumbot.ai:192.168.100.181"
+      - "api.dev.voicebot-etl.quantumbot.ai:192.168.100.181"
