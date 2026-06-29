@@ -42,7 +42,7 @@ COPY --chown=django:django . .
 
 
 # 8. Configure entrypoint permissions
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/scripts/entrypoint.sh
 
 # 9. Run as the non-privileged user
 USER django
@@ -50,6 +50,6 @@ USER django
 # Expose ports for Daphne unified HTTP/WS server
 EXPOSE 8000
 
-ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/app/scripts/entrypoint.sh"]
 
 
