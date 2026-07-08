@@ -40,6 +40,7 @@ This document covers endpoints related to user listing, details, creation, updat
         "phone_number": "+1234567890",
         "is_active": true,
         "is_verified": true,
+        "session_timeout_hours": 168,
         "created_at": "2026-06-03T10:00:00Z",
         "timezone": {
           "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
@@ -94,6 +95,7 @@ This document covers endpoints related to user listing, details, creation, updat
     "phone_number": "+1234567890",
     "is_active": true,
     "is_verified": true,
+    "session_timeout_hours": 168,
     "created_at": "2026-06-03T10:00:00Z",
     "updated_at": "2026-06-03T10:00:00Z",
     "timezone": {
@@ -195,6 +197,7 @@ This document covers endpoints related to user listing, details, creation, updat
   "first_name": "Jane",
   "last_name": "Smith",
   "phone_number": "+9876543210",
+  "session_timeout_hours": 24,
   "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
   "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
 }
@@ -216,6 +219,7 @@ This document covers endpoints related to user listing, details, creation, updat
     "phone_number": "+9876543210",
     "is_active": true,
     "is_verified": false,
+    "session_timeout_hours": 24,
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:00Z",
     "timezone": {
@@ -260,6 +264,7 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "first_name": "Johnny",
+  "session_timeout_hours": 24,
   "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
   "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
 }
@@ -281,6 +286,7 @@ This document covers endpoints related to user listing, details, creation, updat
     "phone_number": "+1234567890",
     "is_active": true,
     "is_verified": true,
+    "session_timeout_hours": 24,
     "created_at": "2026-06-03T10:00:00Z",
     "updated_at": "2026-06-03T12:30:00Z",
     "timezone": {

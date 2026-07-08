@@ -60,6 +60,7 @@ class CustomUserAdmin(UserAdmin):
                 "last_name",
                 "username",
                 "phone_number",
+                "session_timeout_hours",
             )
         }),
 

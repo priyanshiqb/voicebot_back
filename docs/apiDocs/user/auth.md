@@ -144,7 +144,8 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 * **Path**: `/api/v1/user/token-refresh/`
 * **Method**: `POST`
 * **Authentication**: None
-* **Description**: Issues a new JWT access token using an active refresh token.
+* **Description**: Issues a new JWT access token using an active refresh token. 
+  * **Note on Inactivity Timeouts**: The new refresh token will automatically calculate its new absolute expiration date by reading the user's `session_timeout_hours` configuration. By rotating tokens regularly while the user is active, they will stay logged in; if they exceed `session_timeout_hours` without a refresh, the token expires and they are logged out.
 
 ### Request Payload
 

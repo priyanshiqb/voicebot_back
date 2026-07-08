@@ -13,17 +13,13 @@ This package provides abstract, reusable administrative console base classes to 
 
 ---
 
-## 2. Quick Import & Setup Steps
+## 2. How to Implement & Extend Fields
 
-```python
-from django.contrib import admin
-from utils.admin import BaseAdmin
-from my_app.models import Contact
-```
+When inheriting from `BaseAdmin` or `BaseAdminCore`, it is **critical** to properly unpack the base fields so you do not accidentally overwrite the global defaults (like `id`, `created_at`, or auditing fields).
 
-### Step-by-Step Example
+### Properly Adding `readonly_fields`, `autocomplete_fields`, etc.
 
-To register a standard model inside the administration console:
+Use tuple unpacking (`*BaseAdmin.<property>`) when defining these lists in your custom admin classes.
 
 ```python
 from django.contrib import admin
@@ -32,6 +28,7 @@ from my_app.models import Contact
 
 @admin.register(Contact)
 class ContactAdmin(BaseAdmin):
+    # 1. List Display: Columns shown in the data table
     list_display = (
         "id",
         "first_name",
@@ -41,10 +38,35 @@ class ContactAdmin(BaseAdmin):
         "created_at",
     )
 
+    # 2. Search Fields: What fields the search bar checks
+    # BaseAdminCore already searches by 'id'. Add your custom text fields here.
     search_fields = (
+        *BaseAdmin.search_fields,
         "first_name",
         "last_name",
         "email",
+    )
+
+    # 3. Read-Only Fields: Prevent editing of certain fields.
+    # MUST unpack BaseAdmin.readonly_fields to keep 'id', 'created_at', 'created_by', etc. readonly!
+    readonly_fields = (
+        *BaseAdmin.readonly_fields,
+        "system_generated_hash",
+    )
+
+    # 4. Autocomplete Fields: Convert standard dropdowns into searchable Select2 inputs.
+    # MUST unpack BaseAdmin.autocomplete_fields so audit users ('created_by') remain autocomplete!
+    # Note: Any ForeignKey added here MUST have search_fields defined on its own Admin class.
+    autocomplete_fields = (
+        *BaseAdmin.autocomplete_fields,
+        "company",  # Assuming company is a ForeignKey on Contact
+    )
+
+    # 5. List Filters: Right-hand sidebar filters
+    # Unpack the base filters so you keep 'is_active', 'is_deleted', and 'created_at' filters.
+    list_filter = (
+        *BaseAdmin.list_filter,
+        "contact_type",
     )
 ```
 

@@ -95,6 +95,11 @@ class CustomUser(AbstractUser, BaseModelCore):
         related_name="users",
         help_text="Preferred user language."
     )
+    
+    session_timeout_hours = models.IntegerField(
+        default=168,
+        help_text="Hours of inactivity before automated logout (default 7 days)."
+    )
 
     created_by = models.ForeignKey(
         'self',

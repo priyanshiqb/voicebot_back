@@ -60,6 +60,11 @@ class LoginAPIView(ResponseMixin, APIView):
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
         refresh = RefreshToken.for_user(user)
+        
+        # Override expiration based on user's custom timeout (in hours)
+        timeout_hours = getattr(user, 'session_timeout_hours', 168)
+        refresh.set_exp(lifetime=datetime.timedelta(hours=max(1, timeout_hours)))
+        
         access = refresh.access_token
 
         # Create active UserSession record

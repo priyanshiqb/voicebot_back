@@ -57,11 +57,12 @@ class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
         fields = TenantBaseModelCoreSerializer.Meta.fields + [
             "provider_call_id",
             "agent",
+            "mood",
             "caller_number",
             "direction",
             "duration_seconds",
             "outcome",
-            "started_at",
+            "started_at"
         ]
 
 class AgentCallLogDropdownSerializer(serializers.ModelSerializer):

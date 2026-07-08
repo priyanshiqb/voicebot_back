@@ -2,13 +2,12 @@ import logging
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.exceptions import TokenError
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from utils.views.base_model_viewset import ResponseMixin
 from user.models import CustomUser
-from user.serializers.auth import TokenRefreshResponseSerializer
+from user.serializers.auth import TokenRefreshResponseSerializer, CustomTokenRefreshSerializer as TokenRefreshSerializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
 
 logger = logging.getLogger("django")

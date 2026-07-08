@@ -59,6 +59,36 @@ class TokenRefreshResponseSerializer(serializers.Serializer):
     access = serializers.CharField()
 
 
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from datetime import timedelta
+from user.models import CustomUser
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        # Run standard validation and rotation
+        data = super().validate(attrs)
+        
+        # Super validate creates a new refresh token if ROTATE_REFRESH_TOKENS is True
+        if api_settings.ROTATE_REFRESH_TOKENS and "refresh" in data:
+            new_refresh = RefreshToken(data["refresh"])
+            
+            # Find the user and apply their custom timeout
+            user_id = new_refresh.get(api_settings.USER_ID_CLAIM)
+            try:
+                user = CustomUser.objects.get(id=user_id)
+                timeout_hours = getattr(user, 'session_timeout_hours', 168)
+            except CustomUser.DoesNotExist:
+                timeout_hours = 168 # Fallback to default if user lookup fails
+
+            # Apply the timeout with a strict 1-hour minimum
+            new_refresh.set_exp(lifetime=timedelta(hours=max(1, timeout_hours)))
+            data["refresh"] = str(new_refresh)
+            
+        return data
+
+
 import re
 
 class UserForgotPasswordSerializer(serializers.Serializer):
