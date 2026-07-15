@@ -24,11 +24,11 @@ class TenantBaseViewSet(BaseViewSet):
         except Exception:
             raise PermissionDenied("Your user account is not associated with any active tenant.")
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer, **kwargs):
         user = self.request.user
 
         if user.is_superuser:
-            super().perform_create(serializer)
+            super().perform_create(serializer, **kwargs)
             return
 
         try:
@@ -37,9 +37,10 @@ class TenantBaseViewSet(BaseViewSet):
             raise PermissionDenied("Your user account is not associated with any active tenant.")
 
         model = serializer.Meta.model
-        data = {}
-        if hasattr(model, "tenant"):
-            data["tenant"] = active_tenant
+        field_names = [f.name for f in model._meta.get_fields()]
+        
+        if "tenant" in field_names:
+            kwargs["tenant"] = active_tenant
 
         # Save auto-injects tenant, and lets parent perform_create handle created_by/updated_by auditing
-        serializer.save(**data)
+        super().perform_create(serializer, **kwargs)

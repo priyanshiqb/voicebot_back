@@ -281,3 +281,8 @@ class AgentListSerializer(serializers.ModelSerializer):
 class AgentDropdownSerializer(serializers.Serializer):
     label = serializers.CharField(source="bot_name")
     value = serializers.UUIDField(source="id")
+
+
+class AgentBotNameCheckSerializer(serializers.Serializer):
+    bot_name = serializers.CharField(required=True, max_length=100)
+    exclude_id = serializers.UUIDField(required=False, allow_null=True)

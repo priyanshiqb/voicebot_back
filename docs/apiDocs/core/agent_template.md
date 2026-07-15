@@ -271,6 +271,18 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
     "errors": null
   }
   ```
+- **Error Response (400 Bad Request)**:
+  Returned when attempting to delete a template that is currently selected in an active agent, or if it is a default template.
+  ```json
+  {
+    "status": false,
+    "message": "validation_error",
+    "data": null,
+    "errors": {
+      "detail": "This agent template is currently selected in the following agents: SalesBot... and cannot be deleted."
+    }
+  }
+  ```
 
 ---
 
@@ -292,5 +304,17 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
     "message": "Bulk deleted successfully",
     "data": null,
     "errors": null
+  }
+  ```
+- **Error Response (400 Bad Request)**:
+  Returned if any of the selected templates are default or are currently used by an agent.
+  ```json
+  {
+    "status": false,
+    "message": "validation_error",
+    "data": null,
+    "errors": {
+      "detail": "One or more selected agent templates are currently selected in an agent and cannot be deleted."
+    }
   }
   ```

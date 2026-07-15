@@ -16,6 +16,7 @@ Manage configured Voicebot Agents under the active tenant context.
 - `PATCH /api/v1/core/agents/{id}/` - Partial update an agent
 - `DELETE /api/v1/core/agents/{id}/` - Soft-delete an agent
 - `POST /api/v1/core/agents/bulk_delete/` - Bulk soft-delete agents
+- `POST /api/v1/core/agents/check-bot-name/` - Check if a bot name is unique
 
 ---
 
@@ -27,7 +28,7 @@ Manage configured Voicebot Agents under the active tenant context.
   - `page` (optional): Page number
   - `page_size` (optional): Items per page
   - `search` (optional): Filter agents by `bot_name` or `persona_name`
-  - `ordering` (optional): Sort by `bot_name` or `created_at` (prefix with `-` for descending, default: `-created_at`)
+  - `ordering` (optional): Sort by `bot_name`, `created_at`, or `tone` (prefix with `-` for descending, default: `-created_at`)
   - `is_active` (optional): Boolean filter
   - `tone` (optional): Filter by agent tone. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`
   - `industry` (optional): Filter by the industry category of the agent's template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
@@ -147,3 +148,30 @@ Manage configured Voicebot Agents under the active tenant context.
   ```
 - **Success Response (200 OK)**:
   *(Returns full detail representation)*
+
+---
+
+### 6. Check Bot Name Uniqueness
+- **Path**: `POST /api/v1/core/agents/check-bot-name/`
+- **Description**: Checks if a bot name is unique under the active tenant context.
+- **Request Payload**:
+  ```json
+  {
+    "bot_name": "Investment Advisor Bot",
+    "exclude_id": "7bf26cf4-e53b-48bb-bb82-261ee976378c" // Optional: ID to exclude from uniqueness check
+  }
+  ```
+- **Field Validations**:
+  - `bot_name`: Required, max 100 characters.
+  - `exclude_id`: Optional, valid UUID string.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "success",
+    "data": {
+      "is_unique": true
+    },
+    "errors": null
+  }
+  ```

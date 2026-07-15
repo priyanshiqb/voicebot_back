@@ -6,6 +6,8 @@ from tenant.models.Tenant import Tenant
 from tenant.models.TenantUserMapping import TenantUserMapping
 from user.models import CustomUser as User
 from core.models.knowledge_base import KnowledgeBase, KBText
+from core.models.agent import Agent
+from core.models.agent_template import AgentTemplate
 
 class KnowledgeBaseViewTestCase(APITestCase):
     def setUp(self):
@@ -222,4 +224,40 @@ class KnowledgeBaseViewTestCase(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-
+    def test_kb_delete_linked_validation(self):
+        from core.models.agent import Agent, AgentTemplate
+        tpl = AgentTemplate.objects.create(
+            tenant=self.tenant,
+            name="Tpl",
+            short_description="desc"
+        )
+        agent = Agent.objects.create(
+            tenant=self.tenant,
+            bot_name="Agent-Link-KB",
+            persona_name="Alice",
+            tone="PROFESSIONAL",
+            agent_template=tpl,
+        )
+        agent.knowledge_bases.add(self.kb)
+        
+        # Delete should fail with 400 Warning
+        response = self.client_alex.delete(f"/api/v1/core/knowledge-base/{self.kb.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response.data.get("warning"))
+        
+        # Bulk delete should fail with 400 Warning
+        response_bulk = self.client_alex.post(
+            "/api/v1/core/knowledge-base/bulk_delete/",
+            {"ids": [str(self.kb.id)]},
+            format="json"
+        )
+        self.assertEqual(response_bulk.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(response_bulk.data.get("warning"))
+        
+        # Delete with force=true should succeed
+        response_force = self.client_alex.delete(f"/api/v1/core/knowledge-base/{self.kb.id}/?force=true")
+        self.assertEqual(response_force.status_code, status.HTTP_200_OK)
+        
+        # Verify it is deleted
+        self.kb.refresh_from_db()
+        self.assertTrue(self.kb.is_deleted)

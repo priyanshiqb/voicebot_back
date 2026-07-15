@@ -368,6 +368,8 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
 
 ### 6. Soft-Delete Knowledge Base
 * **Path**: `DELETE /api/v1/core/knowledge-base/<uuid>/`
+* **Query Parameters**:
+  * `force=true` (optional): Required to bypass validation if the knowledge base is connected to an active agent.
 * **Operational Hook**: Safely triggers recursive soft-deletion cascading through all Many-to-Many models inside an atomic transaction, marking them `is_deleted=True` and suffixing namespaces.
 * **Response (HTTP 200 OK)**:
 ```json
@@ -376,6 +378,18 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
   "message": "Deleted successfully",
   "data": null,
   "errors": null
+}
+```
+* **Response (HTTP 400 Bad Request - Connected to Agent Warning)**:
+Returned if the Knowledge Base is connected to an agent and `force=true` was not passed.
+```json
+{
+  "status": false,
+  "warning": true,
+  "message": "This knowledge base is connected to the following agents: SalesBot... Are you sure you want to delete it?",
+  "errors": {
+    "detail": "This knowledge base is currently in use by agents: SalesBot... Please confirm to force delete."
+  }
 }
 ```
 
@@ -402,6 +416,8 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
 
 ### 8. Bulk Delete Action
 * **Path**: `POST /api/v1/core/knowledge-base/bulk_delete/`
+* **Query Parameters**:
+  * `force=true` (optional): Required to bypass validation if any selected knowledge base is connected to an active agent.
 * **Request Payload**:
 ```json
 {
@@ -418,6 +434,18 @@ To perform nested actions, pass the sub-objects with an explicit `flag` field:
   "message": "Bulk deleted successfully",
   "data": null,
   "errors": null
+}
+```
+* **Response (HTTP 400 Bad Request - Connected to Agent Warning)**:
+Returned if any selected Knowledge Base is connected to an agent and `force=true` was not passed.
+```json
+{
+  "status": false,
+  "warning": true,
+  "message": "One or more selected knowledge bases are connected to an agent. Are you sure you want to delete them?",
+  "errors": {
+    "detail": "Connected to agent. Pass force=true to proceed."
+  }
 }
 ```
 

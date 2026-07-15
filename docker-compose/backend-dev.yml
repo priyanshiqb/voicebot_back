@@ -1,6 +1,7 @@
 services:
   # 2. Local Development Django Backend Server (Daphne with Hot-Reloading)
   backend-dev:
+    image: voicebot-backend-dev:latest
     build:
       context: ../
       dockerfile: Dockerfile
@@ -14,6 +15,7 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.local}
       - ENV_FILE=.env
+      - RUN_MIGRATIONS=true
     volumes:
       - ../:/app
       - /app/.venv
@@ -36,9 +38,7 @@ services:
 
   # 2b. Local Development Celery Worker
   celery-dev:
-    build:
-      context: ../
-      dockerfile: Dockerfile
+    image: voicebot-backend-dev:latest
     container_name: celery-dev-voicebot
     profiles:
       - dev
@@ -56,6 +56,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend-dev:
+        condition: service_started
     networks:
       - backend
     restart: unless-stopped

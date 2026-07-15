@@ -24,6 +24,8 @@ from onboard.serializers.onboarding import GeneralResponseSerializer
 from user.models import CustomUser
 from user.authentication import ETLSystemTokenAuthentication
 from utils.permissions.is_etl_user import IsETLUser
+from rest_framework.exceptions import PermissionDenied
+from core.models.agent import Agent
 
 
 @extend_schema(tags=["Knowledge Base"])
@@ -49,9 +51,13 @@ from utils.permissions.is_etl_user import IsETLUser
     ),
     destroy=extend_schema(
         summary="Delete Knowledge Base",
-        description="Soft-delete an existing knowledge base by ID.",
+        description="Soft-delete an existing knowledge base by ID. Requires ?force=true if connected to an agent.",
+        parameters=[
+            OpenApiParameter(name="force", type=str, location=OpenApiParameter.QUERY, description="Pass 'true' to force deletion if connected to an agent.", required=False)
+        ],
         responses={
             200: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base soft-deleted successfully."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Warning: Connected to agent (needs force=true)."),
             401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
             403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied."),
             404: OpenApiResponse(response=GeneralResponseSerializer, description="Knowledge base not found.")
@@ -586,7 +592,6 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             try:
                 active_tenant = user.tenant_mapping.tenant
             except Exception:
-                from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("Your user account is not associated with any active tenant.")
             qs = KnowledgeBase.objects.filter(name=name, tenant=active_tenant)
 
@@ -622,7 +627,6 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             try:
                 active_tenant = user.tenant_mapping.tenant
             except Exception:
-                from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("Your user account is not associated with any active tenant.")
             qs = KBWebsite.objects.filter(url=url, tenant=active_tenant)
 
@@ -631,4 +635,68 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
 
         is_unique = not qs.exists()
         return self.success(data={"is_unique": is_unique})
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Check if KB is connected to any active agent
+        linked_agents = instance.agents.filter(is_deleted=False).values_list('bot_name', flat=True)
+        if linked_agents:
+            force = request.query_params.get("force", "").lower() == "true"
+            if not force:
+                agent_names = ", ".join(list(linked_agents)[:3])
+                suffix = "..." if len(linked_agents) > 3 else ""
+                return Response(
+                    {
+                        "status": False,
+                        "warning": True,
+                        "message": f"This knowledge base is connected to the following agents: {agent_names}{suffix}. Are you sure you want to delete it?",
+                        "errors": {"detail": f"This knowledge base is currently in use by agents: {agent_names}{suffix}. Please confirm to force delete."}
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Bulk Delete Knowledge Bases",
+        description="Soft-delete multiple knowledge bases by their ID list. Requires ?force=true if any KB is connected to an agent.",
+        parameters=[
+            OpenApiParameter(name="force", type=str, location=OpenApiParameter.QUERY, description="Pass 'true' to force deletion if any KB is connected to an agent.", required=False)
+        ],
+        responses={
+            200: OpenApiResponse(response=GeneralResponseSerializer, description="Bulk deleted successfully."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Warning: Connected to agent (needs force=true)."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-delete", url_name="bulk-delete")
+    def bulk_delete(self, request):
+        ids = request.data.get("ids", [])
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"status": False, "message": "ids must be a non-empty list", "errors": None},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        force = request.query_params.get("force", "").lower() == "true"
+        if not force:
+            used_kb_ids = Agent.objects.filter(
+                knowledge_bases__id__in=ids,
+                is_deleted=False
+            ).values_list('knowledge_bases__id', flat=True)
+            
+            if used_kb_ids:
+                return Response(
+                    {
+                        "status": False,
+                        "warning": True,
+                        "message": "One or more selected knowledge bases are connected to an agent. Are you sure you want to delete them?",
+                        "errors": {"detail": "Connected to agent. Pass force=true to proceed."}
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        return super().bulk_delete(request)
 

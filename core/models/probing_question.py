@@ -88,7 +88,8 @@ class ProbingQuestion(TenantBaseModel):
 
             # Append deleted timestamp to prevent unique constraint conflicts on active question texts
             suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            self.question = f"{self.question}{suffix}"
+            max_len = 100 - len(suffix)
+            self.question = f"{self.question[:max_len]}{suffix}"
 
             self.save(
                 update_fields=["is_deleted", "deleted_at", "question", "deleted_by"]

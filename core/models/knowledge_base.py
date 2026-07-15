@@ -153,9 +153,14 @@ class KBWebsite(KBBaseModel):
         original_url = self.url
         deleted_suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
         if '#' in original_url:
-            self.url = original_url.replace('#', f'{deleted_suffix}#')
+            hash_idx = original_url.index('#')
+            base = original_url[:hash_idx]
+            frag = original_url[hash_idx:]
+            max_base = 500 - len(deleted_suffix) - len(frag)
+            self.url = f"{base[:max(0, max_base)]}{deleted_suffix}{frag}"
         else:
-            self.url = f"{original_url}{deleted_suffix}"
+            max_len = 500 - len(deleted_suffix)
+            self.url = f"{original_url[:max_len]}{deleted_suffix}"
         
         update_fields = ["is_deleted", "deleted_at", "url"]
         if user:
@@ -212,7 +217,9 @@ class KnowledgeBase(KBBaseModel):
             if user:
                 self.deleted_by = user
             
-            self.name = f"{self.name} -deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            suffix = f" -deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
+            max_len = 255 - len(suffix)
+            self.name = f"{self.name[:max_len]}{suffix}"
             
             update_fields = ["is_deleted", "deleted_at", "name"]
             if user:

@@ -14,6 +14,7 @@ class Agent(TenantBaseModel):
         FORMAL = "FORMAL", "Formal"
         CASUAL = "CASUAL", "Casual"
         ENTHUSIASTIC = "ENTHUSIASTIC", "Enthusiastic"
+        RUDE = "RUDE", "Rude"
 
     bot_name = models.CharField(
         max_length=100,
@@ -112,7 +113,8 @@ class Agent(TenantBaseModel):
 
             # Append deleted timestamp to prevent unique constraint conflict on active bot names
             suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            self.bot_name = f"{self.bot_name}{suffix}"
+            max_name_len = 100 - len(suffix)
+            self.bot_name = f"{self.bot_name[:max_name_len]}{suffix}"
 
             self.save(
                 update_fields=["is_deleted", "deleted_at", "bot_name", "deleted_by"]

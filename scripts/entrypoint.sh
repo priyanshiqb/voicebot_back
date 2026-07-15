@@ -30,8 +30,8 @@ while True:
 print("Database is ready!")
 EOF
 
-# Run database migrations, fixtures, and collectstatic only if we are not running celery
-if [ "$1" != "celery" ]; then
+# Run database migrations, fixtures, and collectstatic only if explicitly enabled
+if [ "$RUN_MIGRATIONS" = "true" ]; then
     # Run database migrations
     echo "Running migrations..."
     python manage.py migrate --noinput
@@ -48,7 +48,7 @@ if [ "$1" != "celery" ]; then
         echo "Local development: skipping collectstatic (DJANGO_DEBUG=True)."
     fi
 else
-    echo "Celery command detected: skipping database migrations, fixtures, and collectstatic."
+    echo "Skipping database migrations and collectstatic (RUN_MIGRATIONS is not 'true')."
 fi
 
 

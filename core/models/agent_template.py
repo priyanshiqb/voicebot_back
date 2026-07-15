@@ -123,7 +123,8 @@ class AgentTemplate(TenantBaseModel):
 
             # Append deleted timestamp to prevent unique constraint conflict on active names
             suffix = f"-deleted-{self.deleted_at.strftime('%Y%m%d%H%M%S')}"
-            self.name = f"{self.name}{suffix}"
+            max_name_len = 100 - len(suffix)
+            self.name = f"{self.name[:max_name_len]}{suffix}"
 
             self.save(
                 update_fields=["is_deleted", "deleted_at", "name", "deleted_by"]

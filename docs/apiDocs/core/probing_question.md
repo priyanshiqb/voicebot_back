@@ -100,14 +100,48 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
   }
   ```
 - **Error Response (400 Bad Request)**:
-  Returned when attempting to update or delete a question where `can_user_edit` is `false`.
+  Returned when attempting to delete a question where `can_user_edit` is `false`, or if it is currently selected in an active agent or agent template.
   ```json
   {
     "status": false,
     "message": "validation_error",
     "data": null,
     "errors": {
-      "detail": "This probing question is read-only and cannot be deleted."
+      "detail": "This probing question is currently selected in the following agents: SalesBot... and cannot be deleted."
+    }
+  }
+  ```
+
+---
+
+### 5. Bulk Delete Probing Questions
+- **Path**: `POST /api/v1/core/probing-questions/bulk_delete/`
+- **Request Payload**:
+  ```json
+  {
+    "ids": [
+      "7bf26cf4-e53b-48bb-bb82-261ee976378c"
+    ]
+  }
+  ```
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Bulk deleted successfully",
+    "data": null,
+    "errors": null
+  }
+  ```
+- **Error Response (400 Bad Request)**:
+  Returned if any selected probing question is default or currently linked to an agent or agent template.
+  ```json
+  {
+    "status": false,
+    "message": "validation_error",
+    "data": null,
+    "errors": {
+      "detail": "One or more selected probing questions are currently selected in an agent and cannot be deleted." // or "selected in an agent template..."
     }
   }
   ```

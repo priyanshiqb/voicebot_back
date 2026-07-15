@@ -13,5 +13,5 @@ networks:
   backend:
     driver: bridge
   shared_network:
-    name: shared_network
     external: true
+    name: shared-network

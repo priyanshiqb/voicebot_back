@@ -1,3 +1,4 @@
+from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 import django_filters
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
@@ -6,7 +7,9 @@ from core.serializers.agent import (
     AgentSerializer,
     AgentListSerializer,
     AgentDropdownSerializer,
+    AgentBotNameCheckSerializer,
 )
+from core.serializers.knowledge_base import UniquenessCheckResponseSerializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from utils.views.base_model_viewset import BaseViewSet
 from user.models.CustomUser import CustomUser
@@ -115,7 +118,7 @@ class AgentViewSet(TenantBaseViewSet):
 
     filterset_class = AgentFilter
     search_fields = ["bot_name", "persona_name"]
-    ordering_fields = ["bot_name", "created_at"]
+    ordering_fields = ["bot_name", "created_at", "tone"]
     ordering = ["-created_at"]
 
     select_related_fields = ["agent_template"]
@@ -132,3 +135,39 @@ class AgentViewSet(TenantBaseViewSet):
                 return BaseViewSet.get_queryset(self)
                 
         return super().get_queryset()
+
+    @extend_schema(
+        summary="Check Bot Name Uniqueness",
+        description="Checks if a bot name is unique under the active tenant context.",
+        request=AgentBotNameCheckSerializer,
+        responses={
+            200: OpenApiResponse(response=UniquenessCheckResponseSerializer, description="Uniqueness check result."),
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed."),
+            401: OpenApiResponse(response=GeneralResponseSerializer, description="Unauthenticated user request."),
+            403: OpenApiResponse(response=GeneralResponseSerializer, description="Permission denied.")
+        }
+    )
+    @action(detail=False, methods=["post"], url_path="check-bot-name", url_name="check-bot-name")
+    def check_bot_name_uniqueness(self, request):
+        serializer = AgentBotNameCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        bot_name = serializer.validated_data["bot_name"]
+        exclude_id = serializer.validated_data.get("exclude_id")
+
+        user = request.user
+        if user.is_superuser:
+            qs = Agent.objects.filter(bot_name=bot_name, is_deleted=False)
+        else:
+            try:
+                active_tenant = user.tenant_mapping.tenant
+            except Exception:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Your user account is not associated with any active tenant.")
+            qs = Agent.objects.filter(bot_name=bot_name, tenant=active_tenant, is_deleted=False)
+
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+
+        is_unique = not qs.exists()
+        return self.success(data={"is_unique": is_unique})

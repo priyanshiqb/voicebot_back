@@ -598,6 +598,71 @@ class AgentProbingViewsTestCase(APITestCase):
         )
         self.assertEqual(response_excl_err.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_agent_template_delete_linked_validation(self):
+        # 1. Create an agent using the template
+        agent = Agent.objects.create(
+            tenant=self.tenant,
+            bot_name="Agent-Link-Tpl",
+            persona_name="Alice",
+            tone="PROFESSIONAL",
+            agent_template=self.template,
+        )
+        # Attempt to delete the template -> 400 Bad Request
+        response = self.client_alex.delete(f"/api/v1/core/agent-templates/{self.template.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("selected in the following agents", response.data["errors"]["detail"])
+        
+        # Attempt bulk delete -> 400 Bad Request
+        response_bulk = self.client_alex.post(
+            "/api/v1/core/agent-templates/bulk_delete/",
+            {"ids": [str(self.template.id)]},
+            format="json"
+        )
+        self.assertEqual(response_bulk.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # 2. Delete the agent, then we should be able to delete the template
+        agent.is_deleted = True
+        agent.save()
+        
+        response_ok = self.client_alex.delete(f"/api/v1/core/agent-templates/{self.template.id}/")
+        self.assertEqual(response_ok.status_code, status.HTTP_200_OK)
 
-
-
+    def test_probing_question_delete_linked_validation(self):
+        # 1. Create a probing question
+        pq = ProbingQuestion.objects.create(
+            tenant=self.tenant,
+            question="What is your linked question?",
+            priority=1,
+            score=10,
+        )
+        # Link to agent
+        agent = Agent.objects.create(
+            tenant=self.tenant,
+            bot_name="Agent-Link-PQ",
+            persona_name="Alice",
+            tone="PROFESSIONAL",
+            agent_template=self.template,
+        )
+        agent.probing_questions.add(pq)
+        
+        # Attempt to delete -> 400 Bad Request
+        response = self.client_alex.delete(f"/api/v1/core/probing-questions/{pq.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Attempt bulk delete -> 400 Bad Request
+        response_bulk = self.client_alex.post(
+            "/api/v1/core/probing-questions/bulk_delete/",
+            {"ids": [str(pq.id)]},
+            format="json"
+        )
+        self.assertEqual(response_bulk.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Remove from agent, but add to template
+        agent.is_deleted = True
+        agent.save()
+        
+        self.template.probing_questions.add(pq)
+        
+        # Attempt to delete again -> 400 Bad Request (linked to template)
+        response_tpl = self.client_alex.delete(f"/api/v1/core/probing-questions/{pq.id}/")
+        self.assertEqual(response_tpl.status_code, status.HTTP_400_BAD_REQUEST)

@@ -574,28 +574,28 @@ class BaseViewSet(ResponseMixin, ModelViewSet):
 
         return self.serializer_class
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer, **kwargs):
+        model = serializer.Meta.model
+        
+        field_names = [f.name for f in model._meta.get_fields()]
+
+        if "created_by" in field_names:
+            kwargs["created_by"] = self.request.user
+
+        if "updated_by" in field_names:
+            kwargs["updated_by"] = self.request.user
+
+        serializer.save(**kwargs)
+
+    def perform_update(self, serializer, **kwargs):
         model = serializer.Meta.model
 
-        data = {}
+        field_names = [f.name for f in model._meta.get_fields()]
 
-        if hasattr(model, "created_by"):
-            data["created_by"] = self.request.user
+        if "updated_by" in field_names:
+            kwargs["updated_by"] = self.request.user
 
-        if hasattr(model, "updated_by"):
-            data["updated_by"] = self.request.user
-
-        serializer.save(**data)
-
-    def perform_update(self, serializer):
-        model = serializer.Meta.model
-
-        data = {}
-
-        if hasattr(model, "updated_by"):
-            data["updated_by"] = self.request.user
-
-        serializer.save(**data)
+        serializer.save(**kwargs)
 
     def perform_destroy(self, instance):
         if hasattr(instance, "soft_delete"):
