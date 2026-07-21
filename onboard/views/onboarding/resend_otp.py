@@ -67,14 +67,14 @@ class ResendOTPView(ResponseMixin, APIView):
         try:
             send_email_task.delay(
                 subject="Verify your Voicebot Registration - New OTP",
-                message=f"Your new verification code is: {otp_code}. It is valid for 10 minutes.",
+                message=f"Your new verification code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[temp_user.email],
                 fail_silently=False,
                 title="New Verification Code",
                 lead_text="We received a request to resend your signup verification code. Please use the verification code below to confirm your registration.",
                 otp_code=otp_code,
-                body_text="This code is valid for 10 minutes. If you did not request a code, please ignore this email."
+                body_text=f"This code is valid for {settings.OTP_VALIDITY_MINUTES} minutes. If you did not request a code, please ignore this email."
             )
         except Exception as e:
             print(f"OTP Email queuing skipped/failed: {e}. OTP Code is: {otp_code}")

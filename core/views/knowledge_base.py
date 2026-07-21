@@ -26,6 +26,8 @@ from user.authentication import ETLSystemTokenAuthentication
 from utils.permissions.is_etl_user import IsETLUser
 from rest_framework.exceptions import PermissionDenied
 from core.models.agent import Agent
+from django.conf import settings
+
 
 
 @extend_schema(tags=["Knowledge Base"])
@@ -241,6 +243,14 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             exists = storage_service.verify_object_exists(object_key)
             if not exists:
                 return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Security: verify actual file size to enforce limit on direct S3 uploads
+            file_stats = storage_service.get_file_disk_usage(object_key)
+            max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
+            if file_stats.get("total_size_bytes", 0) > max_size:
+                storage_service.delete_blob_direct(object_key)
+                return Response({"status": False, "message": "File size exceeds the limit of 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
             return Response({"status": False, "message": "Failed to verify file upload."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             

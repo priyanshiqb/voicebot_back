@@ -12,6 +12,8 @@ from core.serializers.agent import (
 from core.serializers.knowledge_base import UniquenessCheckResponseSerializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from utils.views.base_model_viewset import BaseViewSet
+from core.views.mixins import ImportExportMixin
+from core.resources import AgentResource
 from user.models.CustomUser import CustomUser
 
 class AgentFilter(django_filters.FilterSet):
@@ -106,11 +108,12 @@ class AgentFilter(django_filters.FilterSet):
         }
     )
 )
-class AgentViewSet(TenantBaseViewSet):
+class AgentViewSet(ImportExportMixin, TenantBaseViewSet):
     """
     Agent Management API.
     Provides complete row-level isolation and multi-tenant scoping for Agents.
     """
+    resource_class = AgentResource
     queryset = Agent.objects.all()
     serializer_class = AgentSerializer
     list_serializer_class = AgentListSerializer

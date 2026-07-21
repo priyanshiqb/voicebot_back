@@ -10,6 +10,8 @@ from core.serializers.probing_question import (
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
+from core.views.mixins import ImportExportMixin
+from core.resources import ProbingQuestionResource
 from rest_framework import status
 from django.db.models import Q
 from core.models.agent import Agent
@@ -101,11 +103,12 @@ from core.models.agent_template import AgentTemplate
         }
     )
 )
-class ProbingQuestionViewSet(TenantBaseViewSet):
+class ProbingQuestionViewSet(ImportExportMixin, TenantBaseViewSet):
     """
     Probing Question Management API.
     Provides complete isolation and multi-tenant scoping for Probing Questions.
     """
+    resource_class = ProbingQuestionResource
     queryset = ProbingQuestion.objects.all()
     serializer_class = ProbingQuestionSerializer
     list_serializer_class = ProbingQuestionListSerializer

@@ -171,7 +171,7 @@ class AgentTemplateSerializer(TenantBaseModelSerializer):
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise serializers.ValidationError({"name": "An active agent template with this name already exists."})
+                raise serializers.ValidationError({"name": "Agent template with this name already exists."})
         return attrs
 
     def create(self, validated_data):

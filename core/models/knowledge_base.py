@@ -13,9 +13,9 @@ def kb_file_upload_path(instance, filename):
     return f"t-{instance.tenant_id}/kb_files/{filename}"
 
 def validate_file_size(value):
-    max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
+    max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
     if value.size > max_size:
-        raise ValidationError(f"File size should be less than {max_size / (1024 * 1024)} MB.")
+        raise ValidationError("File size should be less than 10 MB.")
     return value
 
 class KBText(KBBaseModel):

@@ -10,5 +10,5 @@ class ChangeEmailSerializer(serializers.Serializer):
         User = get_user_model()
         value = value.lower().strip()
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("An active user account is already registered with this email address.")
+            raise serializers.ValidationError("User account with this email address already exists.")
         return value

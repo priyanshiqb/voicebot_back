@@ -112,6 +112,7 @@ INSTALLED_APPS = [
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
     "two_factor",
+    "import_export",
     
     # Local custom apps
     "user",
@@ -412,4 +413,9 @@ ETL_SERVER_URL = env.str("ETL_SERVER_URL")
 ETL_SYSTEM_TOKEN = env.str("ETL_SYSTEM_TOKEN", default="dummy_etl_system_token_for_local_dev")
 CALLBACK_URL_BASE = env.str("CALLBACK_URL_BASE", default=None)
 
+# File Upload Limits (10 MB + 1 MB buffer = 11 MB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 11 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 11 * 1024 * 1024
 
+# OTP Settings
+OTP_VALIDITY_MINUTES = env.int("OTP_VALIDITY_MINUTES", default=2)

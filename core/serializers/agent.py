@@ -138,7 +138,7 @@ class AgentSerializer(TenantBaseModelSerializer):
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise serializers.ValidationError({"bot_name": "An active agent with this bot name already exists for your tenant."})
+                raise serializers.ValidationError({"bot_name": "Agent with this name already exists."})
 
         initial_data = getattr(self, "initial_data", {})
         if "knowledge_bases" in initial_data:

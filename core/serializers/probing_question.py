@@ -89,7 +89,7 @@ class ProbingQuestionSerializer(TenantBaseModelSerializer):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise serializers.ValidationError({
-                    "question": "An active probing question with this text already exists."
+                    "question": "Probing question with this text already exists."
                 })
         return attrs
 

@@ -68,14 +68,14 @@ class ForgotPasswordView(ResponseMixin, APIView):
         try:
             send_email_task.delay(
                 subject="Reset your Voicebot Onboarding Password - OTP",
-                message=f"You requested to reset your password during onboarding. Your verification OTP code is: {otp_code}. It is valid for 2 minutes.",
+                message=f"You requested to reset your password during onboarding. Your verification OTP code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[temp_user.email],
                 fail_silently=False,
                 title="Reset Password Request",
                 lead_text="We received a request to reset your onboarding password. Please use the verification code below to authorize this change.",
                 otp_code=otp_code,
-                body_text="This code is valid for 2 minutes. If you did not request a password reset, please secure your account immediately."
+                body_text=f"This code is valid for {settings.OTP_VALIDITY_MINUTES} minutes. If you did not request a password reset, please secure your account immediately."
             )
         except Exception as e:
             print(f"Password reset OTP email queuing skipped/failed: {e}. OTP Code: {otp_code}")

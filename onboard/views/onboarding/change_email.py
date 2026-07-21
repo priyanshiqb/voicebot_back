@@ -60,7 +60,7 @@ class ChangeEmailView(ResponseMixin, APIView):
             return self.error(
                 message="Validation failed",
                 errors={
-                    "new_email": ["An active user account is already registered with this email address."]
+                    "new_email": ["User account with this email address already exists."]
                 },
                 status_code=status.HTTP_400_BAD_REQUEST
             )
@@ -88,14 +88,14 @@ class ChangeEmailView(ResponseMixin, APIView):
         try:
             send_email_task.delay(
                 subject="Verify your Voicebot Registration - Email Updated",
-                message=f"Your email has been updated. Your verification code is: {otp_code}. It is valid for 10 minutes.",
+                message=f"Your email has been updated. Your verification code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[new_email],
                 fail_silently=False,
                 title="Email Address Updated",
                 lead_text="Your onboarding email address has been successfully updated. Use the verification code below to confirm this address and continue your registration.",
                 otp_code=otp_code,
-                body_text="This code is valid for 10 minutes. If you did not initiate this change, please contact support."
+                body_text=f"This code is valid for {settings.OTP_VALIDITY_MINUTES} minutes. If you did not initiate this change, please contact support."
             )
         except Exception as e:
             print(f"OTP Email queuing skipped/failed: {e}. OTP Code for {new_email} is: {otp_code}")

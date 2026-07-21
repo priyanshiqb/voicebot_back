@@ -10,6 +10,8 @@ from core.serializers.agent_template import (
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
+from core.views.mixins import ImportExportMixin
+from core.resources import AgentTemplateResource
 from rest_framework import status
 from django.db.models import Q
 from core.models.agent import Agent
@@ -99,11 +101,12 @@ from core.models.agent import Agent
         }
     )
 )
-class AgentTemplateViewSet(TenantBaseViewSet):
+class AgentTemplateViewSet(ImportExportMixin, TenantBaseViewSet):
     """
     Agent Template Management API.
     Provides complete row-level isolation and multi-tenant scoping for Agent Templates.
     """
+    resource_class = AgentTemplateResource
     queryset = AgentTemplate.objects.all()
     serializer_class = AgentTemplateSerializer
     list_serializer_class = AgentTemplateListSerializer

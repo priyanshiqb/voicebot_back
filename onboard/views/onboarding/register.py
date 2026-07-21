@@ -45,14 +45,14 @@ class TempUserRegisterView(ResponseMixin, APIView):
         try:
             send_email_task.delay(
                 subject="Verify your Voicebot Registration",
-                message=f"Your verification code is: {otp_code}. It is valid for 10 minutes.",
+                message=f"Your verification code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),
                 recipient_list=[temp_user.email],
                 fail_silently=False,
                 title="Verify Your Registration",
                 lead_text="Thank you for signing up with Voicebot. Please use the verification code below to confirm your registration.",
                 otp_code=otp_code,
-                body_text="This code is valid for 10 minutes. If you did not sign up for an account, please disregard this email."
+                body_text=f"This code is valid for {settings.OTP_VALIDITY_MINUTES} minutes. If you did not sign up for an account, please disregard this email."
             )
         except Exception as e:
             # Safe fallback log in development/testing environments

@@ -24,9 +24,9 @@ class KBFilesSerializer(TenantBaseModelSerializer):
         )
 
     def validate_file(self, value):
-        max_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+        max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
         if value.size > max_size:
-            raise serializers.ValidationError(f"File size exceeds the limit of {max_size / (1024 * 1024)}MB.")
+            raise serializers.ValidationError("File size exceeds the limit of 10 MB.")
         allowed_extensions = ['.pdf', '.docx', '.txt']
         ext = os.path.splitext(value.name)[1].lower()
         if ext not in allowed_extensions:
@@ -113,9 +113,9 @@ class RequestUploadUrlSerializer(serializers.Serializer):
     file_size_in_bytes = serializers.IntegerField()
 
     def validate_file_size_in_bytes(self, value):
-        max_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+        max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
         if value > max_size:
-            raise serializers.ValidationError(f"File size exceeds the limit of {max_size / (1024 * 1024)}MB.")
+            raise serializers.ValidationError("File size exceeds the limit of 10 MB.")
         return value
 
     def validate_filename(self, value):

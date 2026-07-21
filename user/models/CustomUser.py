@@ -132,11 +132,12 @@ class CustomUser(AbstractUser, BaseModelCore):
 
     def is_otp_expired(self):
         """
-        Check if the generated OTP code is older than 2 minutes.
+        Check if the generated OTP code is older than the configured validity in minutes.
         """
         if not self.otp_created_at:
             return True
-        expiry_limit = timezone.now() - timezone.timedelta(minutes=2)
+        from django.conf import settings
+        expiry_limit = timezone.now() - timezone.timedelta(minutes=settings.OTP_VALIDITY_MINUTES)
         return self.otp_created_at < expiry_limit
 
     def save(self, *args, **kwargs):
