@@ -76,6 +76,12 @@ class Agent(TenantBaseModel):
         related_name="agents",
         help_text="Probing questions associated directly with this agent.",
     )
+    event_templates = models.ManyToManyField(
+        "core.EventTemplate",
+        blank=True,
+        related_name="agents",
+        help_text="Bookable meeting types this agent is allowed to schedule.",
+    )
     transfer_destinations = models.JSONField(
         blank=True,
         null=True,

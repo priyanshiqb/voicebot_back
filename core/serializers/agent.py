@@ -4,9 +4,11 @@ from tenant.common import TenantBaseModelSerializer
 from utils.serializers.hybrid_related_field import HybridRelatedField
 from core.models.agent import Agent
 from core.models.agent_template import AgentTemplate
+from core.models.event_template import EventTemplate
 from core.models.knowledge_base import KnowledgeBase
 from core.models.probing_question import ProbingQuestion
 from core.serializers.agent_template import AgentTemplateRefSerializer, AgentTemplateRefWithQuestionSerializer
+from core.serializers.event_template import EventTemplateRefSerializer
 from core.serializers.knowledge_base import KnowledgeBaseRefSerializer
 from core.serializers.probing_question import ProbingQuestionRefSerializer
 
@@ -56,6 +58,22 @@ class AgentSerializer(TenantBaseModelSerializer):
         required=False,
         write_only=True,
     )
+    event_templates = HybridRelatedField(
+        serializer=EventTemplateRefSerializer,
+        read_only=True,
+        many=True,
+        required=False,
+    )
+    add_event_templates = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+    )
+    remove_event_templates = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+    )
 
     class Meta(TenantBaseModelSerializer.Meta):
         model = Agent
@@ -74,6 +92,9 @@ class AgentSerializer(TenantBaseModelSerializer):
             "probing_questions",
             "add_probing_questions",
             "remove_probing_questions",
+            "event_templates",
+            "add_event_templates",
+            "remove_event_templates",
             "transfer_destinations",
             "created_by",
             "updated_by",
@@ -147,6 +168,9 @@ class AgentSerializer(TenantBaseModelSerializer):
         if "probing_questions" in initial_data:
             raise serializers.ValidationError({"probing_questions": "This field is read-only. Use add_probing_questions/remove_probing_questions instead."})
 
+        if "event_templates" in initial_data:
+            raise serializers.ValidationError({"event_templates": "This field is read-only. Use add_event_templates/remove_event_templates instead."})
+
         # Add/remove knowledge bases validations
         add_kbs = attrs.get("add_knowledge_bases")
         remove_kbs = attrs.get("remove_knowledge_bases")
@@ -213,6 +237,35 @@ class AgentSerializer(TenantBaseModelSerializer):
                 resolved_remove_pqs.append(pq)
             attrs["resolved_remove_probing_questions"] = resolved_remove_pqs
 
+        # Add/remove event templates validations (tenant-scoped)
+        add_ets = attrs.get("add_event_templates")
+        remove_ets = attrs.get("remove_event_templates")
+
+        if add_ets:
+            resolved_add_ets = []
+            for et_id in add_ets:
+                try:
+                    et = EventTemplate.objects.get(id=et_id, is_deleted=False)
+                except EventTemplate.DoesNotExist:
+                    raise serializers.ValidationError({"add_event_templates": f"Event template {et_id} does not exist."})
+
+                if active_tenant and et.tenant != active_tenant:
+                    raise serializers.ValidationError({
+                        "add_event_templates": f"Event template {et.id} does not belong to your tenant context."
+                    })
+                resolved_add_ets.append(et)
+            attrs["resolved_add_event_templates"] = resolved_add_ets
+
+        if remove_ets:
+            resolved_remove_ets = []
+            for et_id in remove_ets:
+                try:
+                    et = EventTemplate.objects.get(id=et_id, is_deleted=False)
+                except EventTemplate.DoesNotExist:
+                    raise serializers.ValidationError({"remove_event_templates": f"Event template {et_id} does not exist."})
+                resolved_remove_ets.append(et)
+            attrs["resolved_remove_event_templates"] = resolved_remove_ets
+
         return attrs
 
     def create(self, validated_data):
@@ -226,6 +279,11 @@ class AgentSerializer(TenantBaseModelSerializer):
         validated_data.pop("add_probing_questions", None)
         validated_data.pop("remove_probing_questions", None)
 
+        resolved_add_ets = validated_data.pop("resolved_add_event_templates", None)
+        validated_data.pop("resolved_remove_event_templates", None)
+        validated_data.pop("add_event_templates", None)
+        validated_data.pop("remove_event_templates", None)
+
         from django.db import transaction
         with transaction.atomic():
             instance = super().create(validated_data)
@@ -234,6 +292,8 @@ class AgentSerializer(TenantBaseModelSerializer):
                 instance.knowledge_bases.add(*resolved_add_kbs)
             if resolved_add_pqs:
                 instance.probing_questions.add(*resolved_add_pqs)
+            if resolved_add_ets:
+                instance.event_templates.add(*resolved_add_ets)
             return instance
 
     def update(self, instance, validated_data):
@@ -246,6 +306,11 @@ class AgentSerializer(TenantBaseModelSerializer):
         resolved_remove_pqs = validated_data.pop("resolved_remove_probing_questions", None)
         validated_data.pop("add_probing_questions", None)
         validated_data.pop("remove_probing_questions", None)
+
+        resolved_add_ets = validated_data.pop("resolved_add_event_templates", None)
+        resolved_remove_ets = validated_data.pop("resolved_remove_event_templates", None)
+        validated_data.pop("add_event_templates", None)
+        validated_data.pop("remove_event_templates", None)
 
         from django.db import transaction
         with transaction.atomic():
@@ -260,6 +325,11 @@ class AgentSerializer(TenantBaseModelSerializer):
                 instance.probing_questions.remove(*resolved_remove_pqs)
             if resolved_add_pqs:
                 instance.probing_questions.add(*resolved_add_pqs)
+
+            if resolved_remove_ets:
+                instance.event_templates.remove(*resolved_remove_ets)
+            if resolved_add_ets:
+                instance.event_templates.add(*resolved_add_ets)
             return instance
 
 

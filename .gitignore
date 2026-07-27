@@ -149,6 +149,9 @@ celerybeat.pid
 
 # Environments
 .env*
+# ...but DO track the committed templates (negations must follow the .env* rule above).
+!.env.example
+!.env.local.example
 .envrc
 .venv
 env/

@@ -81,6 +81,9 @@ Manage configured Voicebot Agents under the active tenant context.
     "add_probing_questions": [
       "5fa85f64-5717-4562-b3fc-2c963f66afa7"
     ],
+    "add_event_templates": [
+      "4cc85f64-5717-4562-b3fc-2c963f66af30"
+    ],
     "transfer_destinations": {
       "support_desk": "+1234567890"
     }
@@ -99,6 +102,9 @@ Manage configured Voicebot Agents under the active tenant context.
   - `probing_questions`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
   - `add_probing_questions`: Optional list of UUID strings. Used to incrementally add probing questions. Each referenced question must belong to the active tenant's context or be a global default probing question (`is_default = true`).
   - `remove_probing_questions`: Optional list of UUID strings. Used to incrementally remove probing questions.
+  - `event_templates`: Read-only field. The **bookable meeting types this agent may schedule** (returned as `{id, name}` refs). Ignored on write; passing it in the body raises a validation error. Drives the AI-agent booking guardrail — an agent can only book templates in this set. See [AI Agent Booking flow](../../flows/06-ai-agent-booking.md).
+  - `add_event_templates`: Optional list of UUID strings. Incrementally links event templates. Each must belong to the active tenant's context.
+  - `remove_event_templates`: Optional list of UUID strings. Incrementally unlinks event templates.
   - `transfer_destinations`: Optional dictionary/JSON object mapping labels to destination numbers/URIs.
 - **Success Response (201 Created)**:
   *(Returns full detail representation, with resolved hybrid fields and audit properties)*
@@ -143,6 +149,12 @@ Manage configured Voicebot Agents under the active tenant context.
     ],
     "remove_probing_questions": [
       "8fa85f64-5717-4562-b3fc-2c963f66afa9"
+    ],
+    "add_event_templates": [
+      "4cc85f64-5717-4562-b3fc-2c963f66af30"
+    ],
+    "remove_event_templates": [
+      "3cc85f64-5717-4562-b3fc-2c963f66af29"
     ]
   }
   ```

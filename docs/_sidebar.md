@@ -29,12 +29,13 @@
 
 * **🔀 Scheduling Flows**
   * [Overview & Endpoint Map](flows/README.md)
-  * [Complete API Walkthrough (V4)](flows/booking%20v4.md)
+  * [Complete API Walkthrough (V4)](flows/booking-v4.md)
   * [1. Tenant Setup](flows/01-setup.md)
   * [2. Booking Lifecycle](flows/02-booking-lifecycle.md)
   * [3. Leave & Reschedule](flows/03-leave-and-reschedule.md)
   * [4. Google Calendar Sync](flows/04-google-calendar-sync.md)
   * [5. Notifications & Push](flows/05-notifications-and-push.md)
+  * [6. AI Agent Booking](flows/06-ai-agent-booking.md)
 
 * **📝 Onboard APIs**
   * [Plans](apiDocs/onboard/plans.md)

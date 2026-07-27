@@ -35,6 +35,7 @@ class AgentAdmin(TenantBaseAdmin):
     filter_horizontal = (
         "knowledge_bases",
         "probing_questions",
+        "event_templates",
     )
     raw_id_fields = ("agent_template",)
 
@@ -68,6 +69,11 @@ class AgentAdmin(TenantBaseAdmin):
                 "knowledge_bases",
                 "probing_questions",
                 "transfer_destinations",
+            )
+        }),
+        ("Scheduling", {
+            "fields": (
+                "event_templates",
             )
         }),
         ("User Auditing", {

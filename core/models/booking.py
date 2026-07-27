@@ -49,6 +49,7 @@ class Booking(TenantBaseModel):
         CUSTOMER = "CUSTOMER", "Customer"
         INTERNAL = "INTERNAL", "Internal"
         PUBLIC_LINK = "PUBLIC_LINK", "Public Link"
+        AI = "AI", "AI Agent"
 
     # Convenience mirror of the module-level constant for service/test code.
     ACTIVE_STATUSES = ACTIVE_BOOKING_STATUSES
