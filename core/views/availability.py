@@ -1,0 +1,62 @@
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.viewsets import ViewSet
+
+from utils.views.base_model_viewset import ResponseMixin
+from core.serializers.availability import AvailableSlotsQuerySerializer, SlotSerializer
+from core.services import availability as availability_service
+
+
+class AvailabilityViewSet(ResponseMixin, ViewSet):
+    """Read-only availability endpoint. GET available-slots computes bookable
+    slots for an event type over a date range, tenant-scoped."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def _resolve_tenant(self, request, event_template):
+        if request.user.is_superuser:
+            return event_template.tenant
+        try:
+            tenant = request.user.tenant_mapping.tenant
+        except Exception:
+            raise PermissionDenied(
+                "Your user account is not associated with any active tenant."
+            )
+        if event_template.tenant_id != tenant.id:
+            raise PermissionDenied("Event template does not belong to your tenant.")
+        return tenant
+
+    @action(detail=False, methods=["get"], url_path="available-slots")
+    def available_slots(self, request):
+        query = AvailableSlotsQuerySerializer(
+            data=request.query_params, context={"request": request}
+        )
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+
+        event_template = data["event_template"]
+        tenant = self._resolve_tenant(request, event_template)
+        target = data.get("target_host")
+
+        slots = availability_service.get_available_slots(
+            tenant=tenant,
+            event_template=event_template,
+            date_from=data["date_from"],
+            date_to=data["date_to"],
+            target_host_id=target.id if target else None,
+        )
+        payload = SlotSerializer(
+            [
+                {
+                    "start": s.start,
+                    "end": s.end,
+                    "eligible_host_ids": list(s.eligible_host_ids),
+                }
+                for s in slots
+            ],
+            many=True,
+        )
+        return self.success(
+            data=payload.data, message="Available slots retrieved successfully"
+        )

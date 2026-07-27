@@ -114,7 +114,7 @@ class AgentTemplateViewSet(ImportExportMixin, TenantBaseViewSet):
 
     filterset_fields = ["is_active", "strict_facts", "can_user_edit_flow", "is_default", "industry"]
     search_fields = ["name", "short_description"]
-    ordering_fields = ["name", "created_at"]
+    ordering_fields = ["name", "created_at", "updated_at", "industry", "is_default", "strict_facts"]
     ordering = ["-created_at"]
 
     select_related_fields = []

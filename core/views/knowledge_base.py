@@ -85,7 +85,7 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
 
     filterset_fields = ["is_processed", "processing_status"]
     search_fields = ["name"]
-    ordering_fields = ["created_at", "updated_at", "name"]
+    ordering_fields = ["created_at", "updated_at", "name", "is_processed", "processing_status"]
     ordering = ["-created_at"]
     select_related_fields = ["tenant"]
     prefetch_related_fields = ["texts", "files", "websites", "question_answers"]

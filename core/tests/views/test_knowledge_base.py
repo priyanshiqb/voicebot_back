@@ -225,7 +225,8 @@ class KnowledgeBaseViewTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_kb_delete_linked_validation(self):
-        from core.models.agent import Agent, AgentTemplate
+        from core.models.agent import Agent
+        from core.models.agent_template import AgentTemplate
         tpl = AgentTemplate.objects.create(
             tenant=self.tenant,
             name="Tpl",
@@ -247,7 +248,7 @@ class KnowledgeBaseViewTestCase(APITestCase):
         
         # Bulk delete should fail with 400 Warning
         response_bulk = self.client_alex.post(
-            "/api/v1/core/knowledge-base/bulk_delete/",
+            "/api/v1/core/knowledge-base/bulk-delete/",
             {"ids": [str(self.kb.id)]},
             format="json"
         )

@@ -10,6 +10,32 @@
   * [Knowledge Base](apiDocs/core/knowledge_base.md)
   * [Probing Questions](apiDocs/core/probing_question.md)
 
+* **📅 Scheduling & Booking APIs**
+  * [Event Templates](apiDocs/core/event_template.md)
+  * [Host Event Skills](apiDocs/core/event_skill.md)
+  * [Availability Profiles](apiDocs/core/availability_profile.md)
+  * [Availability Exceptions - Leave](apiDocs/core/availability_exception.md)
+  * [Available Slots](apiDocs/core/availability_slots.md)
+  * [Bookings](apiDocs/core/booking.md)
+  * [Calendar Integrations](apiDocs/core/calendar_integration.md)
+  * [Device Tokens - Push](apiDocs/core/device_token.md)
+  * [Public Reschedule](apiDocs/core/public_reschedule.md)
+
+* **🔑 External App Credentials**
+  * [Overview & .env Map](external-app-creds/README.md)
+  * [Firebase Cloud Messaging](external-app-creds/01-firebase-fcm.md)
+  * [Google Calendar](external-app-creds/02-google-calendar.md)
+  * [Outlook / Microsoft 365](external-app-creds/03-outlook-microsoft-365.md)
+
+* **🔀 Scheduling Flows**
+  * [Overview & Endpoint Map](flows/README.md)
+  * [Complete API Walkthrough (V4)](flows/booking%20v4.md)
+  * [1. Tenant Setup](flows/01-setup.md)
+  * [2. Booking Lifecycle](flows/02-booking-lifecycle.md)
+  * [3. Leave & Reschedule](flows/03-leave-and-reschedule.md)
+  * [4. Google Calendar Sync](flows/04-google-calendar-sync.md)
+  * [5. Notifications & Push](flows/05-notifications-and-push.md)
+
 * **📝 Onboard APIs**
   * [Plans](apiDocs/onboard/plans.md)
   * [Signup Flow](apiDocs/onboard/signup_flow.md)

@@ -145,6 +145,25 @@
               });
             }
           });
+        },
+        // Render ```mermaid fenced blocks as diagrams (used by the flow docs).
+        function(hook) {
+          hook.doneEach(function() {
+            document.querySelectorAll('code.lang-mermaid').forEach(function(codeEl) {
+              var pre = codeEl.parentElement;
+              var div = document.createElement('div');
+              div.className = 'mermaid';
+              div.textContent = codeEl.textContent;
+              (pre && pre.tagName === 'PRE' ? pre : codeEl).replaceWith(div);
+            });
+            if (window.mermaid && document.querySelector('.mermaid')) {
+              try {
+                window.mermaid.run({ querySelector: '.mermaid' });
+              } catch (e) {
+                try { window.mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch (_) {}
+              }
+            }
+          });
         }
       ]
     }
@@ -154,5 +173,12 @@
   <!-- Plugins -->
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@3"></script>
+  <!-- Mermaid for the scheduling flow diagrams -->
+  <script src="//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: false });
+    }
+  </script>
 </body>
 </html>

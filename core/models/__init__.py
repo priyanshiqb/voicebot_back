@@ -12,6 +12,20 @@ from core.models.probing_question import ProbingQuestion
 from core.models.agent import Agent
 from core.models.agent_call_log import AgentCallLog
 
+# Scheduling & Booking (Phase 1)
+from core.models.event_template import EventTemplate
+from core.models.user_event_skill import UserEventSkill
+from core.models.availability_profile import AvailabilityProfile
+from core.models.availability_rule import AvailabilityRule
+from core.models.availability_exception import AvailabilityException
+from core.models.booking import Booking
+from core.models.booking_participant import BookingParticipant
+from core.models.booking_event import BookingEvent
+from core.models.notification_log import NotificationLog
+from core.models.calendar_integration import CalendarIntegration
+from core.models.external_busy_block import ExternalBusyBlock
+from core.models.device_token import DeviceToken
+
 __all__ = [
     "KBText",
     "KBFiles",
@@ -24,6 +38,18 @@ __all__ = [
     "ProbingQuestion",
     "Agent",
     "AgentCallLog",
+    "EventTemplate",
+    "UserEventSkill",
+    "AvailabilityProfile",
+    "AvailabilityRule",
+    "AvailabilityException",
+    "Booking",
+    "BookingParticipant",
+    "BookingEvent",
+    "NotificationLog",
+    "CalendarIntegration",
+    "ExternalBusyBlock",
+    "DeviceToken",
 ]
 
 

@@ -419,3 +419,78 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 11 * 1024 * 1024
 
 # OTP Settings
 OTP_VALIDITY_MINUTES = env.int("OTP_VALIDITY_MINUTES", default=2)
+
+# Scheduling & Booking
+BOOKING_HOLD_TTL_SECONDS = env.int("BOOKING_HOLD_TTL_SECONDS", default=300)
+BOOKING_REMINDER_OFFSETS_MINUTES = env.list(
+    "BOOKING_REMINDER_OFFSETS_MINUTES", cast=int, default=[1440, 60]
+)
+BOOKING_RESCHEDULE_TOKEN_TTL_HOURS = env.int(
+    "BOOKING_RESCHEDULE_TOKEN_TTL_HOURS", default=72
+)
+
+# Celery Beat schedule for the scheduling module. Run with:
+#   celery -A config beat -l info
+CELERY_BEAT_SCHEDULE = {
+    "scheduling-send-due-reminders": {
+        "task": "core.tasks.send_due_reminders",
+        "schedule": 300.0,  # every 5 minutes
+    },
+    "scheduling-cleanup-expired-holds": {
+        "task": "core.tasks.cleanup_expired_holds",
+        "schedule": 60.0,  # every minute
+    },
+    "scheduling-refresh-calendar-tokens": {
+        "task": "core.tasks.refresh_calendar_tokens",
+        "schedule": 900.0,  # every 15 minutes
+    },
+    "scheduling-renew-calendar-watches": {
+        "task": "core.tasks.renew_calendar_watches",
+        "schedule": 3600.0,  # hourly
+    },
+}
+
+# Calendar OAuth token encryption (Fernet). Generate: Fernet.generate_key().decode()
+SCHEDULING_TOKEN_ENCRYPTION_KEY = env.str("SCHEDULING_TOKEN_ENCRYPTION_KEY", default="")
+
+# Google Calendar OAuth (Phase 3)
+GOOGLE_CALENDAR_CLIENT_ID = env.str("GOOGLE_CALENDAR_CLIENT_ID", default="")
+GOOGLE_CALENDAR_CLIENT_SECRET = env.str("GOOGLE_CALENDAR_CLIENT_SECRET", default="")
+GOOGLE_CALENDAR_REDIRECT_URI = env.str("GOOGLE_CALENDAR_REDIRECT_URI", default="")
+# Public HTTPS URL Google pushes calendar-change notifications to (watch channel
+# address). Leave blank to disable webhooks and rely on on-demand free/busy.
+GOOGLE_CALENDAR_WEBHOOK_URL = env.str("GOOGLE_CALENDAR_WEBHOOK_URL", default="")
+GOOGLE_CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.freebusy",
+]
+
+# Microsoft 365 / Outlook Calendar OAuth (Microsoft Graph)
+MICROSOFT_CALENDAR_CLIENT_ID = env.str("MICROSOFT_CALENDAR_CLIENT_ID", default="")
+MICROSOFT_CALENDAR_CLIENT_SECRET = env.str("MICROSOFT_CALENDAR_CLIENT_SECRET", default="")
+MICROSOFT_CALENDAR_REDIRECT_URI = env.str("MICROSOFT_CALENDAR_REDIRECT_URI", default="")
+# "common" = work + personal accounts, "organizations" = work only, or a tenant id.
+MICROSOFT_CALENDAR_AUTHORITY = env.str(
+    "MICROSOFT_CALENDAR_AUTHORITY", default="https://login.microsoftonline.com/common"
+)
+# Public HTTPS URL Microsoft Graph pushes calendar-change notifications to. Must be
+# reachable when the subscription is created (Graph validates it synchronously).
+# Leave blank to disable webhooks and rely on on-demand free/busy.
+MICROSOFT_CALENDAR_WEBHOOK_URL = env.str("MICROSOFT_CALENDAR_WEBHOOK_URL", default="")
+MICROSOFT_CALENDAR_SCOPES = [
+    "offline_access",
+    "openid",
+    "email",
+    "profile",
+    "https://graph.microsoft.com/Calendars.ReadWrite",
+    "https://graph.microsoft.com/User.Read",
+]
+MICROSOFT_GRAPH_BASE_URL = env.str(
+    "MICROSOFT_GRAPH_BASE_URL", default="https://graph.microsoft.com/v1.0"
+)
+
+EXTERNAL_FREEBUSY_CACHE_SECONDS = env.int("EXTERNAL_FREEBUSY_CACHE_SECONDS", default=60)
+
+# Firebase Cloud Messaging (push notifications). Path to the service-account JSON.
+# Leave blank to disable push (sends become no-ops).
+FIREBASE_CREDENTIALS = env.str("FIREBASE_CREDENTIALS", default="")

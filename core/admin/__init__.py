@@ -10,6 +10,16 @@ from core.admin.probing_question_admin import ProbingQuestionAdmin
 from core.admin.agent_admin import AgentAdmin
 from core.admin.agent_call_log_admin import AgentCallLogAdmin
 
+# Scheduling & Booking (Phase 1)
+from core.admin.event_template_admin import EventTemplateAdmin
+from core.admin.user_event_skill_admin import UserEventSkillAdmin
+from core.admin.availability_profile_admin import AvailabilityProfileAdmin
+from core.admin.availability_exception_admin import AvailabilityExceptionAdmin
+from core.admin.booking_admin import BookingAdmin
+from core.admin.notification_log_admin import NotificationLogAdmin
+from core.admin.calendar_integration_admin import CalendarIntegrationAdmin
+from core.admin.device_token_admin import DeviceTokenAdmin
+
 __all__ = [
     "KBTextAdmin",
     "KBFilesAdmin",
@@ -22,6 +32,14 @@ __all__ = [
     "ProbingQuestionAdmin",
     "AgentAdmin",
     "AgentCallLogAdmin",
+    "EventTemplateAdmin",
+    "UserEventSkillAdmin",
+    "AvailabilityProfileAdmin",
+    "AvailabilityExceptionAdmin",
+    "BookingAdmin",
+    "NotificationLogAdmin",
+    "CalendarIntegrationAdmin",
+    "DeviceTokenAdmin",
 ]
 
 

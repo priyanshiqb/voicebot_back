@@ -75,7 +75,7 @@ class KBSerializersTestCase(TestCase):
         self.assertIn("Unsupported format", str(context.exception.detail["file"][0]))
 
         # 2. Size limit Check (10MB limit)
-        huge_file = SimpleUploadedFile("big.txt", b"x" * 11000000, content_type="text/plain")
+        huge_file = SimpleUploadedFile("big.txt", b"x" * 12000000, content_type="text/plain")
         serializer = KBFilesSerializer(
             data={"file": huge_file},
             context={"request": self.request}
