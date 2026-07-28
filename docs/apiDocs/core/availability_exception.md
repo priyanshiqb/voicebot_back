@@ -11,6 +11,8 @@ host is free) or flagged `REQUIRES_RESCHEDULE` with a customer reschedule link.
 - `POST /api/v1/core/availability-exceptions/` - Log leave (triggers reschedule)
 - `PUT` / `PATCH /api/v1/core/availability-exceptions/{id}/` - Update an exception
 - `DELETE /api/v1/core/availability-exceptions/{id}/` - Soft-delete an exception
+- `GET /api/v1/core/availability-exceptions/dropdown/` - Get label/value list
+- `POST /api/v1/core/availability-exceptions/bulk_delete/` - Bulk soft-delete exceptions
 
 ---
 
@@ -62,6 +64,7 @@ host is free) or flagged `REQUIRES_RESCHEDULE` with a customer reschedule link.
   - `type`: Optional (default `OTHER`). One of `VACATION`, `SICK`, `EMERGENCY`, `HOLIDAY`, `OTHER`.
   - `reason`: Optional text.
   - `is_all_day`: Optional boolean (default `false`).
+  - `is_active`: Optional (default `true`). Writable on create/update.
 - **Side Effect**: On creation, the reschedule engine runs asynchronously for the user's
   overlapping future `SCHEDULED`/`CONFIRMED` bookings. See
   [Leave & Reschedule flow](../../flows/03-leave-and-reschedule.md).
@@ -105,3 +108,20 @@ host is free) or flagged `REQUIRES_RESCHEDULE` with a customer reschedule link.
 ### 3. Update / Delete
 - **Path**: `PUT` / `PATCH /api/v1/core/availability-exceptions/{id}/` — update the window/type.
 - **Path**: `DELETE /api/v1/core/availability-exceptions/{id}/` — soft-delete.
+
+---
+
+### 4. Dropdown
+- **Path**: `GET /api/v1/core/availability-exceptions/dropdown/`
+- **Query Parameters**: `limit` (optional, ≤ 1000) + the same `user` / `type` / `is_active` filters as List.
+- **Note**: The dropdown `label` is the exception's `reason`.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Dropdown options retrieved successfully", "data": [ { "label": "Family emergency", "value": "8aa85f64-..." } ], "errors": null }`
+
+---
+
+### 5. Bulk Delete
+- **Path**: `POST /api/v1/core/availability-exceptions/bulk_delete/`
+- **Request Payload**: `{ "ids": ["8aa85f64-5717-4562-b3fc-2c963f66af20", "..."] }`
+- **Behaviour**: Soft-deletes all listed exceptions (tenant-scoped). If any id is unknown/not in
+  your tenant, the whole request fails with `400 "Some ids are invalid"` and nothing is deleted.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`

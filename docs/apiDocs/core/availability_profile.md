@@ -11,6 +11,8 @@ shifts. Slot generation resolves these wall-clock times through the profile time
 - `POST /api/v1/core/availability-profiles/` - Create a profile (with rules)
 - `PUT` / `PATCH /api/v1/core/availability-profiles/{id}/` - Update a profile (rules replaced)
 - `DELETE /api/v1/core/availability-profiles/{id}/` - Soft-delete a profile
+- `GET /api/v1/core/availability-profiles/dropdown/` - Get label/value list
+- `POST /api/v1/core/availability-profiles/bulk_delete/` - Bulk soft-delete profiles
 
 ---
 
@@ -92,6 +94,7 @@ shifts. Slot generation resolves these wall-clock times through the profile time
   - `timezone`: Required. FK to a `Timezone` id (IANA zone).
   - `name`: Optional (default "Default").
   - `rules`: Optional list. Each rule: `weekday` 0-6 (0 = Monday), `start_time` and `end_time` (`HH:MM:SS`), `end_time` > `start_time`. Rules on the same weekday must not overlap.
+  - `is_active`: Optional (default `true`). Writable on create/update.
 - **Success Response (201 Created)**: Full profile object (see Retrieve), `message: "Created successfully"`.
 - **Error Response (400 Bad Request)**:
   ```json
@@ -114,3 +117,19 @@ shifts. Slot generation resolves these wall-clock times through the profile time
 
 ### 5. Delete (Soft Delete)
 - **Path**: `DELETE /api/v1/core/availability-profiles/{id}/` → `{ "status": true, "message": "Deleted successfully" }`.
+
+---
+
+### 6. Dropdown
+- **Path**: `GET /api/v1/core/availability-profiles/dropdown/`
+- **Query Parameters**: `limit` (optional, ≤ 1000) + the same `user` / `is_active` filters as List.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Dropdown options retrieved successfully", "data": [ { "label": "...", "value": "<uuid>" } ], "errors": null }`
+
+---
+
+### 7. Bulk Delete
+- **Path**: `POST /api/v1/core/availability-profiles/bulk_delete/`
+- **Request Payload**: `{ "ids": ["1aa85f64-5717-4562-b3fc-2c963f66af10", "..."] }`
+- **Behaviour**: Soft-deletes all listed profiles (tenant-scoped). If any id is unknown/not in
+  your tenant, the whole request fails with `400 "Some ids are invalid"` and nothing is deleted.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`

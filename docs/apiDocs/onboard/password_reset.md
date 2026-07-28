@@ -23,10 +23,12 @@ This document covers endpoints related to resetting passwords of unverified temp
 
 #### 200 OK (Success)
 
+> For anti-enumeration, an unknown email returns this same neutral `200` response (with no `data`) rather than an error. A matching registration additionally returns its `temp_registration_id`.
+
 ```json
 {
   "status": true,
-  "message": "Verification code has been sent to your email.",
+  "message": "If the email is registered in our temporary signup system, a verification OTP code will be sent shortly.",
   "data": {
     "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa"
   },
@@ -34,14 +36,18 @@ This document covers endpoints related to resetting passwords of unverified temp
 }
 ```
 
-#### 400 Bad Request
+#### 400 Bad Request (Cooldown Active)
+
+Returned when a new OTP is requested within the 30-second cooldown window.
 
 ```json
 {
   "status": false,
-  "message": "Temporary user not found.",
-  "data": null,
-  "errors": ["USER_NOT_FOUND"]
+  "message": "Please wait before requesting another OTP.",
+  "data": {
+    "cooldown_remaining": 22
+  },
+  "errors": ["OTP_COOLDOWN_ACTIVE"]
 }
 ```
 
@@ -97,7 +103,7 @@ This document covers endpoints related to resetting passwords of unverified temp
 * **Path**: `/api/v1/onboard/forgot-password/verify/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous)
-* **Description**: Verifies the emailed 6-digit OTP. Upon successful verification, invalidates the OTP and returns a secure temporary signed reset token.
+* **Description**: Verifies the emailed OTP (the `otp_code` field accepts 5–6 characters). Upon successful verification, invalidates the OTP and returns a secure temporary signed reset token.
 
 ### Request Payload
 
@@ -149,7 +155,8 @@ This document covers endpoints related to resetting passwords of unverified temp
 {
   "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa",
   "token": "eyJhbGciOi...",
-  "password": "NewSecurePassword123"
+  "password": "NewSecurePass@123",
+  "confirm_password": "NewSecurePass@123"
 }
 ```
 

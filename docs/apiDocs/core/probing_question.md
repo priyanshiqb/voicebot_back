@@ -11,6 +11,8 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
 - `PATCH /api/v1/core/probing-questions/{id}/` - Partial update a probing question
 - `DELETE /api/v1/core/probing-questions/{id}/` - Soft-delete a probing question
 - `POST /api/v1/core/probing-questions/bulk_delete/` - Bulk soft-delete probing questions
+- `GET /api/v1/core/probing-questions/export/?format=csv|xlsx` - Export probing questions as a file download
+- `POST /api/v1/core/probing-questions/import/` - Import probing questions from an uploaded file
 
 ---
 
@@ -26,6 +28,7 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
   - `is_active` (optional): Boolean filter
   - `is_mandatory` (optional): Boolean filter
   - `can_user_edit` (optional): Boolean filter
+  - `is_default` (optional): Boolean filter
 - **Success Response (200 OK)**:
   ```json
   {
@@ -66,7 +69,7 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
     "priority": 1,
     "score": 80,
     "is_mandatory": true,
-    "can_user_edit": false
+    "is_active": true
   }
   ```
 - **Field Validations**:
@@ -74,6 +77,7 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
   - `priority`: Required, integer >= 1.
   - `score`: Required, integer between 0 and 100.
   - `is_mandatory`: Optional, boolean (default: `false`).
+  - `is_active`: Optional, boolean (default: `true`).
   - `can_user_edit`: Read-only field. Ignored on write operations. Defaults to `false` on creation. When `false` in database, the probing question cannot be edited or deleted via the API.
   - `is_default`: Read-only field. Ignored on write operations. Defaults to `false` on creation. When `true` in database, the probing question represents a system-wide default that is visible to all users but cannot be edited or deleted by any user.
 - **Success Response (201 Created)**:
@@ -145,3 +149,39 @@ Manage Probing Questions mapped to Agent Templates under the active tenant conte
     }
   }
   ```
+
+---
+
+### 6. Export Probing Questions
+- **Path**: `GET /api/v1/core/probing-questions/export/?format=csv|xlsx`
+- **Description**: Streams a file download of probing questions. Defaults to `csv` when `format` is omitted; pass `format=xlsx` for an Excel workbook. Honors the same list filters (`search`, `is_active`, `is_mandatory`, `can_user_edit`, `is_default`).
+- **Success Response (200 OK)**: Binary file download (`text/csv` or `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+
+---
+
+### 7. Import Probing Questions
+- **Path**: `POST /api/v1/core/probing-questions/import/`
+- **Headers**:
+  - `Content-Type: multipart/form-data`
+- **Request Payload (Form-Data)**:
+  - `file` (**Required**): A `.csv`, `.xls`, or `.xlsx` file. The import is validated as a dry-run first and is all-or-nothing: if any row fails, nothing is persisted.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Successfully imported 5 records."
+  }
+  ```
+- **Error Responses (400 Bad Request)**:
+  - No file provided: `{ "status": false, "message": "No file provided" }`
+  - Unsupported format: `{ "status": false, "message": "Unsupported file format. Use csv or xlsx." }`
+  - Row validation errors:
+    ```json
+    {
+      "status": false,
+      "message": "Import failed due to validation errors.",
+      "errors": [
+        { "row": 1, "error": "Score must be between 0 and 100." }
+      ]
+    }
+    ```

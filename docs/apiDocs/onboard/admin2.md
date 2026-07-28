@@ -6,6 +6,10 @@ This API provides a list of second-level administrative divisions (Districts/Cou
 
 `GET /api/v1/onboard/admin2/dropdown/`
 
+## Authentication
+
+Requires authentication (`CombinedOnboardingAuthentication` + `IsAuthenticated`).
+
 ## Query Parameters
 
 | Parameter   | Type   | Required | Description                                                  |

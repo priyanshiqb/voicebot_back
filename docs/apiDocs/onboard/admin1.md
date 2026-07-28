@@ -6,6 +6,10 @@ This API provides a list of first-level administrative divisions (States/Provinc
 
 `GET /api/v1/onboard/admin1/dropdown/`
 
+## Authentication
+
+Requires authentication (`CombinedOnboardingAuthentication` + `IsAuthenticated`).
+
 ## Query Parameters
 
 | Parameter    | Type   | Required | Description                                                  |

@@ -121,3 +121,15 @@ class CheckEmailResponseDataSerializer(serializers.Serializer):
 
 class CheckEmailResponseSerializer(BaseEnvelopeSerializer):
     data = CheckEmailResponseDataSerializer(allow_null=True)
+
+
+# --- Check Phone Uniqueness ---
+class CheckPhoneResponseDataSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(required=True)
+    available = serializers.BooleanField(required=True)
+    exists_in_active_users = serializers.BooleanField(required=True)
+    exists_in_pending_registrations = serializers.BooleanField(required=True)
+
+
+class CheckPhoneResponseSerializer(BaseEnvelopeSerializer):
+    data = CheckPhoneResponseDataSerializer(allow_null=True)

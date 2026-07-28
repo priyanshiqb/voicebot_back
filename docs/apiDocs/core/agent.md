@@ -17,6 +17,8 @@ Manage configured Voicebot Agents under the active tenant context.
 - `DELETE /api/v1/core/agents/{id}/` - Soft-delete an agent
 - `POST /api/v1/core/agents/bulk_delete/` - Bulk soft-delete agents
 - `POST /api/v1/core/agents/check-bot-name/` - Check if a bot name is unique
+- `GET /api/v1/core/agents/export/` - Export agents to CSV/XLSX
+- `POST /api/v1/core/agents/import/` - Import agents from CSV/XLSX
 
 ---
 
@@ -30,7 +32,7 @@ Manage configured Voicebot Agents under the active tenant context.
   - `search` (optional): Filter agents by `bot_name` or `persona_name`
   - `ordering` (optional): Sort by `bot_name`, `created_at`, or `tone` (prefix with `-` for descending, default: `-created_at`)
   - `is_active` (optional): Boolean filter
-  - `tone` (optional): Filter by agent tone. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`
+  - `tone` (optional): Filter by agent tone. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`
   - `industry` (optional): Filter by the industry category of the agent's template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
   - `agent_template` (optional): UUID of the associated template
 - **Success Response (200 OK)**:
@@ -93,7 +95,7 @@ Manage configured Voicebot Agents under the active tenant context.
   - `bot_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only. Must be unique per tenant for active agents.
   - `persona_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only.
   - `languages`: Required, non-empty list of language strings.
-  - `tone`: Required. Tone of the agent interaction. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`.
+  - `tone`: Required. Tone of the agent interaction. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`.
   - `agent_template`: Optional, valid UUID of an active Agent Template.
   - `voice_name`: Optional string.
   - `knowledge_bases`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
@@ -187,3 +189,69 @@ Manage configured Voicebot Agents under the active tenant context.
     "errors": null
   }
   ```
+
+---
+
+### 7. Dropdown Options
+- **Path**: `GET /api/v1/core/agents/dropdown/`
+- **Description**: Lightweight `{label, value}` pairs for active agents (for select inputs).
+- **Query Parameters**:
+  - `limit` (optional): Max rows to return. Must be ≤ `1000` (else `400`).
+  - Also accepts the same `search` / filter params as List.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Dropdown options retrieved successfully",
+    "data": [
+      { "label": "Investment Advisor Bot", "value": "7bf26cf4-e53b-48bb-bb82-261ee976378c" }
+    ],
+    "errors": null
+  }
+  ```
+
+---
+
+### 8. Bulk Delete
+- **Path**: `POST /api/v1/core/agents/bulk_delete/`
+- **Description**: Soft-delete multiple agents in one call (tenant-scoped).
+- **Request Payload**:
+  ```json
+  { "ids": ["7bf26cf4-e53b-48bb-bb82-261ee976378c", "8cc37df5-...."] }
+  ```
+- **Field Validations**:
+  - `ids`: Required, **non-empty** list of agent UUIDs. If any id is unknown/not in the caller's tenant, the whole request fails with `400 "Some ids are invalid"` (nothing is deleted).
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`
+
+---
+
+### 9. Export Agents
+- **Path**: `GET /api/v1/core/agents/export/`
+- **Description**: Download the current (filtered) agent list as a file. Honors the same
+  `search` / filter / `ordering` query params as List.
+- **Query Parameters**:
+  - `format` (optional): `csv` (default) or `xlsx`.
+- **Success Response (200 OK)**: a file download (`text/csv` or the XLSX mime type) via
+  `Content-Disposition: attachment`. **Not** the JSON envelope.
+
+---
+
+### 10. Import Agents
+- **Path**: `POST /api/v1/core/agents/import/`
+- **Headers**: `Content-Type: multipart/form-data`
+- **Request Payload** (form-data):
+  - `file`: Required. A `.csv`, `.xls`, or `.xlsx` file.
+- **Behaviour**: Parsed and validated in a dry run first; only committed if the whole file is
+  valid (all-or-nothing). Tenant/user context is injected from the caller.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Successfully imported N records." }`
+- **Error Response (400 Bad Request)**:
+  - No file: `{ "status": false, "message": "No file provided" }`
+  - Bad extension: `{ "status": false, "message": "Unsupported file format. Use csv or xlsx." }`
+  - Row validation errors:
+    ```json
+    {
+      "status": false,
+      "message": "Import failed due to validation errors.",
+      "errors": [ { "row": 2, "error": "..." } ]
+    }
+    ```

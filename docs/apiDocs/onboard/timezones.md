@@ -16,9 +16,12 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `is_active` | Boolean | No | Filter by active state. |
+| `timezone` | String | No | Filter by exact timezone identifier (e.g. `Asia/Kolkata`). |
 | `offset` | String | No | Filter by exact offset (e.g. `UTC+05:30`). |
-| `region` | String | No | Filter or search by region/cities (e.g. `London`, `Mumbai`). |
+| `region` | String | No | Filter by exact region; use `region__icontains` for partial matches (e.g. `London`, `Mumbai`). |
+| `created_at__date` / `created_at__gte` / `created_at__lte` | Date | No | Filter by creation date. |
 | `search` | String | No | Search text matching timezone identifier, offset, or region. |
+| `ordering` | String | No | Order by `timezone`, `offset`, or `created_at` (prefix `-` for descending). |
 
 ### Responses
 
@@ -27,23 +30,25 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 ```json
 {
   "status": true,
-  "message": "List retrieved successfully.",
-  "data": {
+  "message": "success",
+  "data": [
+    {
+      "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
+      "offset": "UTC+05:30",
+      "region": "Mumbai, Delhi, Kolkata, Colombo",
+      "timezone": "Asia/Kolkata",
+      "is_active": true,
+      "created_at": "2026-06-05T10:14:00.000000Z"
+    }
+  ],
+  "errors": null,
+  "meta": {
     "count": 37,
     "next": null,
     "previous": null,
-    "results": [
-      {
-        "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
-        "offset": "UTC+05:30",
-        "region": "Mumbai, Delhi, Kolkata, Colombo",
-        "timezone": "Asia/Kolkata",
-        "is_active": true,
-        "created_at": "2026-06-05T10:14:00.000000Z"
-      }
-    ]
-  },
-  "errors": null
+    "page": 1,
+    "page_size": 10
+  }
 }
 ```
 
@@ -74,7 +79,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 ```json
 {
   "status": true,
-  "message": "Created successfully.",
+  "message": "Created successfully",
   "data": {
     "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
     "offset": "UTC+05:30",
@@ -128,7 +133,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 ```json
 {
   "status": true,
-  "message": "Details retrieved successfully.",
+  "message": "Retrieved successfully",
   "data": {
     "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
     "offset": "UTC+05:30",
@@ -177,7 +182,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 ```json
 {
   "status": true,
-  "message": "Updated successfully.",
+  "message": "Updated successfully",
   "data": {
     "id": "e305e94b-9e4b-4b2a-88fa-10a905a96ab1",
     "offset": "UTC+05:30",
@@ -207,7 +212,7 @@ This document covers endpoints related to listing, creating, retrieving, updatin
 ```json
 {
   "status": true,
-  "message": "Timezone deleted successfully.",
+  "message": "Deleted successfully",
   "data": null,
   "errors": null
 }
@@ -240,6 +245,48 @@ This document covers endpoints related to listing, creating, retrieving, updatin
       "value": "db601d3a-23d2-45e0-9467-34fa88d9ab04"
     }
   ],
+  "errors": null
+}
+```
+
+---
+
+## 🗑️ 7. Bulk Delete Timezones
+
+* **Path**: `/api/v1/onboard/timezones/bulk_delete/`
+* **Method**: `POST`
+* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
+* **Description**: Bulk soft-deletes the listed timezones.
+* **Behaviour**: Soft-deletes listed rows; if any id is invalid the whole request fails with 400 and nothing is deleted.
+
+### Request Payload
+
+```json
+{
+  "ids": ["e305e94b-9e4b-4b2a-88fa-10a905a96ab1", "db601d3a-23d2-45e0-9467-34fa88d9ab04"]
+}
+```
+
+### Responses
+
+#### 200 OK (Success)
+
+```json
+{
+  "status": true,
+  "message": "Bulk deleted successfully",
+  "data": null,
+  "errors": null
+}
+```
+
+#### 400 Bad Request (Invalid IDs)
+
+```json
+{
+  "status": false,
+  "message": "Some ids are invalid",
+  "data": null,
   "errors": null
 }
 ```

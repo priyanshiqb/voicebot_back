@@ -127,3 +127,7 @@ class TempUserSignupSerializer(serializers.Serializer):
 
 class CheckEmailSerializer(serializers.Serializer):
     email = serializers.EmailField(required=True)
+
+
+class CheckPhoneSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(required=True)

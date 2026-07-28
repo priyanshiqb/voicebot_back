@@ -72,7 +72,9 @@ Retrieves the complete details of a single city, including read-only relational 
         "country": {
             "id": "123e4567-e89b-12d3-a456-426614174000",
             "code": "IN",
-            "name": "India"
+            "name": "India",
+            "dial_code": "+91",
+            "format_mask": "XXXXX XXXXX"
         },
         "admin1": {
             "id": "123e4567-e89b-12d3-a456-426614174001",

@@ -18,6 +18,8 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
 - `POST /api/v1/core/bookings/{id}/complete/` - Mark completed
 - `POST /api/v1/core/bookings/{id}/no-show/` - Mark no-show
 - `DELETE /api/v1/core/bookings/{id}/` - Cancel (internal; bypasses lead-time)
+- `GET /api/v1/core/bookings/dropdown/` - List bookings as dropdown rows
+- `POST /api/v1/core/bookings/bulk_delete/` - Bulk soft-delete bookings (raw — see caveat)
 
 ---
 
@@ -26,7 +28,7 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
 ### 1. List Bookings
 - **Path**: `GET /api/v1/core/bookings/`
 - **Headers**: `Authorization: Bearer <token>`
-- **Query Parameters**: `page`, `page_size`; filters `status`, `primary_host`, `event_template`, `source`; `ordering` by `start_time`, `created_at`.
+- **Query Parameters**: `page`, `page_size`; filters `status`, `primary_host`, `event_template`, `source` (`CUSTOMER`, `INTERNAL`, `PUBLIC_LINK`, `AI`); `ordering` by `start_time`, `created_at`.
 - **Success Response (200 OK)**:
   ```json
   {
@@ -176,7 +178,8 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
   ```json
   { "status": false, "message": "This booking can no longer be canceled (requires 60 minutes notice).", "data": null, "errors": { "start_time": ["This booking can no longer be canceled (requires 60 minutes notice)."] } }
   ```
-- **Note**: For a `COLLECTIVE` booking, cancelling any row cancels the whole meeting.
+- **Note**: For a `COLLECTIVE` booking, cancelling any row cancels the whole meeting, and the
+  success message is `"Collective booking canceled"` (not `"Booking canceled"`).
 
 ---
 
@@ -191,6 +194,25 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
 - **Path**: `DELETE /api/v1/core/bookings/{id}/`
 - Cancels the booking (with notification and calendar cleanup) **bypassing** the lead-time check. For a `COLLECTIVE` booking it cancels the whole group.
 - **Success Response (200 OK)**: `{ "status": true, "message": "Deleted successfully", "data": null, "errors": null }`
+
+---
+
+### 9. Dropdown
+- **Path**: `GET /api/v1/core/bookings/dropdown/`
+- **Query Parameters**: `limit` (optional, ≤ 1000) + the same filters as List.
+- **Note**: `BookingViewSet` sets no dropdown serializer, so this returns **full booking rows**
+  (same shape as List), not `{label, value}` pairs.
+
+---
+
+### 10. Bulk Delete
+- **Path**: `POST /api/v1/core/bookings/bulk_delete/`
+- **Request Payload**: `{ "ids": ["4cc85f64-5717-4562-b3fc-2c963f66af30", "..."] }`
+- **⚠️ Caveat**: This is a **raw soft-delete** of the rows — it **bypasses** the cancellation
+  service used by `cancel/` and `DELETE`, so it does **not** send cancellation notifications or
+  remove mirrored calendar events. Use `POST /{id}/cancel/` or `DELETE /{id}/` for customer-facing
+  cancellations; reserve `bulk_delete` for administrative cleanup.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`
 
 ---
 

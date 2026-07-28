@@ -4,7 +4,7 @@ This endpoint resends a verification OTP code to an active onboarded user who re
 
 ## Endpoint Details
 
-* **Path**: `/api/v1/user/forgot-password/resend/`
+* **Path**: `/api/v1/auth/forgot-password/resend/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Rate Limit/Cooldown**: 30 seconds
@@ -32,7 +32,7 @@ Sent when the OTP email delivery is successfully triggered (or silently skipped 
 ```json
 {
   "status": true,
-  "message": "If the email is registered, a verification OTP code will be sent shortly.",
+  "message": "A new verification OTP has been emailed.",
   "data": null,
   "errors": null
 }

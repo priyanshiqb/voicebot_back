@@ -9,6 +9,8 @@ see and manage their own tokens.
 - `POST /api/v1/core/device-tokens/` - Register (upsert) a device token
 - `POST /api/v1/core/device-tokens/deactivate/` - Deactivate a device token
 - `DELETE /api/v1/core/device-tokens/{id}/` - Soft-delete a device token
+- `GET /api/v1/core/device-tokens/dropdown/` - Get label/value list (caller's tokens)
+- `POST /api/v1/core/device-tokens/bulk_delete/` - Bulk soft-delete the caller's tokens
 
 ---
 
@@ -81,3 +83,16 @@ see and manage their own tokens.
 
 ### 4. Delete
 - **Path**: `DELETE /api/v1/core/device-tokens/{id}/` → soft-delete → `{ "status": true, "message": "Deleted successfully" }`.
+
+---
+
+### 5. Dropdown
+- **Path**: `GET /api/v1/core/device-tokens/dropdown/` — `{label, value}` pairs, scoped to the
+  caller's own tokens. Supports `?limit` (≤ 1000) + the `platform` / `is_active` filters.
+
+### 6. Bulk Delete
+- **Path**: `POST /api/v1/core/device-tokens/bulk_delete/`
+- **Request Payload**: `{ "ids": ["d1aa...", "..."] }` — only the caller's own tokens.
+- **Behaviour**: Soft-deletes the listed tokens. If any id is unknown/not the caller's, the whole
+  request fails with `400 "Some ids are invalid"` and nothing is deleted.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`

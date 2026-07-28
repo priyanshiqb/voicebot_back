@@ -79,6 +79,9 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
     "email": "jane.doe@example.com"
   }
   ```
+  * **Runtime Validations**:
+    * `email`: Required. Standard email format validation.
+
 * **Success Output (200 OK)**:
   ```json
   {
@@ -94,6 +97,47 @@ Authentication is strictly segregated during onboarding to guarantee maximum sec
   }
   ```
 
+---
+
+### 0.1 Check Phone Availability (`/check-phone/`)
+* **Endpoint**: `POST /api/v1/onboard/check-phone/`
+* **Auth Level**: Anonymous Public (No Headers)
+* **Description**: Asynchronously checks if a phone number already exists in either the active CustomUser or pending TempUser tables. Returns availability status to provide instant UI feedback during onboarding.
+* **Request Payload**:
+  ```json
+  {
+    "phone_number": "919876543210"
+  }
+  ```
+  * **Runtime Validations**:
+    * `phone_number`: Required. Must be a valid string.
+
+* **Success Output (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Phone number availability checked.",
+    "data": {
+      "phone_number": "919876543210",
+      "available": true,
+      "exists_in_active_users": false,
+      "exists_in_pending_registrations": false
+    },
+    "errors": null
+  }
+  ```
+  
+* **Validation Failure Output (400 Bad Request)**:
+  ```json
+  {
+    "status": false,
+    "message": "Validation failed",
+    "data": null,
+    "errors": {
+      "phone_number": ["This field is required."]
+    }
+  }
+  ```
 ---
 
 ### 1. Register Pending User (`/register-pending/`)

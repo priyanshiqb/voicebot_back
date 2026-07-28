@@ -6,7 +6,7 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ## 🔍 1. List Users
 
-* **Path**: `/api/v1/user/users/`
+* **Path**: `/api/v1/auth/users/`
 * **Method**: `GET`
 * **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Returns a paginated list of users.
@@ -16,6 +16,8 @@ This document covers endpoints related to user listing, details, creation, updat
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `is_active` | Boolean | No | Filter by active state. |
+| `is_verified` | Boolean | No | Filter by verification state. |
+| `created_at` | Date/DateTime | No | Filter by creation time. Supports lookups: `created_at__date`, `created_at__gte`, `created_at__lte`. |
 | `search` | String | No | Search text matching email, username, first_name, last_name, or phone_number. |
 | `ordering` | String | No | Order by `created_at`, `updated_at`, `email`, `first_name`, `last_name`. Prefix with `-` for descending. |
 
@@ -26,36 +28,38 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "status": true,
-  "message": "List retrieved successfully.",
-  "data": {
+  "message": "success",
+  "data": [
+    {
+      "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
+      "email": "user@example.com",
+      "first_name": "John",
+      "last_name": "Doe",
+      "phone_number": "+1234567890",
+      "is_active": true,
+      "is_verified": true,
+      "session_timeout_hours": 168,
+      "created_at": "2026-06-03T10:00:00Z",
+      "timezone": {
+        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
+        "timezone": "Asia/Kolkata",
+        "offset": "UTC+05:30"
+      },
+      "language": {
+        "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
+        "name": "English (India)",
+        "code": "en-IN"
+      }
+    }
+  ],
+  "errors": null,
+  "meta": {
     "count": 1,
     "next": null,
     "previous": null,
-    "results": [
-      {
-        "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-        "email": "user@example.com",
-        "first_name": "John",
-        "last_name": "Doe",
-        "phone_number": "+1234567890",
-        "is_active": true,
-        "is_verified": true,
-        "session_timeout_hours": 168,
-        "created_at": "2026-06-03T10:00:00Z",
-        "timezone": {
-          "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-          "timezone": "Asia/Kolkata",
-          "offset": "UTC+05:30"
-        },
-        "language": {
-          "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
-          "name": "English (India)",
-          "code": "en-IN"
-        }
-      }
-    ]
-  },
-  "errors": null
+    "page": 1,
+    "page_size": 10
+  }
 }
 ```
 
@@ -74,7 +78,7 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ## 👤 2. Get Current User ("Me")
 
-* **Path**: `/api/v1/user/users/me/`
+* **Path**: `/api/v1/auth/users/me/`
 * **Method**: `GET`
 * **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Retrieve detailed profile of the currently logged-in user.
@@ -86,7 +90,7 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "status": true,
-  "message": "Details retrieved successfully.",
+  "message": "success",
   "data": {
     "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
     "email": "user@example.com",
@@ -96,8 +100,6 @@ This document covers endpoints related to user listing, details, creation, updat
     "is_active": true,
     "is_verified": true,
     "session_timeout_hours": 168,
-    "created_at": "2026-06-03T10:00:00Z",
-    "updated_at": "2026-06-03T10:00:00Z",
     "timezone": {
       "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
       "timezone": "Asia/Kolkata",
@@ -183,10 +185,10 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ## ➕ 3. Create User
 
-* **Path**: `/api/v1/user/users/`
+* **Path**: `/api/v1/auth/users/`
 * **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Creates a new user in the system.
+* **Authentication**: Bearer JWT (IsAuthenticated)
+* **Description**: Creates a new user in the system. Any authenticated user may create users; non-superusers create users scoped to their own tenant.
 
 ### Request Payload
 
@@ -202,6 +204,8 @@ This document covers endpoints related to user listing, details, creation, updat
   "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
 }
 ```
+
+> **Notes**: `password` is **optional** (`required=False`); if omitted, the user is created without a usable password. `is_active` is writable and may be supplied in the payload.
 
 ### Responses
 
@@ -220,8 +224,6 @@ This document covers endpoints related to user listing, details, creation, updat
     "is_active": true,
     "is_verified": false,
     "session_timeout_hours": 24,
-    "created_at": "2026-06-03T12:00:00Z",
-    "updated_at": "2026-06-03T12:00:00Z",
     "timezone": {
       "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
       "timezone": "Asia/Kolkata",
@@ -254,7 +256,7 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ## 🔄 4. Update User (PUT / PATCH)
 
-* **Path**: `/api/v1/user/users/{id}/`
+* **Path**: `/api/v1/auth/users/{id}/`
 * **Method**: `PUT` or `PATCH`
 * **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Updates user profile parameters.
@@ -287,8 +289,6 @@ This document covers endpoints related to user listing, details, creation, updat
     "is_active": true,
     "is_verified": true,
     "session_timeout_hours": 24,
-    "created_at": "2026-06-03T10:00:00Z",
-    "updated_at": "2026-06-03T12:30:00Z",
     "timezone": {
       "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
       "timezone": "Asia/Kolkata",
@@ -319,10 +319,10 @@ This document covers endpoints related to user listing, details, creation, updat
 
 ## ❌ 5. Delete User
 
-* **Path**: `/api/v1/user/users/{id}/`
+* **Path**: `/api/v1/auth/users/{id}/`
 * **Method**: `DELETE`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Soft-deletes a user from the system.
+* **Authentication**: Bearer JWT (IsAuthenticated)
+* **Description**: Soft-deletes a user from the system. Any authenticated user may delete users within their tenant scope (results are tenant-scoped, not superuser-only).
 
 ### Responses
 
@@ -331,7 +331,7 @@ This document covers endpoints related to user listing, details, creation, updat
 ```json
 {
   "status": true,
-  "message": "User deleted successfully.",
+  "message": "Deleted successfully",
   "data": null,
   "errors": null
 }

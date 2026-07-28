@@ -69,7 +69,7 @@ Indicates that the event has been successfully received, validated, and processe
 ```json
 {
   "status": true,
-  "message": "Webhook processed successfully.",
+  "message": "success",
   "data": null,
   "errors": null
 }
@@ -82,8 +82,8 @@ Returned if the `X-Razorpay-Signature` is missing or cryptographically invalid.
 ```json
 {
   "status": false,
-  "message": "Webhook signature verification failed.",
+  "message": "unauthorized",
   "data": null,
-  "errors": ["SIGNATURE_VERIFICATION_FAILED"]
+  "errors": ["SIGNATURE_CHECK_FAILED"]
 }
 ```

@@ -12,6 +12,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
 - `PUT /api/v1/core/event-templates/{id}/` - Update a template
 - `PATCH /api/v1/core/event-templates/{id}/` - Partial update a template
 - `DELETE /api/v1/core/event-templates/{id}/` - Soft-delete a template
+- `POST /api/v1/core/event-templates/bulk_delete/` - Bulk soft-delete templates
 
 ---
 
@@ -134,7 +135,8 @@ An event template defines duration, buffers, how a host is chosen, and the booki
   - `slot_granularity_minutes`: Optional (default 15), integer >= 1. Step between candidate slots.
   - `cancellation_lead_minutes` / `reschedule_lead_minutes`: Optional (default 60). Minimum notice to cancel/reschedule.
   - `location_type`: Optional (default `VIDEO`). One of `IN_PERSON`, `PHONE`, `VIDEO`.
-  - `color`: Optional, 7-char hex string.
+  - `color`: Optional, string up to 7 chars (e.g. a hex color like `#0284C7`). Stored as-is — **not** format-validated.
+  - `is_active`: Optional (default `true`). Writable — set `false` to keep the template but hide it from booking.
   - `tenant`, audit fields, `id`, timestamps: Read-only.
 - **Success Response (201 Created)**: Full template object (see Retrieve), `message: "Created successfully"`.
 - **Error Response (400 Bad Request)**:
@@ -171,3 +173,12 @@ An event template defines duration, buffers, how a host is chosen, and the booki
     "errors": { "detail": "This event type has active bookings and cannot be deleted." }
   }
   ```
+
+---
+
+### 7. Bulk Delete
+- **Path**: `POST /api/v1/core/event-templates/bulk_delete/`
+- **Request Payload**: `{ "ids": ["3fa85f64-5717-4562-b3fc-2c963f66afa6", "..."] }`
+- **Behaviour**: Soft-deletes all listed templates (tenant-scoped). If any id is unknown or not
+  in your tenant, the whole request fails with `400 "Some ids are invalid"` and nothing is deleted.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`

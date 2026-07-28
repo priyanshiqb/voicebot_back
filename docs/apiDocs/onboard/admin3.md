@@ -6,6 +6,10 @@ This API provides a list of third-level administrative divisions (Sub-districts)
 
 `GET /api/v1/onboard/admin3/dropdown/`
 
+## Authentication
+
+Requires authentication (`CombinedOnboardingAuthentication` + `IsAuthenticated`).
+
 ## Query Parameters
 
 | Parameter   | Type   | Required | Description                                                  |

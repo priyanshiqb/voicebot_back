@@ -6,6 +6,10 @@ This API provides a list of countries for dropdown selection, with built-in sear
 
 `GET /api/v1/onboard/countries/dropdown/`
 
+## Authentication
+
+Requires authentication (`CombinedOnboardingAuthentication` + `IsAuthenticated`).
+
 ## Query Parameters
 
 | Parameter | Type   | Required | Description                                                  |

@@ -21,8 +21,9 @@ Retrieve a paginated list of call logs under your tenant.
 - `?direction=inbound|outbound`
 - `?outcome=order_placed`
 - `?agent=<agent-uuid>`
-- `?search=<provider_call_id or caller_number>`
-- `?ordering=-started_at`
+- `?campaign_id=<campaign-uuid>`
+- `?search=<provider_call_id, caller_number, or caller_name>`
+- `?ordering=-started_at` (allowed sort fields: `started_at`, `duration_seconds`)
 
 **Response (200 OK):**
 ```json
@@ -121,6 +122,7 @@ Ingest a new conversation log from the telephony provider.
     "caller_number": "+91 93880 25735",
     "caller_name": "Nisha Patel",
     "direction": "inbound",
+    "campaign_id": "campaign-uuid-string",
     "duration_seconds": 326,
     "outcome": "order_placed",
     "mood": "neutral",
@@ -170,3 +172,30 @@ Ingest a new conversation log from the telephony provider.
 **Error Responses:**
 - `403 Forbidden`: `{"status": false, "message": "Permission denied."}` (If caller is not a VB_AGENT).
 - `400 Bad Request`: `{"status": false, "errors": {"provider_call_id": ["This field is required."]}}`
+
+---
+
+## 4. Get Dropdown Options
+Retrieve a lightweight `label`/`value` list of call logs for selection widgets (`label` is the `provider_call_id`, `value` is the `id`).
+
+**Endpoint:** `GET /api/v1/core/agent-call-logs/dropdown/`
+**Required Permissions:** `IsAuthenticated`
+
+**Query Params:**
+- `limit` (optional, ≤ 1000): Cap the number of options returned.
+- Accepts the same filters as **List** (`direction`, `outcome`, `agent`, `campaign_id`, `search`).
+
+**Response (200 OK):**
+```json
+{
+  "status": true,
+  "message": "Dropdown options retrieved successfully",
+  "data": [
+    {
+      "label": "call-001",
+      "value": "uuid-string"
+    }
+  ],
+  "errors": null
+}
+```

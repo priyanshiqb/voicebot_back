@@ -11,6 +11,8 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
 - `PATCH /api/v1/core/agent-templates/{id}/` - Partial update a template
 - `DELETE /api/v1/core/agent-templates/{id}/` - Soft-delete a template
 - `POST /api/v1/core/agent-templates/bulk_delete/` - Bulk soft-delete templates
+- `GET /api/v1/core/agent-templates/export/?format=csv|xlsx` - Export templates as a file download
+- `POST /api/v1/core/agent-templates/import/` - Import templates from an uploaded file
 
 ---
 
@@ -24,10 +26,11 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
   - `page` (optional): Page number (default: 1)
   - `page_size` (optional): Items per page (default: 10)
   - `search` (optional): Filter templates by `name` or `short_description` (partial case-insensitive)
-  - `ordering` (optional): Sort by `name` or `created_at` (prefix with `-` for descending, default: `-created_at`)
+  - `ordering` (optional): Sort by `name`, `created_at`, `updated_at`, `industry`, `is_default`, or `strict_facts` (prefix with `-` for descending, default: `-created_at`)
   - `is_active` (optional): Boolean filter
   - `strict_facts` (optional): Boolean filter
   - `can_user_edit_flow` (optional): Boolean filter
+  - `is_default` (optional): Boolean filter
   - `industry` (optional): Filter templates by industry category. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
 - **Success Response (200 OK)**:
   ```json
@@ -149,8 +152,8 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
   - `short_description`: Required, 10-300 characters.
   - `visual_icon`: Optional, max length 50 characters.
   - `primary_accent`: Optional, valid 6-digit hex color format (e.g. `#00FF00`, matching `^#[0-9A-Fa-f]{6}$`).
-  - `agent_prompt`: Required, 30-5000 characters.
-  - `industry`: Required. Selected industry category for the template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`.
+  - `agent_prompt`: Required, 30-50000 characters.
+  - `industry`: Optional. Selected industry category for the template (default: `GENERAL_ASSISTANT`). Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`.
   - `strict_facts`: Optional, boolean (default: `true`).
   - `can_user_edit_flow`: Optional, boolean (default: `true`).
   - `is_active`: Optional, boolean (default: `true`).
@@ -318,3 +321,39 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
     }
   }
   ```
+
+---
+
+### 8. Export Agent Templates
+- **Path**: `GET /api/v1/core/agent-templates/export/?format=csv|xlsx`
+- **Description**: Streams a file download of agent templates. Defaults to `csv` when `format` is omitted; pass `format=xlsx` for an Excel workbook. Honors the same list filters (`search`, `is_active`, `strict_facts`, `can_user_edit_flow`, `is_default`, `industry`).
+- **Success Response (200 OK)**: Binary file download (`text/csv` or `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).
+
+---
+
+### 9. Import Agent Templates
+- **Path**: `POST /api/v1/core/agent-templates/import/`
+- **Headers**:
+  - `Content-Type: multipart/form-data`
+- **Request Payload (Form-Data)**:
+  - `file` (**Required**): A `.csv`, `.xls`, or `.xlsx` file. The import is validated as a dry-run first and is all-or-nothing: if any row fails, nothing is persisted.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Successfully imported 5 records."
+  }
+  ```
+- **Error Responses (400 Bad Request)**:
+  - No file provided: `{ "status": false, "message": "No file provided" }`
+  - Unsupported format: `{ "status": false, "message": "Unsupported file format. Use csv or xlsx." }`
+  - Row validation errors:
+    ```json
+    {
+      "status": false,
+      "message": "Import failed due to validation errors.",
+      "errors": [
+        { "row": 1, "error": "Name must be between 2 and 100 characters." }
+      ]
+    }
+    ```

@@ -6,7 +6,7 @@ This document covers endpoints related to user login, logout, JWT token refresh,
 
 ## 🔑 1. User Login
 
-* **Path**: `/api/v1/user/login/`
+* **Path**: `/api/v1/auth/login/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Description**: Authenticates active users via email and password, returning JWT access and refresh tokens.
@@ -25,7 +25,7 @@ This document covers endpoints related to user login, logout, JWT token refresh,
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-| `password` | String | Yes | Minimum 8 characters. | User's plaintext password. |
+| `password` | String | Yes | None (no length or complexity check on login). | User's plaintext password. |
 
 ### Responses
 
@@ -41,7 +41,6 @@ This document covers endpoints related to user login, logout, JWT token refresh,
     "user": {
       "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
       "email": "user@example.com",
-      "username": "user123",
       "first_name": "John",
       "last_name": "Doe"
     }
@@ -79,14 +78,41 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 }
 ```
 
-#### 403 Forbidden (Authentication Failure)
-
+##### Case C: Invalid Credentials
+Wrong email/password (or the account does not exist). Returned as a `400` with a `credentials` errors key:
 ```json
 {
   "status": false,
-  "message": "Invalid credentials or inactive account.",
+  "message": "Invalid email or password",
   "data": null,
-  "errors": ["INVALID_CREDENTIALS"]
+  "errors": {
+    "credentials": ["Invalid email or password"]
+  }
+}
+```
+
+##### Case D: Inactive Account
+Credentials are valid but the user account is disabled. Returned as a `400` with an `account` errors key:
+```json
+{
+  "status": false,
+  "message": "User account is disabled",
+  "data": null,
+  "errors": {
+    "account": ["User account is disabled"]
+  }
+}
+```
+
+#### 403 Forbidden (Account/IP Locked)
+
+The only `403` this endpoint returns. Produced by django-defender after too many failed login attempts; the account or source IP is temporarily locked.
+```json
+{
+  "status": false,
+  "message": "Account or IP temporarily locked due to too many failed login attempts. Please try again in 1 hour.",
+  "data": null,
+  "errors": null
 }
 ```
 
@@ -94,7 +120,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ## 🚪 2. User Logout
 
-* **Path**: `/api/v1/user/logout/`
+* **Path**: `/api/v1/auth/logout/`
 * **Method**: `POST`
 * **Authentication**: Bearer JWT (IsAuthenticated)
 * **Description**: Blacklists the provided refresh token to terminate the user session.
@@ -120,7 +146,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 ```json
 {
   "status": true,
-  "message": "Successfully logged out.",
+  "message": "Logout successful",
   "data": null,
   "errors": null
 }
@@ -128,12 +154,13 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 #### 400 Bad Request (Token Error)
 
+Returned as a plain message with no `errors` array. The message is `"Refresh token is required."` when the field is missing, or `"Invalid refresh token."` when it is invalid/expired.
 ```json
 {
   "status": false,
-  "message": "Token is invalid or expired.",
+  "message": "Invalid refresh token.",
   "data": null,
-  "errors": ["INVALID_TOKEN"]
+  "errors": null
 }
 ```
 
@@ -141,7 +168,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ## 🔄 3. Token Refresh
 
-* **Path**: `/api/v1/user/token-refresh/`
+* **Path**: `/api/v1/auth/refresh/`
 * **Method**: `POST`
 * **Authentication**: None
 * **Description**: Issues a new JWT access token using an active refresh token. 
@@ -170,20 +197,31 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
   "status": true,
   "message": "Token refreshed successfully.",
   "data": {
-    "access": "eyJhbGciOi..."
+    "access": "eyJhbGciOi...",
+    "refresh": "eyJhbGciOi..."
   },
   "errors": null
 }
 ```
 
-#### 400 Bad Request (Token Error)
+> **Note**: Refresh tokens are rotated (`ROTATE_REFRESH_TOKENS=True`), so a **new** `refresh` token is returned alongside the new `access` token. Clients must replace their stored refresh token with this rotated value.
+
+#### 400 Bad Request (Token/Account Error)
+
+Returned as a plain message with no `errors` array. Possible messages:
+- `"Refresh token is required."`
+- `"Invalid refresh token."`
+- `"User account is inactive."`
+- `"User account is deleted."`
+- `"Session is invalid or has been logged out."`
+- `"User not found."`
 
 ```json
 {
   "status": false,
-  "message": "Token is invalid or expired.",
+  "message": "Invalid refresh token.",
   "data": null,
-  "errors": ["INVALID_TOKEN"]
+  "errors": null
 }
 ```
 
@@ -191,7 +229,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ## 🔒 4. Password Reset - Step 1: Forgot Password
 
-* **Path**: `/api/v1/user/forgot-password/`
+* **Path**: `/api/v1/auth/forgot-password/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Description**: Generates a 6-digit OTP verification code valid for 2 minutes and emails it to the user.
@@ -223,11 +261,25 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 }
 ```
 
+#### 400 Bad Request (Cooldown Active)
+
+Returned if another OTP is requested within the 30-second cooldown window.
+```json
+{
+  "status": false,
+  "message": "Please wait before requesting another OTP.",
+  "data": {
+    "cooldown_remaining": 18
+  },
+  "errors": ["OTP_COOLDOWN_ACTIVE"]
+}
+```
+
 ---
 
 ## 🔁 5. Password Reset - Step 1 Helper: Resend Forgot Password OTP
 
-* **Path**: `/api/v1/user/forgot-password/resend/`
+* **Path**: `/api/v1/auth/forgot-password/resend/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Description**: Resends a new 6-digit verification OTP to the user's email, subject to a 30-second cooldown period.
@@ -253,7 +305,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 ```json
 {
   "status": true,
-  "message": "If the email is registered, a verification OTP code will be sent shortly.",
+  "message": "A new verification OTP has been emailed.",
   "data": null,
   "errors": null
 }
@@ -276,7 +328,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ## 🔍 6. Password Reset - Step 2: Verify Forgot Password OTP
 
-* **Path**: `/api/v1/user/forgot-password/verify/`
+* **Path**: `/api/v1/auth/forgot-password/verify/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Description**: Verifies the received OTP. Upon success, returns a secure temporary signed reset token.
@@ -295,7 +347,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 | Field | Type | Required | Constraints / Validation | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-| `otp_code` | String | Yes | Must be a 6-digit numeric string. | The OTP code sent to the email. |
+| `otp_code` | String | Yes | 5 to 6 characters (`min_length=5`, `max_length=6`). No numeric-only validation is enforced. | The OTP code sent to the email. |
 
 ### Responses
 
@@ -327,7 +379,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 
 ## 🔒 7. Password Reset - Step 3: Reset Password
 
-* **Path**: `/api/v1/user/reset-password/`
+* **Path**: `/api/v1/auth/reset-password/`
 * **Method**: `POST`
 * **Authentication**: None (Anonymous/AllowAny)
 * **Description**: Uses the temporary signed token to perform the password update. The token is single-use.
@@ -349,7 +401,7 @@ If the supplied email and password match a pending onboarding (`TempUser`) sessi
 | :--- | :--- | :--- | :--- | :--- |
 | `email` | String | Yes | Must be a valid email format. | User's registered email address. |
 | `token` | String | Yes | Must be a valid, unexpired signed token. | The verification reset token. |
-| `password` | String | Yes | Minimum 8 characters. | New plaintext password. |
+| `password` | String | Yes | 8 to 32 characters, no spaces; must contain at least one uppercase letter, one lowercase letter, one digit, and one special character. | New plaintext password. |
 | `confirm_password` | String | Yes | Must match `password`. | Password confirmation. |
 
 ### Responses
@@ -397,22 +449,32 @@ curl -X GET "https://api.example.com/api/v1/some-agent-endpoint/" \
 
 ### Responses
 
-#### 403 Forbidden (Invalid Token)
-If the token is invalid, expired, or inactive:
+All agent authentication failures return **HTTP 401 Unauthorized** (raised as `AuthenticationFailed`).
+
+#### 401 Unauthorized (Invalid Token)
+If no matching active token prefix is found (invalid or inactive token):
 ```json
 {
   "detail": "Invalid or inactive agent token."
 }
 ```
 
-#### 403 Forbidden (Expired Token)
+#### 401 Unauthorized (Invalid Secret)
+If the token prefix matches but the secret is wrong:
+```json
+{
+  "detail": "Invalid agent token secret."
+}
+```
+
+#### 401 Unauthorized (Expired Token)
 ```json
 {
   "detail": "Agent token has expired."
 }
 ```
 
-#### 403 Forbidden (Invalid User)
+#### 401 Unauthorized (Invalid User)
 If the user account is inactive or not of type `VB_AGENT`:
 ```json
 {

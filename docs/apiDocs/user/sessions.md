@@ -23,7 +23,7 @@ Retrieve a list of all active, unexpired login sessions for the authenticated us
   ```json
   {
       "status": true,
-      "message": "Listed successfully",
+      "message": "success",
       "data": [
           {
               "id": "76495b28-1cdc-485c-bee9-8f8229516b8d",
@@ -45,7 +45,15 @@ Retrieve a list of all active, unexpired login sessions for the authenticated us
               "updated_at": "2026-06-09T12:00:00Z",
               "is_current": false
           }
-      ]
+      ],
+      "errors": null,
+      "meta": {
+          "count": 2,
+          "next": null,
+          "previous": null,
+          "page": 1,
+          "page_size": 10
+      }
   }
   ```
 
@@ -63,6 +71,10 @@ Retrieve detailed information about a specific login session.
       "message": "Retrieved successfully",
       "data": {
           "id": "76495b28-1cdc-485c-bee9-8f8229516b8d",
+          "created_at": "2026-06-09T17:00:00Z",
+          "updated_at": "2026-06-09T17:15:00Z",
+          "deleted_at": null,
+          "is_deleted": false,
           "device_name": "Chrome on Windows",
           "ip_address": "127.0.0.1",
           "is_active": true,
@@ -114,4 +126,55 @@ Sign out of all other active sessions globally, except for the current session m
   }
   ```
 * **Error Responses**:
+  * **HTTP 401 Unauthorized**: If missing or invalid access token.
+
+---
+
+## 5. Create Session
+
+Create a session record directly.
+
+> **Note**: Sessions are normally created and rotated automatically by the login and token-refresh flows. This endpoint is exposed by the underlying viewset (`http_method_names` includes `post`) but is **system-managed** and generally not intended for direct client use.
+
+* **Path**: `/api/v1/auth/sessions/`
+* **Method**: `POST`
+* **Request Body**: Requires `expires_at`; other writable fields (`device_name`, `ip_address`, `is_active`) are optional.
+* **Response (Success - HTTP 201 Created)**: `{ "status": true, "message": "Created successfully", "data": { ...session... }, "errors": null }`
+* **Error Responses**:
+  * **HTTP 400 Bad Request**: If `expires_at` (or another required field) is missing/invalid.
+  * **HTTP 401 Unauthorized**: If missing or invalid access token.
+
+---
+
+## 6. Session Dropdown
+
+Lightweight `{ label, value }` list of the user's sessions, for populating selectors. Inherited from the base viewset.
+
+* **Path**: `/api/v1/auth/sessions/dropdown/`
+* **Method**: `GET`
+* **Query Parameters**:
+  * `?limit=<n>`: Cap the number of options. Maximum `1000` (a larger value returns `400` with `"Limit cannot exceed 1000"`).
+  * Also supports the same list filters (`is_active`, `search`, `ordering`).
+* **Response (Success - HTTP 200 OK)**: `data` is an array of `{ "label": "Chrome on Windows (IP: 127.0.0.1)", "value": "<session id>" }` objects, alongside the standard `meta` block.
+* **Error Responses**:
+  * **HTTP 401 Unauthorized**: If missing or invalid access token.
+
+---
+
+## 7. Bulk Delete Sessions
+
+Soft-delete (revoke) multiple sessions in a single request. Inherited from the base viewset.
+
+* **Path**: `/api/v1/auth/sessions/bulk_delete/`
+* **Method**: `POST`
+* **Request Body**:
+  ```json
+  {
+      "ids": ["76495b28-1cdc-485c-bee9-8f8229516b8d", "e9686c12-d410-4662-92e5-370a584c6059"]
+  }
+  ```
+* **Behavior**: All-or-nothing. Every id must resolve to one of the caller's sessions; if any id is invalid the whole request fails with `400`.
+* **Response (Success - HTTP 200 OK)**: `{ "status": true, "message": "Bulk deleted successfully", "data": null, "errors": null }`
+* **Error Responses**:
+  * **HTTP 400 Bad Request**: `"ids must be a non-empty list"` (empty/malformed body) or `"Some ids are invalid"` (one or more ids not found).
   * **HTTP 401 Unauthorized**: If missing or invalid access token.

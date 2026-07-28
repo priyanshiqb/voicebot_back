@@ -20,7 +20,7 @@ All endpoints require active bearer token authentication and automatically enfor
 
 ### 🎛️ Filter Parameters
 * **`?is_processed=true|false`**
-* **`?processing_status=PENDING|SUCCESS|FAILED`**
+* **`?processing_status=PENDING|PROCESSING|COMPLETED|FAILED`**
 
 ### ↕️ Sorting Options
 * **Parameter**: `?ordering=<field>`
@@ -215,7 +215,8 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
     | * Title | `title` | string | **Yes** | Max 255 chars | The main heading/title for this text block. |
     | * Description | `description` | string | No | - | The detailed text content or guidelines body. |
     | **Files (`files`)** | | | | | |
-    | * File | `file` | file / binary | **Yes** | Max 10 MB | Path or binary stream. Restrained strictly to `.pdf`, `.docx`, or `.txt`. |
+    | * Pre-uploaded File ID | `id` | uuid | Cond. | - | **Primary flow:** link a file already uploaded via `upload_file/` or `confirm-upload/` by its `id`. Provide either this `id` **or** an inline `file` binary. |
+    | * File | `file` | file / binary | Cond. | Max 10 MB | Inline upload alternative. Path or binary stream, restrained strictly to `.pdf`, `.docx`, or `.txt`. |
     | **Websites (`websites`)** | | | | | |
     | * Website URL | `url` | string | **Yes** | Valid URL format | Domain crawling target. Must be unique within the active tenant to prevent duplicates. |
     | **Question Answers (`question_answers`)** | | | | | |
@@ -230,7 +231,10 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
   "message": "Created successfully",
   "data": {
     "id": "8dc71f83-bf9c-4e89-bdc9-cd369a836da2",
-    "tenant": "uuid-tenant-id",
+    "tenant": {
+      "id": "uuid-tenant-id",
+      "name": "Alpha Corp"
+    },
     "name": "Acme Guides",
     "texts": [
       {
@@ -254,9 +258,15 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
     "is_processed": false,
     "processing_status": "PENDING",
     "processing_error": null,
-    "last_processed_at": null,
-    "processing_history": [],
-    "created_by": "uuid-user-id",
+    "etl_id": null,
+    "pending_at": null,
+    "processing_at": null,
+    "completed_at": null,
+    "failed_at": null,
+    "created_by": {
+      "id": "uuid-user-id",
+      "name": "Emma"
+    },
     "created_at": "2026-06-02T15:04:12.000Z"
   },
   "errors": null
@@ -274,7 +284,10 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
   "message": "Retrieved successfully",
   "data": {
     "id": "8dc71f83-bf9c-4e89-bdc9-cd369a836da2",
-    "tenant": "uuid-tenant-id",
+    "tenant": {
+      "id": "uuid-tenant-id",
+      "name": "Alpha Corp"
+    },
     "name": "Acme Guides",
     "texts": [
       {
@@ -304,8 +317,11 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
     "is_processed": false,
     "processing_status": "PENDING",
     "processing_error": null,
-    "last_processed_at": null,
-    "processing_history": []
+    "etl_id": null,
+    "pending_at": null,
+    "processing_at": null,
+    "completed_at": null,
+    "failed_at": null
   },
   "errors": null
 }
@@ -415,7 +431,7 @@ Returned if the Knowledge Base is connected to an agent and `force=true` was not
 ---
 
 ### 8. Bulk Delete Action
-* **Path**: `POST /api/v1/core/knowledge-base/bulk_delete/`
+* **Path**: `POST /api/v1/core/knowledge-base/bulk-delete/`
 * **Query Parameters**:
   * `force=true` (optional): Required to bypass validation if any selected knowledge base is connected to an active agent.
 * **Request Payload**:

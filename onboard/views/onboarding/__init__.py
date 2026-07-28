@@ -15,6 +15,7 @@ from .forgot_password_verify import ForgotPasswordVerifyOTPView
 from .forgot_password_resend import ForgotPasswordResendOTPView
 from .reset_password import ResetPasswordView
 from .check_email import CheckEmailView
+from .check_phone import CheckPhoneView
 
 __all__ = [
     "IsTempUserAuthenticated",
@@ -35,4 +36,5 @@ __all__ = [
     "ForgotPasswordResendOTPView",
     "ResetPasswordView",
     "CheckEmailView",
+    "CheckPhoneView",
 ]

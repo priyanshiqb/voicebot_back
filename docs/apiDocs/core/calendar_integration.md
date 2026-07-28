@@ -11,6 +11,7 @@ exposed** by the API. The provider is chosen with `?provider=` on connect (defau
 - `GET /api/v1/core/calendar-integrations/` - List integrations (paginated)
 - `GET /api/v1/core/calendar-integrations/{id}/` - Retrieve an integration
 - `DELETE /api/v1/core/calendar-integrations/{id}/` - Disconnect (revoke + stop watch)
+- `GET /api/v1/core/calendar-integrations/dropdown/` - Get label/value list (label = account email)
 - `POST /api/v1/core/calendar-webhook/google/` - Google push notifications (system, public)
 - `POST /api/v1/core/calendar-webhook/microsoft/` - Microsoft Graph push notifications (system, public)
 
@@ -83,6 +84,13 @@ exposed** by the API. The provider is chosen with `?provider=` on connect (defau
   ```
 - **`sync_status` values**: `CONNECTED`, `REAUTH_REQUIRED` (token refresh failed → host must
   reconnect), `ERROR`, `DISCONNECTED`.
+
+#### Dropdown
+- **Path**: `GET /api/v1/core/calendar-integrations/dropdown/` — `{label, value}` pairs where
+  `label` is the connected `account_email`. Supports `?limit` (≤ 1000) + the List filters
+  (`user`, `provider`, `sync_status`).
+- **Note**: `bulk_delete` is **not** available on this resource (POST is disabled → `405`);
+  remove an integration with `DELETE /{id}/`.
 
 ---
 

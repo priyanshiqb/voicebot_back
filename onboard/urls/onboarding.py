@@ -16,10 +16,12 @@ from onboard.views.onboarding import (
     ForgotPasswordResendOTPView,
     ResetPasswordView,
     CheckEmailView,
+    CheckPhoneView,
 )
 
 urlpatterns = [
     path('check-email/', CheckEmailView.as_view(), name='check-email'),
+    path('check-phone/', CheckPhoneView.as_view(), name='check-phone'),
     path('register-pending/', TempUserRegisterView.as_view(), name='register-pending'),
     path('verify-otp/', VerifyOTPView.as_view(), name='verify-otp'),
     path('change-email/', ChangeEmailView.as_view(), name='change-email'),

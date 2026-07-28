@@ -9,6 +9,8 @@ authenticated tenant. A template with no skills cannot be booked.
 - `POST /api/v1/core/event-skills/` - Link a host to an event type
 - `PUT` / `PATCH /api/v1/core/event-skills/{id}/` - Update a link
 - `DELETE /api/v1/core/event-skills/{id}/` - Soft-delete a link
+- `GET /api/v1/core/event-skills/dropdown/` - Get label/value list
+- `POST /api/v1/core/event-skills/bulk_delete/` - Bulk soft-delete links
 
 ---
 
@@ -58,6 +60,7 @@ authenticated tenant. A template with no skills cannot be booked.
   - `user`: Required. Must belong to the caller's tenant.
   - `event_template`: Required. Must belong to the caller's tenant.
   - `weight`: Optional (default 1). Relative bias for round-robin selection (higher = chosen more often).
+  - `is_active`: Optional (default `true`). Writable on create/update.
   - A `(user, event_template)` pair is unique per tenant among active rows.
 - **Success Response (201 Created)**:
   ```json
@@ -93,3 +96,23 @@ authenticated tenant. A template with no skills cannot be booked.
 ### 3. Update / Delete
 - **Path**: `PUT` / `PATCH /api/v1/core/event-skills/{id}/` — update `weight` / `is_active`.
 - **Path**: `DELETE /api/v1/core/event-skills/{id}/` — soft-delete → `{ "status": true, "message": "Deleted successfully" }`.
+
+---
+
+### 4. Dropdown
+- **Path**: `GET /api/v1/core/event-skills/dropdown/`
+- **Query Parameters**: `limit` (optional, ≤ 1000) + the same `user` / `event_template` / `is_active` filters as List.
+- **Note**: For this resource the dropdown `label` equals the row id (i.e. `label == value`).
+- **Success Response (200 OK)**:
+  ```json
+  { "status": true, "message": "Dropdown options retrieved successfully", "data": [ { "label": "9aa85f64-...", "value": "9aa85f64-..." } ], "errors": null }
+  ```
+
+---
+
+### 5. Bulk Delete
+- **Path**: `POST /api/v1/core/event-skills/bulk_delete/`
+- **Request Payload**: `{ "ids": ["9aa85f64-5717-4562-b3fc-2c963f66afa1", "..."] }`
+- **Behaviour**: Soft-deletes all listed links (tenant-scoped). If any id is unknown/not in your
+  tenant, the whole request fails with `400 "Some ids are invalid"` and nothing is deleted.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`
