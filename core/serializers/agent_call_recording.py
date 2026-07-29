@@ -40,10 +40,28 @@ class RequestRecordingUploadUrlSerializer(serializers.Serializer):
     )
 
 class ConfirmRecordingUploadSerializer(serializers.Serializer):
-    object_key = serializers.CharField(required=True, help_text="The S3 object key returned by request-upload-url.")
-    original_name = serializers.CharField(max_length=255, required=True, help_text="The original filename.")
+    file_id = serializers.UUIDField(
+        required=False,
+        help_text="Preferred. The id returned by request-upload-url."
+    )
+    object_key = serializers.CharField(
+        required=False,
+        help_text="Deprecated — send file_id instead. Accepted during the transition window."
+    )
+    original_name = serializers.CharField(max_length=255, required=False, help_text="The original filename. Required only with object_key.")
     extension = serializers.CharField(max_length=10, required=False, allow_blank=True, help_text="The file extension (e.g., '.mp3').")
     agent = serializers.UUIDField(
-        required=False, 
+        required=False,
         help_text="The ID of the Voicebot Agent. Required when the AI team (VB_AGENT) is confirming."
     )
+
+    def validate(self, attrs):
+        if not attrs.get("file_id") and not attrs.get("object_key"):
+            raise serializers.ValidationError(
+                {"file_id": "Provide file_id (preferred) or object_key."}
+            )
+        if not attrs.get("file_id") and not attrs.get("original_name"):
+            raise serializers.ValidationError(
+                {"original_name": "This field is required when using object_key."}
+            )
+        return attrs

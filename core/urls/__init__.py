@@ -21,4 +21,7 @@ urlpatterns = [
     path("", include("core.urls.calendar_webhook")),
     path("", include("core.urls.device_token")),
     path("", include("core.urls.public_reschedule")),
+    # Contacts
+    path("", include("core.urls.contact")),
+    path("", include("core.urls.contact_import")),
 ]

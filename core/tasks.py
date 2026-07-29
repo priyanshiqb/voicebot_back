@@ -311,3 +311,39 @@ def send_push_to_admins_task(tenant_id, title, body, data=None):
     if tenant is None:
         return 0
     return push.notify_tenant_admins(tenant, title, body, data)
+
+
+@shared_task
+def parse_contact_import(session_id):
+    """
+    Stage a contact import CSV off the request thread.
+
+    A 50k-row file means an S3 read, a full parse, and 50k inserts — well past a
+    gunicorn worker timeout if it ran inline.
+    """
+    from core.services import contact_import
+
+    session = contact_import.parse_session(session_id)
+    return str(session.status) if session else None
+
+
+@shared_task
+def commit_contact_import(session_id):
+    """
+    Write staged rows into Contact.
+
+    The session was already claimed (READY -> COMMITTING) in the request, so this is
+    safe to retry: rows carry terminal statuses and are not reprocessed.
+    """
+    from core.services import contact_import
+
+    session = contact_import.commit_session(session_id)
+    return str(session.status) if session else None
+
+
+@shared_task
+def cleanup_expired_contact_imports():
+    """Beat task: purge staging rows and blobs for sessions past their TTL."""
+    from core.services import contact_import
+
+    return contact_import.cleanup_expired_sessions()

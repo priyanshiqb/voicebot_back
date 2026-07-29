@@ -36,6 +36,7 @@ Generates a temporary Presigned PUT URL allowing the AI Agent to upload an MP3 f
   "status": true,
   "message": "Upload URL generated successfully.",
   "data": {
+    "file_id": "7c4b1a90-3f18-4a2c-9d31-2f6b8e1c5a44",
     "upload_url": "https://s3.aws.com/bucket/t-123/call_recordings/uuid_call_record_8941.mp3?Signature=...",
     "object_key": "t-123/call_recordings/uuid_call_record_8941.mp3"
   }
@@ -43,10 +44,16 @@ Generates a temporary Presigned PUT URL allowing the AI Agent to upload an MP3 f
 ```
 * **Note**: The client should now execute an HTTP `PUT` request to `data.upload_url` with the raw MP3 bytes as the body and the correct `Content-Type` headers.
 
+> `object_key` is **deprecated** and returned only for backward compatibility. Capture
+> `file_id` and use that to confirm.
+>
+> This call now reserves an `AgentCallRecording` row with `upload_status: "PENDING"`.
+> Abandoned reservations are swept by `python manage.py cleanup_pending_uploads`.
+
 ---
 
 ## 2. Confirm Upload
-Verifies that the uploaded MP3 file successfully arrived in S3 and creates the database `AgentCallRecording` record.
+Verifies that the uploaded MP3 file successfully arrived in S3 and promotes the reserved `AgentCallRecording` record to `upload_status: "CONFIRMED"`.
 
 **Endpoint:** `POST /api/v1/core/agent-call-logs/confirm-upload/`
 
@@ -54,19 +61,32 @@ Verifies that the uploaded MP3 file successfully arrived in S3 and creates the d
 
 | Field | Type | Description | Required | Validation |
 | :--- | :--- | :--- | :--- | :--- |
-| `object_key` | string | The object key returned by `request-upload-url` | Yes | Validates S3 presence & size <= 50MB |
-| `original_name` | string | The original file name | Yes | None |
+| `file_id` | string (uuid) | The id returned by `request-upload-url` | Yes* | Tenant-scoped; validates S3 presence & size <= 50MB |
+| `object_key` | string | **Deprecated.** The raw object key | Yes* | Authorized against the caller's tenant prefix |
+| `original_name` | string | The original file name | Only with `object_key` | None |
 | `extension` | string | File extension | No | Auto-extracted if not provided |
 | `agent` | string (uuid) | Voicebot Agent ID | No | Required if called by AI Team (`VB_AGENT`) |
+
+\* Send one of `file_id` (preferred) or `object_key`.
 
 **Example Request Body:**
 ```json
 {
-  "object_key": "t-123/call_recordings/uuid_call_record_8941.mp3",
-  "original_name": "call_record_8941.mp3",
+  "file_id": "7c4b1a90-3f18-4a2c-9d31-2f6b8e1c5a44",
   "agent": "123e4567-e89b-12d3-a456-426614174000"
 }
 ```
+
+> **Security — send `file_id`, not `object_key`.** The object key is held server-side and
+> resolved from a tenant-scoped row, so it is not possible to confirm a recording
+> belonging to another tenant. Another tenant's `file_id` returns **404**.
+>
+> The deprecated `object_key` payload is still accepted during the transition window and
+> is now authorized against the caller's tenant prefix. Its use is logged so the window
+> can be closed once clients migrate.
+>
+> For `VB_AGENT` callers the tenant is resolved from `agent`, not from a tenant mapping —
+> both upload steps resolve it the same way.
 
 ### Success Response (HTTP 201 Created)
 Returns the created `AgentCallRecording` object containing its unique ID.

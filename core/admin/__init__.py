@@ -22,6 +22,14 @@ from core.admin.device_token_admin import DeviceTokenAdmin
 from core.admin.custom_voice_admin import CustomVoiceAdmin
 from core.admin.agent_call_recording_admin import AgentCallRecordingAdmin
 
+# Contacts
+from core.admin.contact_admin import ContactAdmin
+from core.admin.contact_import_admin import (
+    ContactImportFileAdmin,
+    ContactImportRowAdmin,
+    ContactImportSessionAdmin,
+)
+
 __all__ = [
     "KBTextAdmin",
     "KBFilesAdmin",
@@ -44,6 +52,10 @@ __all__ = [
     "DeviceTokenAdmin",
     "CustomVoiceAdmin",
     "AgentCallRecordingAdmin",
+    "ContactAdmin",
+    "ContactImportFileAdmin",
+    "ContactImportSessionAdmin",
+    "ContactImportRowAdmin",
 ]
 
 

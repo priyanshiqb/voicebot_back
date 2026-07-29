@@ -110,11 +110,17 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
   "status": true,
   "message": "Upload URL generated successfully.",
   "data": {
+    "file_id": "9a1c1f3e-6f2a-4a55-9a41-9d1f1a5a6b21",
     "upload_url": "http://localhost:9000/t-1/...pdf?X-Amz-Signature=...",
     "object_key": "t-1/kb_files/uuid-document.pdf"
   }
 }
 ```
+> `object_key` is **deprecated** and returned only for backward compatibility.
+> Capture `file_id` and use that to confirm.
+>
+> This call now reserves a `KBFiles` row with `upload_status: "PENDING"`. Abandoned
+> reservations are swept by `python manage.py cleanup_pending_uploads`.
 
 ---
 
@@ -123,12 +129,22 @@ GET endpoints return a standard wrapped pagination envelope matching the followi
 * **Request Payload**:
 ```json
 {
-  "object_key": "t-1/kb_files/uuid-document.pdf",
-  "original_name": "document.pdf",
-  "extension": ".pdf"
+  "file_id": "9a1c1f3e-6f2a-4a55-9a41-9d1f1a5a6b21"
 }
 ```
-* **Description**: To be called *after* the frontend successfully `PUT`s the file to the `upload_url`. The backend will verify the file physically exists in the S3 bucket, and then create the standard `KBFiles` database record.
+* **Description**: To be called *after* the frontend successfully `PUT`s the file to the `upload_url`. The backend verifies the file physically exists in the S3 bucket, then promotes the reserved `KBFiles` record to `upload_status: "CONFIRMED"`.
+
+> **Security — send `file_id`, not `object_key`.** The object key is held server-side and
+> resolved from a tenant-scoped row, so it is not possible to confirm a file belonging to
+> another tenant. Another tenant's `file_id` returns **404**.
+>
+> **Deprecated payload** (still accepted during the transition window, and now
+> authorized against the caller's tenant prefix). Its use is logged so the window can be
+> closed once clients migrate:
+> ```json
+> { "object_key": "t-1/kb_files/uuid-document.pdf", "original_name": "document.pdf", "extension": ".pdf" }
+> ```
+> `original_name` is required on this legacy path only; with `file_id` it is already known.
 * **Response (HTTP 201 Created)**:
 *(Identical to the legacy upload_file response)*
 ```json

@@ -216,6 +216,8 @@ def _create_once(
                 # Savepoint so an exclusion-constraint IntegrityError rolls back
                 # only this attempt and we can try the next host.
                 with transaction.atomic():
+                    # Lock the host to serialize inserts and prevent Postgres GiST deadlocks
+                    CustomUser.objects.filter(pk=host_id).select_for_update().get()
                     booking = Booking.objects.create(
                         tenant=tenant,
                         event_template=event_template,
@@ -348,6 +350,9 @@ def _create_collective_once(
     created = []
 
     with transaction.atomic():
+        # Lock all required hosts in deterministic order to prevent Postgres GiST exclusion deadlocks
+        list(CustomUser.objects.filter(pk__in=required_host_ids).select_for_update().order_by("pk"))
+
         for host_id in required_host_ids:
             try:
                 booking = Booking.objects.create(

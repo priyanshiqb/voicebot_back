@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -7,10 +9,13 @@ from drf_spectacular.types import OpenApiTypes
 from rest_framework import serializers
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.knowledge_base import KnowledgeBase, KBFiles, KBWebsite
-import uuid
 import os
 from core.serializers.kb_files import KBFilesSerializer, RequestUploadUrlSerializer, ConfirmUploadSerializer
 from utils.s3_storage.service import S3StorageService
+from utils.s3_storage.keys import (
+    build_tenant_object_key,
+    is_object_key_owned_by_tenant,
+)
 from core.serializers.knowledge_base import (
     KnowledgeBaseSerializer,
     KnowledgeBaseListSerializer,
@@ -27,6 +32,8 @@ from utils.permissions.is_etl_user import IsETLUser
 from rest_framework.exceptions import PermissionDenied
 from core.models.agent import Agent
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -185,23 +192,43 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
         filename = serializer.validated_data["filename"]
         content_type = serializer.validated_data["content_type"]
         file_size_in_bytes = serializer.validated_data["file_size_in_bytes"]
-        tenant_id = request.user.tenant_mapping.tenant_id
-        
-        # Generate a secure object key
-        file_uuid = uuid.uuid4()
-        object_key = f"t-{tenant_id}/kb_files/{file_uuid}_{filename}"
-        
+        tenant = request.user.tenant_mapping.tenant
+
+        # Create the record up front so the object key can live server-side and be
+        # looked up by id at confirm time. The client never needs to hand it back.
+        kb_file = KBFiles(
+            tenant=tenant,
+            original_name=filename[:255],
+            extension=os.path.splitext(filename)[1].lower(),
+            upload_status=KBFiles.UploadStatus.PENDING,
+            is_processed=False,
+            processing_status='PENDING',
+            created_by=request.user,
+            updated_by=request.user,
+        )
+        # The filename is sanitized to a basename so a crafted value cannot steer the
+        # key outside this tenant's prefix.
+        object_key = build_tenant_object_key(
+            tenant.id, "kb_files", filename, unique_id=kb_file.id
+        )
+        kb_file.file.name = object_key
+        kb_file.save()
+
         storage_service = S3StorageService()
         try:
             upload_url = storage_service.get_presigned_put_url(object_key, content_type, file_size_in_bytes)
         except Exception as e:
+            kb_file.upload_status = KBFiles.UploadStatus.FAILED
+            kb_file.save(update_fields=["upload_status"])
             return Response({"status": False, "message": "Failed to generate upload URL."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
+
         return Response({
             "status": True,
             "message": "Upload URL generated successfully.",
             "data": {
+                "file_id": str(kb_file.id),
                 "upload_url": upload_url,
+                # Deprecated: kept so existing clients that echo it back keep working.
                 "object_key": object_key
             }
         }, status=status.HTTP_200_OK)
@@ -229,51 +256,83 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             first_error = next(iter(serializer.errors.values()))[0]
             return Response({"status": False, "message": str(first_error)}, status=status.HTTP_400_BAD_REQUEST)
             
-        object_key = serializer.validated_data["object_key"]
-        original_name = serializer.validated_data["original_name"]
-        
+        file_id = serializer.validated_data.get("file_id")
+        object_key = serializer.validated_data.get("object_key")
+        original_name = serializer.validated_data.get("original_name")
+
+        # Security: resolve the tenant BEFORE touching S3. The oversize branch below
+        # deletes the object it was handed, so an unauthorized key must never reach it.
+        try:
+            tenant = request.user.tenant_mapping.tenant
+        except Exception:
+            return Response({"status": False, "message": "Your user account is not associated with any active tenant."}, status=status.HTTP_403_FORBIDDEN)
+
+        kb_file = None
+        if file_id:
+            # Preferred path: the key is read from a tenant-scoped row, so it is not
+            # possible to name a file belonging to another tenant.
+            kb_file = KBFiles.objects.filter(id=file_id, tenant=tenant).first()
+            if kb_file is None:
+                return Response({"status": False, "message": "File not found."}, status=status.HTTP_404_NOT_FOUND)
+            object_key = kb_file.file.name
+            original_name = original_name or kb_file.original_name
+        else:
+            # Deprecated path: still fully authorized, but log it so the transition
+            # window can be closed once clients stop using it.
+            logger.info(
+                "confirm-upload called with deprecated object_key by user %s; "
+                "clients should send file_id instead.",
+                request.user.pk,
+            )
+            # Security: the key must live inside this tenant's namespace. Report 404
+            # rather than 403 so the response cannot probe for another tenant's objects.
+            if not is_object_key_owned_by_tenant(object_key, tenant.id, folder="kb_files"):
+                return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_404_NOT_FOUND)
+
         extension = serializer.validated_data.get("extension")
         if not extension:
-            extension = os.path.splitext(original_name)[1].lower()
-            
+            extension = os.path.splitext(original_name or "")[1].lower()
+
         storage_service = S3StorageService()
-        
+
         # Security: verify the file actually exists in S3 before recording it
         try:
             exists = storage_service.verify_object_exists(object_key)
             if not exists:
                 return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_400_BAD_REQUEST)
-                
+
             # Security: verify actual file size to enforce limit on direct S3 uploads
             file_stats = storage_service.get_file_disk_usage(object_key)
             max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
             if file_stats.get("total_size_bytes", 0) > max_size:
                 storage_service.delete_blob_direct(object_key)
+                if kb_file is not None:
+                    kb_file.upload_status = KBFiles.UploadStatus.FAILED
+                    kb_file.save(update_fields=["upload_status"])
                 return Response({"status": False, "message": "File size exceeds the limit of 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
-                
+
         except Exception as e:
             return Response({"status": False, "message": "Failed to verify file upload."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-        tenant = request.user.tenant_mapping.tenant
-        
-        kb_file = KBFiles(
-            tenant=tenant,
-            original_name=original_name,
-            extension=extension,
-            is_processed=False,
-            processing_status='PENDING'
-        )
-        
-        # We assign the raw object key to the file field. Django Storages handles the resolution transparently.
-        # This prevents it from attempting to re-upload.
-        kb_file.file.name = object_key
-        
-        # Manually assign standard fields normally populated by TenantBaseAdmin if missing
-        kb_file.created_by = request.user
+
+        if kb_file is None:
+            # Legacy object_key path: no row was reserved up front, so create one now.
+            kb_file = KBFiles(
+                tenant=tenant,
+                is_processed=False,
+                processing_status='PENDING',
+                created_by=request.user,
+            )
+            # We assign the raw object key to the file field. Django Storages handles the
+            # resolution transparently, which prevents it from attempting to re-upload.
+            kb_file.file.name = object_key
+
+        kb_file.original_name = original_name or kb_file.original_name
+        kb_file.extension = extension or kb_file.extension
+        kb_file.upload_status = KBFiles.UploadStatus.CONFIRMED
+        kb_file.file_size_in_bytes = file_stats.get("total_size_bytes", 0)
         kb_file.updated_by = request.user
-        
         kb_file.save()
-        
+
         response_serializer = KBFilesSerializer(kb_file)
         
         return Response({

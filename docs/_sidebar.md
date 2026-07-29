@@ -11,6 +11,8 @@
   * [Agent Call Recording (MP3)](apiDocs/core/agent_call_recording.md)
   * [Probing Questions](apiDocs/core/probing_question.md)
   * [Custom Voice Records](apiDocs/core/custom_voice.md)
+  * [Contacts](apiDocs/core/contact.md)
+  * [Contact Import - Bulk CSV](apiDocs/core/contact_import.md)
 
 * **📅 Scheduling & Booking APIs**
   * [Event Templates](apiDocs/core/event_template.md)

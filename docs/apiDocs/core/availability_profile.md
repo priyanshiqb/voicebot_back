@@ -30,9 +30,18 @@ shifts. Slot generation resolves these wall-clock times through the profile time
     "data": [
       {
         "id": "1aa85f64-5717-4562-b3fc-2c963f66af10",
-        "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "user": {
+          "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+          "email": "agent@example.com",
+          "first_name": "Jane",
+          "last_name": "Doe"
+        },
         "name": "Default",
-        "timezone": "2b1c...-timezone-id",
+        "timezone": {
+          "id": "2b1c...-timezone-id",
+          "timezone": "UTC",
+          "offset": "+00:00"
+        },
         "is_active": true,
         "created_at": "2026-06-03T18:00:00Z"
       }
@@ -54,8 +63,17 @@ shifts. Slot generation resolves these wall-clock times through the profile time
     "data": {
       "id": "1aa85f64-5717-4562-b3fc-2c963f66af10",
       "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
-      "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
-      "timezone": "2b1c...-timezone-id",
+      "user": {
+        "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "email": "agent@example.com",
+        "first_name": "Jane",
+        "last_name": "Doe"
+      },
+      "timezone": {
+        "id": "2b1c...-timezone-id",
+        "timezone": "UTC",
+        "offset": "+00:00"
+      },
       "name": "Default",
       "rules": [
         { "id": "r1", "weekday": 0, "start_time": "09:00:00", "end_time": "12:00:00" },

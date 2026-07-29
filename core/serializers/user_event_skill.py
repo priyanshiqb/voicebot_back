@@ -2,6 +2,11 @@ from rest_framework import serializers
 
 from tenant.common import TenantBaseModelCoreSerializer
 from core.models.user_event_skill import UserEventSkill
+from utils.serializers.hybrid_related_field import HybridRelatedField
+from user.serializers.custom_user import UserRefSerializer
+from core.serializers.event_template import EventTemplateRefSerializer
+from user.models import CustomUser
+from core.models.event_template import EventTemplate
 
 
 class UserEventSkillRefSerializer(serializers.ModelSerializer):
@@ -12,6 +17,15 @@ class UserEventSkillRefSerializer(serializers.ModelSerializer):
 
 
 class UserEventSkillSerializer(TenantBaseModelCoreSerializer):
+    user = HybridRelatedField(
+        serializer=UserRefSerializer,
+        queryset=CustomUser.objects.all(),
+    )
+    event_template = HybridRelatedField(
+        serializer=EventTemplateRefSerializer,
+        queryset=EventTemplate.objects.all(),
+    )
+
     class Meta(TenantBaseModelCoreSerializer.Meta):
         model = UserEventSkill
         fields = (
@@ -58,6 +72,15 @@ class UserEventSkillSerializer(TenantBaseModelCoreSerializer):
 
 
 class UserEventSkillListSerializer(serializers.ModelSerializer):
+    user = HybridRelatedField(
+        serializer=UserRefSerializer,
+        read_only=True,
+    )
+    event_template = HybridRelatedField(
+        serializer=EventTemplateRefSerializer,
+        read_only=True,
+    )
+
     class Meta:
         model = UserEventSkill
         fields = ("id", "user", "event_template", "weight", "is_active", "created_at")

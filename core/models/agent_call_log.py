@@ -30,6 +30,18 @@ class AgentCallLog(TenantBaseModelCore):
         null=True,
         help_text=_("The name of the caller, if available.")
     )
+    contact = models.ForeignKey(
+        "core.Contact",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        related_name="call_logs",
+        help_text=_(
+            "Resolved from caller_number via E.164 matching. SET_NULL so removing a "
+            "contact never destroys call history."
+        ),
+    )
     direction = models.CharField(
         max_length=20,
         choices=CallDirection.choices,

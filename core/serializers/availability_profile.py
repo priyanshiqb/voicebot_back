@@ -1,3 +1,4 @@
+from onboard.serializers.timezone import TimezoneRefSerializer
 from django.db import transaction
 from rest_framework import serializers
 
@@ -5,6 +6,9 @@ from onboard.models.timezone import Timezone
 from tenant.common import TenantBaseModelSerializer
 from core.models.availability_profile import AvailabilityProfile
 from core.models.availability_rule import AvailabilityRule
+from utils.serializers.hybrid_related_field import HybridRelatedField
+from user.serializers.custom_user import UserRefSerializer
+from user.models import CustomUser
 
 
 class AvailabilityRuleSerializer(serializers.ModelSerializer):
@@ -28,7 +32,14 @@ class AvailabilityProfileRefSerializer(serializers.ModelSerializer):
 
 class AvailabilityProfileSerializer(TenantBaseModelSerializer):
     rules = AvailabilityRuleSerializer(many=True, required=False)
-    timezone = serializers.PrimaryKeyRelatedField(queryset=Timezone.objects.all())
+    timezone = HybridRelatedField(
+        serializer=TimezoneRefSerializer,
+        queryset=Timezone.objects.all(),
+    )
+    user = HybridRelatedField(
+        serializer=UserRefSerializer,
+        queryset=CustomUser.objects.all(),
+    )
 
     class Meta(TenantBaseModelSerializer.Meta):
         model = AvailabilityProfile
@@ -117,6 +128,15 @@ class AvailabilityProfileSerializer(TenantBaseModelSerializer):
 
 
 class AvailabilityProfileListSerializer(serializers.ModelSerializer):
+    user = HybridRelatedField(
+        serializer=UserRefSerializer,
+        read_only=True,
+    )
+    timezone = HybridRelatedField(
+        serializer=TimezoneRefSerializer,
+        read_only=True,
+    )
+
     class Meta:
         model = AvailabilityProfile
         fields = ("id", "user", "name", "timezone", "is_active", "created_at")

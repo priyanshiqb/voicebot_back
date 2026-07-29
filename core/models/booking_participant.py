@@ -42,6 +42,18 @@ class BookingParticipant(TenantBaseModelCore):
         null=True,
         help_text="Optional contact phone number.",
     )
+    contact = models.ForeignKey(
+        "core.Contact",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        related_name="booking_participations",
+        help_text=(
+            "Resolved from phone_number via E.164 matching. SET_NULL so removing a "
+            "contact never destroys booking history."
+        ),
+    )
     role = models.CharField(
         max_length=20,
         choices=Role.choices,

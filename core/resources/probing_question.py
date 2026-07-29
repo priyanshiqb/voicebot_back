@@ -4,4 +4,4 @@ from .base_resource import TenantModelResource
 class ProbingQuestionResource(TenantModelResource):
     class Meta:
         model = ProbingQuestion
-        fields = ('question', 'priority', 'score', 'is_mandatory', 'is_active', 'created_at')
+        fields = ('id', 'question', 'priority', 'score', 'is_mandatory', 'is_active', 'created_at')

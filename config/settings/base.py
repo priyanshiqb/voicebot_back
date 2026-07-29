@@ -429,6 +429,24 @@ BOOKING_RESCHEDULE_TOKEN_TTL_HOURS = env.int(
     "BOOKING_RESCHEDULE_TOKEN_TTL_HOURS", default=72
 )
 
+# Contacts & Contact Import
+# Primary market, used to parse phone numbers that are not already in international
+# form (ISO-3166 alpha-2). Numbers written as "+..." ignore this and parse on their own.
+# Override per environment if a deployment serves a different country.
+CONTACT_DEFAULT_PHONE_REGION = env.str("CONTACT_DEFAULT_PHONE_REGION", default="IN")
+CONTACT_IMPORT_MAX_ROWS = env.int("CONTACT_IMPORT_MAX_ROWS", default=50_000)
+CONTACT_IMPORT_MAX_FILE_BYTES = env.int(
+    "CONTACT_IMPORT_MAX_FILE_BYTES", default=10 * 1024 * 1024
+)
+CONTACT_IMPORT_SESSION_TTL_HOURS = env.int(
+    "CONTACT_IMPORT_SESSION_TTL_HOURS", default=24
+)
+CONTACT_IMPORT_MAX_OPEN_SESSIONS = env.int("CONTACT_IMPORT_MAX_OPEN_SESSIONS", default=3)
+CONTACT_IMPORT_COMMIT_BATCH_SIZE = env.int(
+    "CONTACT_IMPORT_COMMIT_BATCH_SIZE", default=1000
+)
+CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=25)
+
 # Celery Beat schedule for the scheduling module. Run with:
 #   celery -A config beat -l info
 CELERY_BEAT_SCHEDULE = {
@@ -447,6 +465,10 @@ CELERY_BEAT_SCHEDULE = {
     "scheduling-renew-calendar-watches": {
         "task": "core.tasks.renew_calendar_watches",
         "schedule": 3600.0,  # hourly
+    },
+    "contacts-cleanup-expired-imports": {
+        "task": "core.tasks.cleanup_expired_contact_imports",
+        "schedule": 600.0,  # every 10 minutes
     },
 }
 

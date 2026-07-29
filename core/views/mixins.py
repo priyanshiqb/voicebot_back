@@ -5,6 +5,7 @@ from rest_framework import status, serializers
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, inline_serializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
+from import_export.results import RowResult
 import tablib
 
 class ImportExportMixin:
@@ -16,19 +17,30 @@ class ImportExportMixin:
 
     @extend_schema(
         summary="Export Data",
-        description="Export data in CSV or Excel format. Use ?format=csv or ?format=xlsx",
+        description=(
+            "Export data in CSV or Excel format. Use ?file_format=csv or ?file_format=xlsx.\n\n"
+            "Note: `?format=` cannot be used here — DRF reserves it for content "
+            "negotiation and rejects unknown values with a 404 before this view runs."
+        ),
         responses={200: bytes}
     )
     @action(detail=False, methods=['get'], url_path='export')
     def export_data(self, request, *args, **kwargs):
         if not self.resource_class:
             return Response({"status": False, "message": "Export not supported for this resource."}, status=status.HTTP_501_NOT_IMPLEMENTED)
-            
+
         queryset = self.filter_queryset(self.get_queryset())
         resource = self.resource_class()
         dataset = resource.export(queryset)
-        
-        file_format = request.query_params.get('format', 'csv').lower()
+
+        # `format` is DRF's URL_FORMAT_OVERRIDE: passing ?format=xlsx never reaches this
+        # method, it 404s during content negotiation. `file_format` is the usable param;
+        # `format` is still read so any caller that somehow sets it keeps working.
+        file_format = (
+            request.query_params.get('file_format')
+            or request.query_params.get('format')
+            or 'csv'
+        ).lower()
         basename = getattr(self, 'basename', 'export')
         
         if file_format == 'xlsx':
@@ -72,21 +84,85 @@ class ImportExportMixin:
         except Exception as e:
             return Response({"status": False, "message": f"Failed to parse file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
             
+        # Validate first, then write. A fresh resource per run keeps per-run state from
+        # leaking between the dry run and the real import.
+        dry_result = self._run_import(request, dataset, dry_run=True)
+        if self._import_failed(dry_result):
+            return Response(
+                {
+                    "status": False,
+                    "message": "Import failed due to validation errors.",
+                    "errors": self._collect_import_errors(dry_result),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = self._run_import(request, dataset, dry_run=False)
+        # Defensive: the dry run catches the common cases, but its result is not a
+        # guarantee for the real write (a concurrent insert can land in between). The
+        # previous code discarded this result entirely, so any such failure would have
+        # been reported as success.
+        if self._import_failed(result):
+            return Response(
+                {
+                    "status": False,
+                    "message": "Import failed and was rolled back.",
+                    "errors": self._collect_import_errors(result),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created = result.totals.get(RowResult.IMPORT_TYPE_NEW, 0)
+        updated = result.totals.get(RowResult.IMPORT_TYPE_UPDATE, 0)
+        skipped = result.totals.get(RowResult.IMPORT_TYPE_SKIP, 0)
+
+        return Response({
+            "status": True,
+            # Counts come from the result, not len(dataset) — the file's row count is
+            # not the number of records actually written.
+            "message": f"Imported {created} new and {updated} updated record(s).",
+            "data": {"created": created, "updated": updated, "skipped": skipped},
+        })
+
+    def _run_import(self, request, dataset, dry_run):
         resource = self.resource_class()
-        
+
         # Inject tenant and user context for the resource to use during save
         if hasattr(request.user, 'tenant_mapping'):
             resource.tenant = request.user.tenant_mapping.tenant
         resource.user = request.user
-        
-        result = resource.import_data(dataset, dry_run=True)
-        if not result.has_errors():
-            resource.import_data(dataset, dry_run=False)
-            return Response({"status": True, "message": f"Successfully imported {len(dataset)} records."})
-        else:
-            # Flatten errors for the response
-            errors = []
-            for row_error in result.row_errors():
-                for err in row_error[1]:
-                    errors.append({"row": row_error[0], "error": str(err.error)})
-            return Response({"status": False, "message": "Import failed due to validation errors.", "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        return resource.import_data(
+            dataset,
+            dry_run=dry_run,
+            # All-or-nothing: a half-applied bulk import is worse than a rejected one.
+            use_transactions=True,
+            rollback_on_validation_errors=True,
+        )
+
+    @staticmethod
+    def _import_failed(result):
+        # has_errors() covers only critical (non-validation) errors — the library is
+        # explicit about that. Validation errors are tracked separately.
+        #
+        # invalid_rows is only populated when a resource sets
+        # Meta.clean_model_instances = True (it defaults to False), so this arm is
+        # currently inert. It is here so enabling that flag on a resource does not
+        # silently start dropping rows while the response reports success.
+        return result.has_errors() or result.has_validation_errors()
+
+    @staticmethod
+    def _collect_import_errors(result):
+        errors = []
+
+        for row_number, row_errors in result.row_errors():
+            for err in row_errors:
+                errors.append({"row": row_number, "error": str(err.error)})
+
+        for invalid_row in result.invalid_rows:
+            for field, messages in invalid_row.error_dict.items():
+                errors.append(
+                    {"row": invalid_row.number, "field": field, "error": "; ".join(messages)}
+                )
+
+        return errors

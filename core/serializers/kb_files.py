@@ -126,9 +126,30 @@ class RequestUploadUrlSerializer(serializers.Serializer):
         return value
 
 class ConfirmUploadSerializer(serializers.Serializer):
-    object_key = serializers.CharField(max_length=512)
-    original_name = serializers.CharField(max_length=255)
+    file_id = serializers.UUIDField(
+        required=False,
+        help_text="Preferred. The id returned by request-upload-url.",
+    )
+    object_key = serializers.CharField(
+        max_length=512,
+        required=False,
+        help_text="Deprecated — send file_id instead. Accepted during the transition window.",
+    )
+    original_name = serializers.CharField(max_length=255, required=False)
     extension = serializers.CharField(max_length=10, required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("file_id") and not attrs.get("object_key"):
+            raise serializers.ValidationError(
+                {"file_id": "Provide file_id (preferred) or object_key."}
+            )
+        # original_name is only needed on the legacy path; the file_id path already
+        # recorded it when the upload URL was issued.
+        if not attrs.get("file_id") and not attrs.get("original_name"):
+            raise serializers.ValidationError(
+                {"original_name": "This field is required when using object_key."}
+            )
+        return attrs
 
     def validate_original_name(self, value):
         allowed_extensions = ['.pdf', '.docx', '.txt']

@@ -28,6 +28,14 @@ from core.models.device_token import DeviceToken
 from core.models.custom_voice import CustomVoice
 from core.models.agent_call_recording import AgentCallRecording
 
+# Contacts
+from core.models.contact import Contact
+from core.models.contact_import import (
+    ContactImportFile,
+    ContactImportRow,
+    ContactImportSession,
+)
+
 __all__ = [
     "KBText",
     "KBFiles",
@@ -54,6 +62,10 @@ __all__ = [
     "DeviceToken",
     "CustomVoice",
     "AgentCallRecording",
+    "Contact",
+    "ContactImportFile",
+    "ContactImportSession",
+    "ContactImportRow",
 ]
 
 

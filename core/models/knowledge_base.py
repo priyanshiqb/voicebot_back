@@ -32,10 +32,25 @@ class KBText(KBBaseModel):
 
 
 class KBFiles(KBBaseModel):
+    class UploadStatus(models.TextChoices):
+        PENDING = "PENDING", "Awaiting upload"
+        CONFIRMED = "CONFIRMED", "Upload confirmed"
+        FAILED = "FAILED", "Upload failed"
+
     file = models.FileField(
         upload_to=kb_file_upload_path,
         validators=[validate_file_size],
         max_length=500
+    )
+    upload_status = models.CharField(
+        max_length=10,
+        choices=UploadStatus.choices,
+        default=UploadStatus.CONFIRMED,
+        db_index=True,
+        help_text=(
+            "PENDING while a presigned upload is outstanding. Defaults to CONFIRMED so "
+            "rows created by the direct multipart upload path stay valid."
+        ),
     )
     original_name = models.CharField(
         max_length=255,

@@ -6,10 +6,25 @@ def agent_call_recording_upload_path(instance, filename):
     return f"t-{instance.tenant.id}/call_recordings/{instance.id}_{filename}"
 
 class AgentCallRecording(TenantBaseModelCore):
+    class UploadStatus(models.TextChoices):
+        PENDING = "PENDING", "Awaiting upload"
+        CONFIRMED = "CONFIRMED", "Upload confirmed"
+        FAILED = "FAILED", "Upload failed"
+
     file = models.FileField(
         upload_to=agent_call_recording_upload_path,
         max_length=500,
         help_text=_("The MP3 recording file stored in the S3 bucket.")
+    )
+    upload_status = models.CharField(
+        max_length=10,
+        choices=UploadStatus.choices,
+        default=UploadStatus.CONFIRMED,
+        db_index=True,
+        help_text=_(
+            "PENDING while a presigned upload is outstanding. Defaults to CONFIRMED so "
+            "existing rows and any direct-write path stay valid."
+        ),
     )
     original_name = models.CharField(
         max_length=255,
