@@ -4,6 +4,8 @@ from core.models.agent_call_log import AgentCallLog
 from utils.serializers.hybrid_related_field import HybridRelatedField
 from core.serializers.agent import AgentRefSerializer
 from core.models.agent import Agent
+from core.serializers.agent_call_recording import AgentCallRecordingRefSerializer
+from core.models.agent_call_recording import AgentCallRecording
 
 class AgentCallLogRefSerializer(serializers.ModelSerializer):
     """Lightweight serializer for nested relationships."""
@@ -16,6 +18,12 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
     agent = HybridRelatedField(
         serializer=AgentRefSerializer,
         queryset=Agent.objects.all()
+    )
+    recording_file = HybridRelatedField(
+        serializer=AgentCallRecordingRefSerializer,
+        queryset=AgentCallRecording.objects.all(),
+        required=False,
+        allow_null=True
     )
 
     class Meta(TenantBaseModelCoreSerializer.Meta):
@@ -34,7 +42,7 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "pii_redacted",
             "ai_summary",
             "transcript",
-            "recording_url",
+            "recording_file",
             "started_at",
             "ended_at",
             "tags",

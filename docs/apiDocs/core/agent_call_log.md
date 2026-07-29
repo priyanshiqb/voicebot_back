@@ -9,6 +9,13 @@ The Agent Call Log API provides endpoints to store and retrieve conversation det
 - **Tenant Scoping**: All records are isolated per tenant. Users will only see logs belonging to their organization.
 - **Creation Restrictions**: The `POST` (create) method is strictly restricted to `VB_AGENT` tokens. Standard users cannot manually create call logs.
 
+| Field | Type | Description | Required | Default |
+| :--- | :--- | :--- | :--- | :--- |
+| `ai_summary` | string | AI-generated summary | No | None |
+| `transcript` | array | JSON array containing the full conversation transcript | No | None |
+| `recording_file` | string (uuid) | ID of the uploaded `AgentCallRecording` file | No | None |
+| `started_at` | string ($date-time) | When the call actually started | No | Valid ISO 8601 |
+
 ---
 
 ## 1. List Call Logs
@@ -98,7 +105,7 @@ Fetch the full transcript and metadata for a specific call.
         "isRedacted": false
       }
     ],
-    "recording_url": "/recordings/call-1.mp3",
+    "recording_file": "123e4567-e89b-12d3-a456-426614174000",
     "started_at": "2026-06-23T17:33:31.671Z",
     "ended_at": "2026-06-23T17:38:57.671Z",
     "tags": ["urgent"]
@@ -149,7 +156,7 @@ Ingest a new conversation log from the telephony provider.
             "isRedacted": false
         }
     ],
-    "recording_url": "/recordings/call-1.mp3",
+    "recording_file": "123e4567-e89b-12d3-a456-426614174000",
     "started_at": "2026-06-23T17:33:31.671Z",
     "ended_at": "2026-06-23T17:38:57.671Z",
     "tags": ["urgent"]

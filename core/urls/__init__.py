@@ -9,6 +9,7 @@ urlpatterns = [
     path("", include("core.urls.probing_question")),
     path("", include("core.urls.agent")),
     path("", include("core.urls.agent_call_log")),
+    path("", include("core.urls.custom_voice")),
     # Scheduling & Booking (Phase 1)
     path("", include("core.urls.event_template")),
     path("", include("core.urls.user_event_skill")),

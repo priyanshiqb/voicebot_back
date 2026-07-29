@@ -76,11 +76,13 @@ class AgentCallLog(TenantBaseModelCore):
         blank=True,
         help_text=_("Structured JSON array containing the full conversation transcript.")
     )
-    recording_url = models.URLField(
-        max_length=2000,
-        blank=True,
+    recording_file = models.ForeignKey(
+        "core.AgentCallRecording",
+        on_delete=models.SET_NULL,
         null=True,
-        help_text=_("URL to access the audio recording of the call.")
+        blank=True,
+        related_name="call_logs",
+        help_text=_("The MP3 recording file uploaded directly to S3.")
     )
     started_at = models.DateTimeField(
         blank=True,

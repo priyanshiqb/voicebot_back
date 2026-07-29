@@ -116,7 +116,7 @@ class ProbingQuestionViewSet(ImportExportMixin, TenantBaseViewSet):
 
     filterset_fields = ["is_active", "is_mandatory", "can_user_edit", "is_default"]
     search_fields = ["question"]
-    ordering_fields = ["priority", "score", "created_at"]
+    ordering_fields = ["priority", "score", "created_at", "is_mandatory", "is_active", "question"]
     ordering = ["priority", "-created_at"]
 
     select_related_fields = []

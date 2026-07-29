@@ -25,6 +25,8 @@ from core.models.notification_log import NotificationLog
 from core.models.calendar_integration import CalendarIntegration
 from core.models.external_busy_block import ExternalBusyBlock
 from core.models.device_token import DeviceToken
+from core.models.custom_voice import CustomVoice
+from core.models.agent_call_recording import AgentCallRecording
 
 __all__ = [
     "KBText",
@@ -50,6 +52,8 @@ __all__ = [
     "CalendarIntegration",
     "ExternalBusyBlock",
     "DeviceToken",
+    "CustomVoice",
+    "AgentCallRecording",
 ]
 
 

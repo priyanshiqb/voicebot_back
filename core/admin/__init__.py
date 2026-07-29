@@ -19,6 +19,8 @@ from core.admin.booking_admin import BookingAdmin
 from core.admin.notification_log_admin import NotificationLogAdmin
 from core.admin.calendar_integration_admin import CalendarIntegrationAdmin
 from core.admin.device_token_admin import DeviceTokenAdmin
+from core.admin.custom_voice_admin import CustomVoiceAdmin
+from core.admin.agent_call_recording_admin import AgentCallRecordingAdmin
 
 __all__ = [
     "KBTextAdmin",
@@ -40,6 +42,8 @@ __all__ = [
     "NotificationLogAdmin",
     "CalendarIntegrationAdmin",
     "DeviceTokenAdmin",
+    "CustomVoiceAdmin",
+    "AgentCallRecordingAdmin",
 ]
 
 

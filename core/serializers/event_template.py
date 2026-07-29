@@ -7,7 +7,7 @@ from core.models.event_template import EventTemplate
 class EventTemplateRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventTemplate
-        fields = ("id", "name")
+        fields = ("id", "name", "color")
         read_only_fields = fields
 
 
@@ -76,9 +76,11 @@ class EventTemplateListSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "description",
             "duration_minutes",
             "assignment_strategy",
             "location_type",
+            "color",
             "is_active",
             "created_at",
         )
