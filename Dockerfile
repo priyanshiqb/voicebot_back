@@ -33,9 +33,13 @@ RUN uv sync --frozen --no-cache --no-install-project
 RUN apt-get purge -y --auto-remove gcc libc-dev
 
 # 6. Create a safe non-root system user and change ownership
+#    /var/lib/celery holds Celery Beat's schedule DB. It must exist in the image and be
+#    owned by django: Docker copies an image directory's ownership into a fresh named
+#    volume, whereas a bind-mounted host directory arrives root-owned and the
+#    non-privileged user could not write it.
 RUN groupadd -r django && useradd -r -m -g django -s /bin/false django \
-    && mkdir -p /app/media /app/staticfiles /app/static \
-    && chown -R django:django /app
+    && mkdir -p /app/media /app/staticfiles /app/static /var/lib/celery \
+    && chown -R django:django /app /var/lib/celery
 
 # 7. Copy remaining project files securely
 COPY --chown=django:django . .

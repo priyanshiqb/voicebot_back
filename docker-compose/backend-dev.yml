@@ -36,7 +36,7 @@ services:
     extra_hosts:
       - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
 
-  # 2b. Local Development Celery Worker
+  # 2b. Local Development Celery Worker (executes tasks)
   celery-dev:
     image: voicebot-backend-dev:latest
     container_name: celery-dev-voicebot
@@ -68,3 +68,48 @@ services:
         max-file: "3"
     extra_hosts:
       - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
+
+  # 2c. Local Development Celery Beat (enqueues CELERY_BEAT_SCHEDULE on time)
+  #
+  # Run EXACTLY ONE beat instance per environment. A second one double-fires every
+  # periodic task, so never scale or replicate this service.
+  celery-beat-dev:
+    image: voicebot-backend-dev:latest
+    container_name: celery-beat-dev-voicebot
+    profiles:
+      - dev
+    # --pidfile= disables the pid file on purpose: a restarted container reuses PID 1,
+    # so a leftover pidfile looks like a live instance and beat refuses to start.
+    command: celery -A config beat -l info --schedule=/var/lib/celery/celerybeat-schedule --pidfile=
+    env_file:
+      - ../.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=${DJANGO_SETTINGS_MODULE:-config.settings.local}
+      - ENV_FILE=.env
+    volumes:
+      - ../:/app
+      - /app/.venv
+      # Named volume rather than ../.data/: the schedule DB must inherit the image's
+      # django ownership (see the Dockerfile note on /var/lib/celery).
+      - celery-beat-dev-schedule:/var/lib/celery
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-dev:
+        condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    extra_hosts:
+      - "${ETL_DOMAIN:-dummy-local-host}:${LOCAL_DNS_ROUTING_IP:-127.0.0.1}"
+
+volumes:
+  # Persisted so restarts resume the existing cadence instead of restarting every timer.
+  celery-beat-dev-schedule:

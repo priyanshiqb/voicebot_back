@@ -7,8 +7,10 @@ This document lists each Docker container service configured in the project alon
 | **`backend-wsgi`** | `prod` | Django production WSGI server (Gunicorn) |
 | **`backend-asgi`** | `prod` | Django production ASGI server (Daphne) |
 | **`backend-dev`** | `dev` | Daphne development server (hot-reloading) |
-| **`celery-dev`** | `dev` | Celery worker running in development mode |
-| **`celery-prod`** | `prod` | Celery worker running in production mode |
+| **`celery-dev`** | `dev` | Celery worker (executes tasks) — development |
+| **`celery-prod`** | `prod` | Celery worker (executes tasks) — production |
+| **`celery-beat-dev`** | `dev` | Celery Beat scheduler — development. **Never scale: one instance only** |
+| **`celery-beat-prod`** | `prod` | Celery Beat scheduler — production. **Never scale: one instance only** |
 | **`postgres`** | `database` | PostgreSQL Core Database service |
 | **`pgbouncer`** | `pgbouncer` | PgBouncer Connection Pooler |
 | **`postgres-exporter`**| `pgexporter` | Metrics exporter for PostgreSQL database |

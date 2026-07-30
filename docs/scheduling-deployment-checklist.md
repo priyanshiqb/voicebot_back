@@ -110,29 +110,46 @@ through them (MultiFernet).
 
 ## 5. Background workers
 
-The scheduling module needs a **Celery worker** (async email/calendar/push, reschedule
-task) and **Celery Beat** (periodic jobs). Broker/result backend is Redis DB `/2`
-(already configured).
+Two processes are required: a **Celery worker** (executes tasks) and **Celery Beat**
+(enqueues the periodic ones). Broker and result backend are Redis DB `/2`. **Both ship as
+Compose services** — nothing to start by hand:
+
+| Service | Profile | Role |
+|---|---|---|
+| `celery-dev` / `celery-prod` | `dev` / `prod` | Worker |
+| `celery-beat-dev` / `celery-beat-prod` | `dev` / `prod` | Scheduler |
+
+> **Exactly one beat instance per environment.** A second one double-fires every periodic
+> task. Never scale or replicate the beat service; if prod spans multiple hosts, beat runs on
+> exactly one of them. The worker scales freely.
+
+Beat stores its schedule DB in a named volume at `/var/lib/celery` so restarts resume the
+existing cadence instead of restarting every timer. The pid file is disabled on purpose
+(`--pidfile=`): a restarted container reuses PID 1, so a leftover pidfile looks like a live
+instance and beat refuses to start.
+
+To run them outside Docker instead:
 
 ```bash
-# Worker (Linux / Docker)
+# Worker (Linux)
 uv run celery -A config worker -l info
 
 # Worker (Windows dev): prefork pool doesn't work — use solo
 uv run celery -A config worker -l info --pool=solo
 
-# Beat scheduler (run exactly one instance)
+# Beat scheduler (exactly one instance)
 uv run celery -A config beat -l info
 ```
 
-Beat schedule (defined in settings, no `django-celery-beat` needed):
+Beat schedule (defined in `CELERY_BEAT_SCHEDULE`, no `django-celery-beat` needed):
 
-| Task | Interval | Purpose |
-|---|---|---|
-| `send_due_reminders` | 5 min | Upcoming-booking reminders (idempotent) |
-| `cleanup_expired_holds` | 1 min | Release lapsed holds |
-| `refresh_calendar_tokens` | 15 min | Refresh Google access tokens near expiry |
-| `renew_calendar_watches` | hourly | Renew Google watch channels before they expire |
+| Task | Interval | Purpose | If beat is down |
+|---|---|---|---|
+| `cleanup_expired_holds` | 1 min | Release lapsed holds | **Abandoned holds block their slot indefinitely** — `HELD` counts as busy and nothing else clears it |
+| `send_due_reminders` | 5 min | Upcoming-booking reminders (idempotent) | No reminders are ever sent |
+| `refresh_calendar_tokens` | 15 min | Refresh Google access tokens near expiry | Calendar calls 401 about an hour after each connect; availability fails open, so the host silently stops being calendar-aware |
+| `cleanup_expired_contact_imports` | 10 min | Sweep expired import sessions | Sessions never expire; a tenant that abandons `CONTACT_IMPORT_MAX_OPEN_SESSIONS` imports cannot start another until one is discarded by hand |
+| `renew_calendar_watches` | hourly | Renew Google watch channels before they expire | Channels lapse (~7 days) and the read path falls back to on-demand free/busy |
 
 ---
 
