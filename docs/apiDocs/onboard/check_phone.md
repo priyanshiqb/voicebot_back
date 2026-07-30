@@ -4,7 +4,11 @@
 **POST** `/api/v1/onboard/check-phone/`
 
 ## Description
-Asynchronously checks if a phone number already exists in either the active `CustomUser` or pending `TempUser` tables. This API returns the availability status with zero latency and is intended for interactive typing feedback during the onboarding signup flow.
+Checks whether a phone number already exists in either the active `CustomUser` or pending
+`TempUser` tables. Both lookups are indexed existence checks, so the endpoint is cheap
+enough to call as the user types during the onboarding signup flow.
+
+Public and unauthenticated (`AllowAny`).
 
 ## Request Payload
 

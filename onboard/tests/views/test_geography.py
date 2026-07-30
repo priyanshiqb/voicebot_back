@@ -90,18 +90,26 @@ class GeographyAPITests(TestCase):
         self.assertEqual(len(response.data['data']), 1)
 
     def test_place_postal_code_dropdown(self):
+        """
+        The dropdown returns {value: <Place uuid>, label: "<name> | <postal_code>"} —
+        the postal code is in the label, not the value. See
+        docs/apiDocs/onboard/postal_code_dropdown.md.
+        """
         url = reverse('api-v1:place-postal-code-dropdown')
+
         # Search ignoring space
         response = self.client.get(url, {'search': '395006'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 1)
-        self.assertEqual(response.data['data'][0]['value'], "395 006")
-        
+        self.assertEqual(response.data['data'][0]['value'], str(self.place.id))
+        self.assertEqual(response.data['data'][0]['label'], "Varachha Road | 395 006")
+
         # Exact match
         response = self.client.get(url, {'postal_code': '395007'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['data']), 1)
-        self.assertEqual(response.data['data'][0]['value'], "395007")
+        self.assertEqual(response.data['data'][0]['value'], str(self.place2.id))
+        self.assertEqual(response.data['data'][0]['label'], "Other Place | 395007")
 
     def test_place_detail(self):
         url = reverse('api-v1:place-detail', kwargs={'pk': self.place.id})

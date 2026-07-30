@@ -44,6 +44,7 @@
 * **📝 Onboard APIs**
   * [Plans](apiDocs/onboard/plans.md)
   * [Signup Flow](apiDocs/onboard/signup_flow.md)
+  * [Check Phone Availability](apiDocs/onboard/check_phone.md)
   <!-- * [Postal Codes](apiDocs/onboard/postal_codes.md) -->
   * [Geography - Country](apiDocs/onboard/country.md)
   * [Geography - Admin1](apiDocs/onboard/admin1.md)

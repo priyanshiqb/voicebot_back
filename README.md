@@ -4,3 +4,6 @@
 
 
 chmod -R 777 media - while new setup command for media files is needed 
+
+
+docker compose exec backend-wsgi python manage.py audit_upload_key_ownership --verbose
