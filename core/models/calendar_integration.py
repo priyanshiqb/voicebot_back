@@ -66,7 +66,7 @@ class CalendarIntegration(TenantBaseModel):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "user", "provider"],
+                fields=["tenant", "user"],
                 condition=models.Q(is_deleted=False),
                 name="unique_active_calendar_integration",
             ),

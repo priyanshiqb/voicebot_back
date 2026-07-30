@@ -485,6 +485,7 @@ GOOGLE_CALENDAR_WEBHOOK_URL = env.str("GOOGLE_CALENDAR_WEBHOOK_URL", default="")
 GOOGLE_CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.freebusy",
+    "https://www.googleapis.com/auth/calendar.calendars.readonly",
 ]
 
 # Microsoft 365 / Outlook Calendar OAuth (Microsoft Graph)

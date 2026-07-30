@@ -79,16 +79,28 @@ class GoogleCalendarProvider(CalendarProvider):
 
     @classmethod
     def authorization_url(cls, state):
+        from django.core.cache import cache
+
         flow = cls._flow(state=state)
         url, _ = flow.authorization_url(
             access_type="offline", include_granted_scopes="true", prompt="consent"
         )
+        if getattr(flow, "code_verifier", None):
+            cache.set(f"pkce_{state}", flow.code_verifier, timeout=600)
         return url
 
     @classmethod
-    def exchange_code(cls, code):
+    def exchange_code(cls, code, state=None):
+        from django.core.cache import cache
+
         flow = cls._flow()
-        flow.fetch_token(code=code)
+        kwargs = {"code": code}
+        if state:
+            cv = cache.get(f"pkce_{state}")
+            if cv:
+                kwargs["code_verifier"] = cv
+        
+        flow.fetch_token(**kwargs)
         creds = flow.credentials
         return OAuthTokens(
             access_token=creds.token or "",
@@ -143,13 +155,23 @@ class GoogleCalendarProvider(CalendarProvider):
         ]
 
     def push_event(self, integration, booking):
-        created = (
-            self._service(integration)
-            .events()
-            .insert(calendarId="primary", body=_event_body(booking))
-            .execute()
-        )
-        return created.get("id", "")
+        from googleapiclient.errors import HttpError
+
+        body = _event_body(booking)
+        body["id"] = booking.id.hex
+        
+        try:
+            created = (
+                self._service(integration)
+                .events()
+                .insert(calendarId="primary", body=body)
+                .execute()
+            )
+            return created.get("id", "")
+        except HttpError as exc:
+            if getattr(exc, "resp", None) is not None and exc.resp.status == 409:
+                return booking.id.hex
+            raise
 
     def update_event(self, integration, booking):
         if not booking.external_event_id:
@@ -238,7 +260,10 @@ class GoogleCalendarProvider(CalendarProvider):
         changes = []
         sync_token = integration.sync_token or ""
         page_token = None
-        while True:
+        max_pages = 50
+        pages_fetched = 0
+        while pages_fetched < max_pages:
+            pages_fetched += 1
             params = {"calendarId": "primary", "singleEvents": True, "showDeleted": True}
             if sync_token:
                 params["syncToken"] = sync_token
@@ -253,6 +278,7 @@ class GoogleCalendarProvider(CalendarProvider):
                 if getattr(exc, "resp", None) is not None and exc.resp.status == 410:
                     # Sync token expired — restart with a full window scan.
                     sync_token, page_token, changes = "", None, []
+                    pages_fetched = 0
                     continue
                 raise
             changes.extend(_to_changed_event(item) for item in resp.get("items", []))
@@ -262,3 +288,6 @@ class GoogleCalendarProvider(CalendarProvider):
                     changes=changes,
                     sync_token=resp.get("nextSyncToken", "") or sync_token,
                 )
+        
+        logger.error("sync_events exceeded max_pages (%d) for %s", max_pages, integration.id)
+        raise RuntimeError("sync_events loop limit exceeded")

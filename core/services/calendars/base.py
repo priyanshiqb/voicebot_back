@@ -55,7 +55,7 @@ class CalendarProvider:
         raise NotImplementedError
 
     @classmethod
-    def exchange_code(cls, code):
+    def exchange_code(cls, code, state=None):
         """Exchange an auth code for OAuthTokens."""
         raise NotImplementedError
 

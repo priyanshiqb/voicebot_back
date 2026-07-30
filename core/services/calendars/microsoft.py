@@ -110,7 +110,7 @@ class MicrosoftCalendarProvider(CalendarProvider):
         )
 
     @classmethod
-    def exchange_code(cls, code):
+    def exchange_code(cls, code, state=None):
         result = cls._msal_app().acquire_token_by_authorization_code(
             code,
             scopes=_graph_scopes(),

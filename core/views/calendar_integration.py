@@ -1,7 +1,9 @@
 import logging
+import secrets
 
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.shortcuts import redirect
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -74,19 +76,25 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
         `?provider=GOOGLE` (default) or `OUTLOOK`."""
         from core.services import calendars
 
+        if not settings.SCHEDULING_TOKEN_ENCRYPTION_KEY:
+            return self.error(message="Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.", status_code=500)
+
         provider = self._resolve_provider(request.query_params.get("provider"))
         if provider is None:
             return self.error(message="Unsupported calendar provider.", status_code=400)
 
         tenant = self._tenant(request)
+        nonce = secrets.token_hex(16)
         state = signing.dumps(
             {
                 "user_id": str(request.user.id),
                 "tenant_id": str(tenant.id),
                 "provider": provider,
+                "nonce": nonce,
             },
             salt=_STATE_SALT,
         )
+        cache.set(f"oauth_state_{nonce}", True, timeout=_STATE_MAX_AGE)
         try:
             auth_url = calendars.get_provider_class(provider).authorization_url(state)
         except Exception:  # noqa: BLE001
@@ -105,6 +113,9 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
         serves every provider."""
         from core.services import calendars
 
+        if not settings.SCHEDULING_TOKEN_ENCRYPTION_KEY:
+            return self.error(message="Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.", status_code=500)
+
         code = request.query_params.get("code")
         state = request.query_params.get("state")
         if not code or not state:
@@ -113,6 +124,10 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             payload = signing.loads(state, salt=_STATE_SALT, max_age=_STATE_MAX_AGE)
         except signing.BadSignature:
             return self.error(message="Invalid or expired state.", status_code=400)
+
+        nonce = payload.get("nonce")
+        if not nonce or not cache.delete(f"oauth_state_{nonce}"):
+            return self.error(message="State token already used or invalid.", status_code=400)
 
         provider = self._resolve_provider(payload.get("provider"))
         if provider is None:
@@ -123,7 +138,7 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             return self.error(message="Unknown tenant.", status_code=400)
 
         try:
-            tokens = calendars.get_provider_class(provider).exchange_code(code)
+            tokens = calendars.get_provider_class(provider).exchange_code(code, state=state)
         except Exception:  # noqa: BLE001
             logger.exception("%s code exchange failed", provider)
             return self.error(message="Failed to connect calendar.", status_code=400)

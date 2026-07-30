@@ -31,11 +31,14 @@ def webhook_url_for(integration):
     return getattr(settings, setting_name, "")
 
 
-def _our_event_ids(integration):
+def _our_event_ids(integration, window_start):
     """External ids of events WE pushed for this host — skipped on sync (echo guard)."""
     return set(
         Booking.objects.filter(
-            tenant=integration.tenant, primary_host=integration.user, is_deleted=False
+            tenant=integration.tenant, 
+            primary_host=integration.user, 
+            is_deleted=False,
+            start_time__gte=window_start
         )
         .exclude(external_event_id__isnull=True)
         .exclude(external_event_id="")
@@ -49,7 +52,7 @@ def run_incremental_sync(integration, now=None, horizon_days=60):
     provider = calendars.get_provider_for(integration)
     result = provider.sync_events(integration, now, now + timedelta(days=horizon_days))
 
-    ours = _our_event_ids(integration)
+    ours = _our_event_ids(integration, now)
     applied = 0
     for change in result.changes:
         if not change.external_id or change.external_id in ours:
