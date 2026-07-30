@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 _STATE_SALT = "scheduling.calendar.oauth"
 _STATE_MAX_AGE = 600  # seconds
 
+# Providers that once existed and may still be sent by an old client build.
+_RETIRED_PROVIDERS = {"OUTLOOK"}
+
 
 class CalendarIntegrationViewSet(TenantBaseViewSet):
     """
@@ -69,19 +72,30 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             return None
         return provider
 
+    @staticmethod
+    def _unsupported_provider_message(value):
+        """Retired providers get a named answer rather than a generic rejection, so a
+        stale client build shows something actionable."""
+        if (value or "").upper() in _RETIRED_PROVIDERS:
+            return "Outlook is no longer supported. Only GOOGLE is available."
+        return "Unsupported calendar provider."
+
     @action(detail=False, methods=["get"])
     def connect(self, request):
         """Return the provider consent URL to start connecting a calendar.
 
-        `?provider=GOOGLE` (default) or `OUTLOOK`."""
+        `?provider=GOOGLE` (the default, and currently the only option)."""
         from core.services import calendars
 
         if not settings.SCHEDULING_TOKEN_ENCRYPTION_KEY:
             return self.error(message="Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.", status_code=500)
 
-        provider = self._resolve_provider(request.query_params.get("provider"))
+        requested = request.query_params.get("provider")
+        provider = self._resolve_provider(requested)
         if provider is None:
-            return self.error(message="Unsupported calendar provider.", status_code=400)
+            return self.error(
+                message=self._unsupported_provider_message(requested), status_code=400
+            )
 
         tenant = self._tenant(request)
         nonce = secrets.token_hex(16)
@@ -109,8 +123,8 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
     def callback(self, request):
         """OAuth redirect target: exchange the code and store the integration.
 
-        The provider is carried in the signed `state`, so the same callback URL
-        serves every provider."""
+        The provider is carried in the signed `state`, so one callback URL serves any
+        provider we add later."""
         from core.services import calendars
 
         if not settings.SCHEDULING_TOKEN_ENCRYPTION_KEY:
@@ -129,9 +143,12 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
         if not nonce or not cache.delete(f"oauth_state_{nonce}"):
             return self.error(message="State token already used or invalid.", status_code=400)
 
-        provider = self._resolve_provider(payload.get("provider"))
+        requested = payload.get("provider")
+        provider = self._resolve_provider(requested)
         if provider is None:
-            return self.error(message="Unsupported calendar provider.", status_code=400)
+            return self.error(
+                message=self._unsupported_provider_message(requested), status_code=400
+            )
 
         tenant = Tenant.objects.filter(pk=payload["tenant_id"]).first()
         if tenant is None:
@@ -143,18 +160,21 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             logger.exception("%s code exchange failed", provider)
             return self.error(message="Failed to connect calendar.", status_code=400)
 
+        # Look up on the same key as the unique constraint (tenant, user) — NOT on
+        # provider. Filtering by provider would miss a row belonging to a different
+        # one, build a second row, and hit the constraint as an uncaught IntegrityError
+        # with the auth code already spent.
         integration = CalendarIntegration.objects.filter(
             tenant=tenant,
             user_id=payload["user_id"],
-            provider=provider,
             is_deleted=False,
         ).first()
         if integration is None:
             integration = CalendarIntegration(
                 tenant=tenant,
                 user_id=payload["user_id"],
-                provider=provider,
             )
+        integration.provider = provider
         integration.account_email = tokens.account_email
         integration.scope = tokens.scope
         integration.token_expires_at = tokens.token_expires_at

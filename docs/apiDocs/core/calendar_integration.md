@@ -1,19 +1,20 @@
 # Calendar Integration API Documentation
 
-Connect a host's external calendar (**Google** or **Microsoft 365 / Outlook**) via OAuth,
-scoped to the authenticated tenant. Once connected, the host's busy times are subtracted from
-availability and new bookings are mirrored to their calendar. **Token fields are never
-exposed** by the API. The provider is chosen with `?provider=` on connect (default `GOOGLE`).
+Connect a host's **Google Calendar** via OAuth, scoped to the authenticated tenant. Once
+connected, the host's busy times are subtracted from availability and new bookings are mirrored
+to their calendar. **Token fields are never exposed** by the API.
+
+One integration per host: the unique constraint is `(tenant, user)`, so reconnecting updates the
+existing record rather than adding a second one.
 
 ## Endpoints Summary
-- `GET /api/v1/core/calendar-integrations/connect/?provider=GOOGLE|OUTLOOK` - Start OAuth (returns consent URL)
+- `GET /api/v1/core/calendar-integrations/connect/` - Start OAuth (returns consent URL)
 - `GET /api/v1/core/calendar-integrations/callback/` - OAuth redirect target (system; provider carried in signed state)
 - `GET /api/v1/core/calendar-integrations/` - List integrations (paginated)
 - `GET /api/v1/core/calendar-integrations/{id}/` - Retrieve an integration
 - `DELETE /api/v1/core/calendar-integrations/{id}/` - Disconnect (revoke + stop watch)
 - `GET /api/v1/core/calendar-integrations/dropdown/` - Get label/value list (label = account email)
 - `POST /api/v1/core/calendar-webhook/google/` - Google push notifications (system, public)
-- `POST /api/v1/core/calendar-webhook/microsoft/` - Microsoft Graph push notifications (system, public)
 
 ---
 
@@ -23,9 +24,10 @@ exposed** by the API. The provider is chosen with `?provider=` on connect (defau
 - **Path**: `GET /api/v1/core/calendar-integrations/connect/`
 - **Headers**: `Authorization: Bearer <token>`
 - **Query Parameters** (optional):
-  - `provider`: `GOOGLE` (default) or `OUTLOOK`. Chooses which calendar to connect. An
-    unsupported value returns `400`. The provider is embedded in the signed OAuth `state`, so
-    the single callback endpoint below handles every provider.
+  - `provider`: `GOOGLE` (the default, and currently the only supported value). Any other value
+    returns `400`; `OUTLOOK` returns `400` with `"Outlook is no longer supported. Only GOOGLE is
+    available."` The provider is embedded in the signed OAuth `state`, so the single callback
+    endpoint below serves any provider added later.
 - **Success Response (200 OK)**:
   ```json
   {
@@ -35,8 +37,6 @@ exposed** by the API. The provider is chosen with `?provider=` on connect (defau
     "errors": null
   }
   ```
-  For `?provider=OUTLOOK` the `authorization_url` points at
-  `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?...`.
 - **Flow**: The front-end redirects the host to `authorization_url`. After consent, the
   provider redirects to the callback below. See the
   [Google Calendar sync flow](../../flows/04-google-calendar-sync.md).
@@ -112,35 +112,3 @@ exposed** by the API. The provider is chosen with `?provider=` on connect (defau
   refreshes the host's cached busy blocks (ignoring events we created — echo guard). Always
   responds `200` (unknown/invalid channels are ignored) so Google stops retrying.
 - **Response**: `200 OK` (empty body).
-
----
-
-### 6. Microsoft Graph Webhook (system, public)
-- **Path**: `POST /api/v1/core/calendar-webhook/microsoft/`
-- **Auth**: None — Microsoft Graph's browser-less callback; validated against the per-subscription
-  `clientState` set when the subscription (watch) was created.
-- **Two request shapes**:
-  1. **Validation handshake** — when a subscription is created, Graph immediately calls this URL
-     with `?validationToken=<token>` and expects it **echoed back as `text/plain`, `200`, within
-     10 seconds**, or the subscription is rejected.
-     - **Response**: `200 OK`, `Content-Type: text/plain`, body = the `validationToken` verbatim.
-  2. **Change notification** — JSON body:
-     ```json
-     {
-       "value": [
-         {
-           "subscriptionId": "9e1b...-subscription",
-           "clientState": "<secret matching watch_token>",
-           "changeType": "updated",
-           "resourceData": { "id": "AAMk...-event-id" }
-         }
-       ]
-     }
-     ```
-     - **Behaviour**: For each notification whose `subscriptionId` matches a live integration and
-       whose `clientState` matches the stored secret, enqueues an incremental **delta** sync
-       (echo-guarded). Unknown subscriptions or mismatched `clientState` are ignored.
-     - **Response**: `202 Accepted` (empty body). Always `2xx` so Graph stops retrying.
-
-> See the [Outlook implementation plan](../../outlook-calendar-implementation-plan.md) for the
-> full provider design and the multi-calendar-per-host roadmap.

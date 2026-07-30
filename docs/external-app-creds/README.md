@@ -4,7 +4,7 @@ Step-by-step guides to obtain every third-party credential this backend needs, w
 **field-level mapping** from each provider's console value to the `.env` variable and the Django
 setting that reads it.
 
-Three integrations require external setup. **All degrade gracefully** — a blank credential
+Two integrations require external setup. **Both degrade gracefully** — a blank credential
 turns that feature off rather than crashing (except the shared encryption key, which is
 required before *any* calendar is connected).
 
@@ -12,14 +12,13 @@ required before *any* calendar is connected).
 |---|-----|--------|-------|
 | 1 | **Firebase Cloud Messaging** | Internal push alerts (reassignment, needs-reschedule) | [01-firebase-fcm.md](01-firebase-fcm.md) |
 | 2 | **Google Calendar** | Host free/busy + booking mirror + webhook sync | [02-google-calendar.md](02-google-calendar.md) |
-| 3 | **Microsoft 365 / Outlook** | Host free/busy + booking mirror + webhook sync (Graph) | [03-outlook-microsoft-365.md](03-outlook-microsoft-365.md) |
 
 ---
 
 ## 0. Shared prerequisite — calendar token encryption key (REQUIRED)
 
-Both Google **and** Outlook store OAuth tokens **encrypted** (Fernet). You must set this **once**
-before connecting any calendar, or the connect flow raises `RuntimeError`.
+Calendar OAuth tokens are stored **encrypted** (Fernet). You must set this **once** before
+connecting any calendar — the connect endpoint refuses to start without it.
 
 Generate a key:
 ```bash
@@ -54,13 +53,6 @@ GOOGLE_CALENDAR_CLIENT_ID=1234567890-abcdef.apps.googleusercontent.com
 GOOGLE_CALENDAR_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxx
 GOOGLE_CALENDAR_REDIRECT_URI=https://api.example.com/api/v1/core/calendar-integrations/callback/
 GOOGLE_CALENDAR_WEBHOOK_URL=https://api.example.com/api/v1/core/calendar-webhook/google/
-
-# ── 3. Microsoft 365 / Outlook ──
-MICROSOFT_CALENDAR_CLIENT_ID=00000000-0000-0000-0000-000000000000
-MICROSOFT_CALENDAR_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
-MICROSOFT_CALENDAR_REDIRECT_URI=https://api.example.com/api/v1/core/calendar-integrations/callback/
-MICROSOFT_CALENDAR_AUTHORITY=https://login.microsoftonline.com/common
-MICROSOFT_CALENDAR_WEBHOOK_URL=https://api.example.com/api/v1/core/calendar-webhook/microsoft/
 ```
 
 ---
@@ -75,14 +67,9 @@ MICROSOFT_CALENDAR_WEBHOOK_URL=https://api.example.com/api/v1/core/calendar-webh
 | `GOOGLE_CALENDAR_CLIENT_SECRET` | ✅ (for Google) | Google | `GOOGLE_CALENDAR_CLIENT_SECRET` | calendars/google.py |
 | `GOOGLE_CALENDAR_REDIRECT_URI` | ✅ (for Google) | Google | `GOOGLE_CALENDAR_REDIRECT_URI` | calendars/google.py |
 | `GOOGLE_CALENDAR_WEBHOOK_URL` | Optional (on-demand if blank) | Google | `GOOGLE_CALENDAR_WEBHOOK_URL` | calendar_sync.py |
-| `MICROSOFT_CALENDAR_CLIENT_ID` | ✅ (for Outlook) | Outlook | `MICROSOFT_CALENDAR_CLIENT_ID` | calendars/microsoft.py |
-| `MICROSOFT_CALENDAR_CLIENT_SECRET` | ✅ (for Outlook) | Outlook | `MICROSOFT_CALENDAR_CLIENT_SECRET` | calendars/microsoft.py |
-| `MICROSOFT_CALENDAR_REDIRECT_URI` | ✅ (for Outlook) | Outlook | `MICROSOFT_CALENDAR_REDIRECT_URI` | calendars/microsoft.py |
-| `MICROSOFT_CALENDAR_AUTHORITY` | Optional (default `/common`) | Outlook | `MICROSOFT_CALENDAR_AUTHORITY` | calendars/microsoft.py |
-| `MICROSOFT_CALENDAR_WEBHOOK_URL` | Optional (on-demand if blank) | Outlook | `MICROSOFT_CALENDAR_WEBHOOK_URL` | calendar_sync.py |
 
-> **Code-only settings (not env vars):** `GOOGLE_CALENDAR_SCOPES`, `MICROSOFT_CALENDAR_SCOPES`,
-> and `MICROSOFT_GRAPH_BASE_URL` live in `config/settings/base.py`. Related but general:
+> **Code-only settings (not env vars):** `GOOGLE_CALENDAR_SCOPES` lives in
+> `config/settings/base.py`. Related but general:
 > `FRONTEND_PROJECT_URL` (the OAuth flow redirects the browser back to
 > `{FRONTEND_PROJECT_URL}/settings/calendar?connected=1` after a successful connect).
 

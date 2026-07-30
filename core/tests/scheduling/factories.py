@@ -1,9 +1,12 @@
 """Shared fixtures/helpers for scheduling tests."""
 
+import secrets
 from datetime import datetime, time
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
+from django.core import signing
+from django.core.cache import cache
 
 from onboard.models.timezone import Timezone
 from tenant.models.Tenant import Tenant
@@ -94,6 +97,28 @@ def make_host(
             end_time=end,
         )
     return user
+
+
+def oauth_state(user, tenant, provider="GOOGLE"):
+    """A signed OAuth `state` with its single-use nonce primed in the cache.
+
+    The calendar callback burns the nonce (`cache.delete`) to stop a leaked state
+    from being replayed, so a hand-rolled state without one is rejected with 400.
+    Tests that hit the callback must go through here.
+    """
+    from core.views.calendar_integration import _STATE_SALT, _STATE_MAX_AGE
+
+    nonce = secrets.token_hex(16)
+    cache.set(f"oauth_state_{nonce}", True, timeout=_STATE_MAX_AGE)
+    return signing.dumps(
+        {
+            "user_id": str(user.id),
+            "tenant_id": str(tenant.id),
+            "provider": provider,
+            "nonce": nonce,
+        },
+        salt=_STATE_SALT,
+    )
 
 
 def make_exception(tenant, user, start, end, exc_type=None):

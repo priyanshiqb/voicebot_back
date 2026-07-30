@@ -16,7 +16,7 @@ gracefully** — the system runs without it, that feature just stays off.
 | 3 | Google Calendar: encrypted OAuth, free/busy, event push/delete, token refresh | `0024` |
 | 3.5 | Webhook incremental sync (watch channels, echo guard, reassignment re-sync) | `0025` |
 | 4 | FCM push alerts, public single-use rebooking | `0026` |
-| + | **Microsoft 365 / Outlook** (Graph): OAuth, free/busy, event push/delete, delta sync, webhook | **none** (reuses `OUTLOOK` provider value) |
+| + | Calendar security hardening (PKCE, single-use OAuth state, idempotent event push) | `0035`, `0036` |
 
 ---
 
@@ -24,7 +24,7 @@ gracefully** — the system runs without it, that feature just stays off.
 
 Python packages are already in `pyproject.toml` / `uv.lock`:
 `cryptography`, `google-auth`, `google-auth-oauthlib`, `google-api-python-client`,
-`firebase-admin`, `msal` (Outlook / Microsoft Graph OAuth). Install with:
+`firebase-admin`. Install with:
 
 ```bash
 uv sync
@@ -59,19 +59,14 @@ the encryption key, which is required before any calendar is connected.
 | `GOOGLE_CALENDAR_CLIENT_SECRET` | Google Calendar | from Google Cloud |
 | `GOOGLE_CALENDAR_REDIRECT_URI` | Google Calendar | `https://api.example.com/api/v1/core/calendar-integrations/callback/` |
 | `GOOGLE_CALENDAR_WEBHOOK_URL` | Webhook sync (optional) | `https://api.example.com/api/v1/core/calendar-webhook/google/` |
-| `MICROSOFT_CALENDAR_CLIENT_ID` | Outlook / M365 | from Azure (Entra) app registration |
-| `MICROSOFT_CALENDAR_CLIENT_SECRET` | Outlook / M365 | from Azure app registration |
-| `MICROSOFT_CALENDAR_REDIRECT_URI` | Outlook / M365 | `https://api.example.com/api/v1/core/calendar-integrations/callback/` (same callback as Google) |
-| `MICROSOFT_CALENDAR_AUTHORITY` | Outlook / M365 (optional) | `https://login.microsoftonline.com/common` (default) |
-| `MICROSOFT_CALENDAR_WEBHOOK_URL` | Outlook webhook sync (optional) | `https://api.example.com/api/v1/core/calendar-webhook/microsoft/` |
 | `FIREBASE_CREDENTIALS` | FCM push (optional) | `/run/secrets/firebase.json` |
 | `BOOKING_HOLD_TTL_SECONDS` | — | `300` |
 | `BOOKING_REMINDER_OFFSETS_MINUTES` | — | `1440,60` |
 | `BOOKING_RESCHEDULE_TOKEN_TTL_HOURS` | — | `72` |
 | `EXTERNAL_FREEBUSY_CACHE_SECONDS` | — | `60` |
 
-> `GOOGLE_CALENDAR_SCOPES` and `MICROSOFT_CALENDAR_SCOPES` are code settings, not env vars.
-> Google needs no migration for Outlook — the `OUTLOOK` provider value already exists.
+> `GOOGLE_CALENDAR_SCOPES` is a code setting, not an env var. It requests three scopes; all
+> three must also be listed on the Google consent screen.
 
 ---
 
@@ -105,37 +100,7 @@ through them (MultiFernet).
 - No extra Google config beyond the Calendar API. Watch channels are created on
   connect and renewed hourly by the Beat task.
 
-### 4.4 Microsoft 365 / Outlook OAuth (Microsoft Graph)
-
-1. **Entra ID (Azure AD) → App registrations → New registration.** Supported account
-   types: *Accounts in any organizational directory and personal Microsoft accounts*
-   (multi-tenant + consumer). Record the **Application (client) ID** →
-   `MICROSOFT_CALENDAR_CLIENT_ID`.
-2. **Redirect URI (Web):** the callback URL (`MICROSOFT_CALENDAR_REDIRECT_URI`) — this can be
-   the **same** callback the Google flow uses; the provider is carried in the signed OAuth
-   `state`.
-3. **API permissions → Microsoft Graph → Delegated:** `Calendars.ReadWrite`, `offline_access`,
-   `User.Read`, `openid`, `email`, `profile`. (`offline_access` is **mandatory** — without it
-   there's no refresh token and the integration dies at first token expiry. Admin consent may
-   be required per customer org.)
-4. **Certificates & secrets → New client secret** → copy the value to
-   `MICROSOFT_CALENDAR_CLIENT_SECRET`.
-5. Authority defaults to `https://login.microsoftonline.com/common` (work + personal). Use
-   `.../organizations` for work-only, or a tenant id to lock to one org.
-
-> No token-revoke endpoint exists on Graph — disconnect stops the watch and soft-deletes
-> locally (tokens dropped). This is expected, not an error.
-
-### 4.5 Microsoft Graph webhooks (optional — otherwise on-demand free/busy is used)
-
-- Set `MICROSOFT_CALENDAR_WEBHOOK_URL` to the public callback. **It must be reachable HTTPS at
-  the moment a subscription is created** — Graph validates it synchronously (echoes a
-  `validationToken`). Use a tunnel (VS Code Dev Tunnels / ngrok) in dev, or leave blank to run
-  on-demand free/busy only.
-- Subscriptions for `/me/events` expire in ~70 h; the hourly `renew_calendar_watches` Beat task
-  renews them (shared with Google — no extra config).
-
-### 4.6 Firebase Cloud Messaging (optional)
+### 4.4 Firebase Cloud Messaging (optional)
 
 1. Firebase console → project settings → **Service accounts → generate private key**.
 2. Mount the JSON and set `FIREBASE_CREDENTIALS` to its path.
@@ -166,8 +131,8 @@ Beat schedule (defined in settings, no `django-celery-beat` needed):
 |---|---|---|
 | `send_due_reminders` | 5 min | Upcoming-booking reminders (idempotent) |
 | `cleanup_expired_holds` | 1 min | Release lapsed holds |
-| `refresh_calendar_tokens` | 15 min | Refresh Google + Outlook access tokens near expiry |
-| `renew_calendar_watches` | hourly | Renew Google + Outlook watch channels before they expire |
+| `refresh_calendar_tokens` | 15 min | Refresh Google access tokens near expiry |
+| `renew_calendar_watches` | hourly | Renew Google watch channels before they expire |
 
 ---
 
@@ -178,13 +143,12 @@ All under `/api/v1/core/`. Authenticated unless marked public.
 **Authenticated:** `event-templates/`, `event-skills/`, `availability-profiles/`,
 `availability-exceptions/`, `availability/available-slots/`,
 `bookings/` (+ `hold/`, `{id}/confirm|cancel|complete|no-show/`),
-`calendar-integrations/` (+ `connect/?provider=GOOGLE|OUTLOOK`, `callback/`, DELETE=disconnect),
+`calendar-integrations/` (+ `connect/`, `callback/`, DELETE=disconnect),
 `device-tokens/` (+ `deactivate/`).
 
 **Public (unauthenticated):**
 - `calendar-webhook/google/` — Google pushes calendar changes here (validated by
   channel token).
-- `calendar-webhook/microsoft/` — Microsoft Graph pushes calendar changes here
   (validation-token handshake + `clientState`-validated notifications).
 - `public/reschedule/<uuid:token>/` — customer rebooking (GET slots, POST rebook);
   single-use, expiring, throttled 30/min.

@@ -18,9 +18,12 @@ bookings onto their calendar, and (optionally) near-real-time webhook sync. Cons
 3. **APIs & Services → OAuth consent screen:**
    - **User type: External** (unless every host is in your Google Workspace org, then Internal).
    - Fill app name, user-support email, developer contact. Add homepage + privacy-policy URLs.
-   - **Scopes:** add the two the app uses (both are *sensitive*):
-     - `https://www.googleapis.com/auth/calendar.events`
-     - `https://www.googleapis.com/auth/calendar.freebusy`
+   - **Scopes:** add the three the app uses (all *sensitive*):
+     - `https://www.googleapis.com/auth/calendar.events` — mirror bookings
+     - `https://www.googleapis.com/auth/calendar.freebusy` — read the host's busy times
+     - `https://www.googleapis.com/auth/calendar.calendars.readonly` — read the connected
+       account's address. The other two do **not** authorize `calendars.get`, so without this
+       one `account_email` silently stays empty.
    - Save.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID:**
    - **Application type: Web application.**
@@ -73,8 +76,8 @@ GOOGLE_CALENDAR_WEBHOOK_URL=https://api.example.com/api/v1/core/calendar-webhook
   (they must reconnect). Submit for **verification** before public launch.
 - **`redirect_uri_mismatch`** is almost always a trailing-slash or scheme (`http` vs `https`)
   difference between the console entry and `GOOGLE_CALENDAR_REDIRECT_URI`.
-- **Same callback for all providers:** this redirect URI is shared with Outlook — the provider is
-  carried in the signed OAuth `state`, so you register the same path in both consoles.
+- **One callback for any provider:** the provider is carried in the signed OAuth `state` rather
+  than in the path, so a future provider reuses this same redirect URI.
 - **Watch renewal is automatic:** channels are created on connect and renewed hourly by the
   `renew_calendar_watches` Beat task — no cron of your own.
 

@@ -29,7 +29,6 @@
   * [Overview & .env Map](external-app-creds/README.md)
   * [Firebase Cloud Messaging](external-app-creds/01-firebase-fcm.md)
   * [Google Calendar](external-app-creds/02-google-calendar.md)
-  * [Outlook / Microsoft 365](external-app-creds/03-outlook-microsoft-365.md)
 
 * **🔀 Scheduling Flows**
   * [Overview & Endpoint Map](flows/README.md)

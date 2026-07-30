@@ -1,12 +1,14 @@
-"""Pluggable external-calendar providers (Google + Microsoft/Outlook)."""
+"""Pluggable external-calendar providers.
+
+Google is currently the only one. The registry and `CalendarProvider` interface are
+kept so adding another provider stays an addition rather than a refactor.
+"""
 
 from core.services.calendars.base import BusyInterval, CalendarProvider, OAuthTokens
 from core.services.calendars.google import GoogleCalendarProvider
-from core.services.calendars.microsoft import MicrosoftCalendarProvider
 
 _PROVIDERS = {
     GoogleCalendarProvider.name: GoogleCalendarProvider,
-    MicrosoftCalendarProvider.name: MicrosoftCalendarProvider,
 }
 
 
@@ -35,7 +37,6 @@ __all__ = [
     "CalendarProvider",
     "OAuthTokens",
     "GoogleCalendarProvider",
-    "MicrosoftCalendarProvider",
     "get_provider",
     "get_provider_for",
     "get_provider_class",

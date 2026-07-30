@@ -17,9 +17,9 @@ from core.services import calendars
 logger = logging.getLogger(__name__)
 
 # Per-provider setting holding the public webhook URL for push notifications.
+# An unmapped provider yields "", which disables webhooks for it rather than failing.
 _WEBHOOK_URL_SETTINGS = {
     "GOOGLE": "GOOGLE_CALENDAR_WEBHOOK_URL",
-    "OUTLOOK": "MICROSOFT_CALENDAR_WEBHOOK_URL",
 }
 
 

@@ -3,7 +3,6 @@ from datetime import timezone as dt_timezone
 from unittest import skipUnless
 from unittest.mock import patch
 
-from django.core import signing
 from django.core.cache import cache
 from django.db import connection
 from django.test import TestCase
@@ -187,10 +186,7 @@ class CalendarOAuthApiTests(TestCase):
             scope="calendar.events",
             account_email="host@gmail.com",
         )
-        state = signing.dumps(
-            {"user_id": str(self.user.id), "tenant_id": str(self.tenant.id)},
-            salt="scheduling.calendar.oauth",
-        )
+        state = f.oauth_state(self.user, self.tenant)
         # Callback is unauthenticated (trusted via signed state).
         response = self.client.get(
             f"/api/v1/core/calendar-integrations/callback/?code=abc&state={state}"
@@ -210,3 +206,88 @@ class CalendarOAuthApiTests(TestCase):
             "/api/v1/core/calendar-integrations/callback/?code=abc&state=tampered"
         )
         self.assertEqual(response.status_code, 400)
+
+    @patch("core.services.calendars.GoogleCalendarProvider.exchange_code")
+    def test_callback_reuses_the_row_for_the_tenant_user_pair(self, mock_exchange):
+        """
+        The unique constraint is on (tenant, user), so the callback must look up on
+        that pair alone. Looking up by provider as well would miss an existing row and
+        hit the constraint as an uncaught IntegrityError — with the code already spent.
+        """
+        existing = CalendarIntegration(
+            tenant=self.tenant, user=self.user,
+            provider=CalendarIntegration.Provider.GOOGLE,
+            account_email="old@gmail.com",
+        )
+        existing.set_tokens(access_token="old", refresh_token="old")
+        existing.save()
+
+        mock_exchange.return_value = OAuthTokens(
+            access_token="new-token", refresh_token="new-refresh",
+            token_expires_at=None, scope="calendar.events",
+            account_email="new@gmail.com",
+        )
+        state = f.oauth_state(self.user, self.tenant)
+        response = self.client.get(
+            f"/api/v1/core/calendar-integrations/callback/?code=abc&state={state}"
+        )
+
+        self.assertIn(response.status_code, (200, 302))
+        self.assertEqual(
+            CalendarIntegration.objects.filter(
+                tenant=self.tenant, user=self.user
+            ).count(),
+            1,
+        )
+        existing.refresh_from_db()
+        self.assertEqual(existing.account_email, "new@gmail.com")
+        self.assertEqual(existing.get_access_token(), "new-token")
+
+
+@REQUIRES_PG
+class OutlookRemovedTests(TestCase):
+    """Outlook was retired before it ever reached production. These guard against it
+    being half-resurrected by a stale client, route, or registry entry."""
+
+    def setUp(self):
+        self.tenant = f.make_tenant()
+        self.user = f.make_user(self.tenant)
+        self.client = APIClient()
+
+    def test_google_is_the_only_provider_choice(self):
+        self.assertEqual(CalendarIntegration.Provider.values, ["GOOGLE"])
+
+    def test_registry_holds_google_only(self):
+        from core.services import calendars
+
+        self.assertEqual(set(calendars._PROVIDERS), {"GOOGLE"})
+        with self.assertRaises(ValueError):
+            calendars.get_provider("OUTLOOK")
+        self.assertFalse(hasattr(calendars, "MicrosoftCalendarProvider"))
+
+    def test_connect_names_outlook_as_retired(self):
+        """A stale front-end sending ?provider=OUTLOOK should learn why, not get a
+        generic rejection — and must never be silently defaulted to Google."""
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(
+            "/api/v1/core/calendar-integrations/connect/?provider=OUTLOOK"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no longer supported", response.data["message"])
+        self.assertFalse(CalendarIntegration.objects.exists())
+
+    def test_graph_webhook_route_is_gone(self):
+        response = self.client.post(
+            "/api/v1/core/calendar-webhook/microsoft/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_calendars_package_imports_without_msal(self):
+        """`msal` is uninstalled. The package must not pull it back in at import time —
+        this is the only automated guard that the dependency is really gone."""
+        import importlib
+        import sys
+
+        with patch.dict(sys.modules, {"msal": None}):
+            module = importlib.reload(importlib.import_module("core.services.calendars"))
+        self.assertEqual(set(module._PROVIDERS), {"GOOGLE"})

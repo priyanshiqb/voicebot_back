@@ -13,7 +13,6 @@ class CalendarIntegration(TenantBaseModel):
 
     class Provider(models.TextChoices):
         GOOGLE = "GOOGLE", "Google"
-        OUTLOOK = "OUTLOOK", "Outlook"  # Microsoft 365 / Outlook via Graph
 
     class SyncStatus(models.TextChoices):
         CONNECTED = "CONNECTED", "Connected"
@@ -52,7 +51,7 @@ class CalendarIntegration(TenantBaseModel):
         default="",
         help_text=(
             "Per-channel secret validated on webhook delivery — Google's "
-            "X-Goog-Channel-Token, or Microsoft Graph's clientState."
+            "X-Goog-Channel-Token."
         ),
     )
     watch_expires_at = models.DateTimeField(null=True, blank=True)

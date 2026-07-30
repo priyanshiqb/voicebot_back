@@ -488,30 +488,6 @@ GOOGLE_CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.calendars.readonly",
 ]
 
-# Microsoft 365 / Outlook Calendar OAuth (Microsoft Graph)
-MICROSOFT_CALENDAR_CLIENT_ID = env.str("MICROSOFT_CALENDAR_CLIENT_ID", default="")
-MICROSOFT_CALENDAR_CLIENT_SECRET = env.str("MICROSOFT_CALENDAR_CLIENT_SECRET", default="")
-MICROSOFT_CALENDAR_REDIRECT_URI = env.str("MICROSOFT_CALENDAR_REDIRECT_URI", default="")
-# "common" = work + personal accounts, "organizations" = work only, or a tenant id.
-MICROSOFT_CALENDAR_AUTHORITY = env.str(
-    "MICROSOFT_CALENDAR_AUTHORITY", default="https://login.microsoftonline.com/common"
-)
-# Public HTTPS URL Microsoft Graph pushes calendar-change notifications to. Must be
-# reachable when the subscription is created (Graph validates it synchronously).
-# Leave blank to disable webhooks and rely on on-demand free/busy.
-MICROSOFT_CALENDAR_WEBHOOK_URL = env.str("MICROSOFT_CALENDAR_WEBHOOK_URL", default="")
-MICROSOFT_CALENDAR_SCOPES = [
-    "offline_access",
-    "openid",
-    "email",
-    "profile",
-    "https://graph.microsoft.com/Calendars.ReadWrite",
-    "https://graph.microsoft.com/User.Read",
-]
-MICROSOFT_GRAPH_BASE_URL = env.str(
-    "MICROSOFT_GRAPH_BASE_URL", default="https://graph.microsoft.com/v1.0"
-)
-
 EXTERNAL_FREEBUSY_CACHE_SECONDS = env.int("EXTERNAL_FREEBUSY_CACHE_SECONDS", default=60)
 
 # Firebase Cloud Messaging (push notifications). Path to the service-account JSON.
