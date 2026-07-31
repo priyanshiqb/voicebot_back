@@ -75,7 +75,12 @@ class AgentCallLogViewTestCase(APITestCase):
         self.client_standard.credentials(HTTP_AUTHORIZATION=f"Bearer {self.jwt_token}")
 
         self.client_vb = APIClient()
-        self.client_vb.credentials(HTTP_AUTHORIZATION=f"Bearer {self.raw_token}")
+        # X-Tenant-ID is mandatory on every endpoint an agent token can reach; without
+        # it these requests are a 400 regardless of what they are testing.
+        self.client_vb.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.raw_token}",
+            HTTP_X_TENANT_ID=str(self.tenant.id),
+        )
 
     def test_standard_user_cannot_create_log(self):
         payload = {

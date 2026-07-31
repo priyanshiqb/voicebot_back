@@ -4,6 +4,12 @@ from core.models.agent import Agent
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, OpenApiExample
 from rest_framework.permissions import IsAuthenticated
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
+from tenant.common.views.agent_tenant_scope import (
+    VBAgentActionPermission,
+    VBAgentTenantScopedMixin,
+    assert_agent_in_tenant,
+    is_vb_agent,
+)
 from user.permissions import IsVoicebotAgent
 from core.models.agent_call_log import AgentCallLog
 from core.serializers.agent_call_log import (
@@ -25,7 +31,7 @@ from utils.s3_storage.keys import (
     build_tenant_object_key,
     is_object_key_owned_by_tenant,
 )
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from core.models.agent_call_recording import AgentCallRecording
 from core.serializers.agent_call_recording import (
@@ -33,7 +39,6 @@ from core.serializers.agent_call_recording import (
     RequestRecordingUploadUrlSerializer,
     ConfirmRecordingUploadSerializer
 )
-from user.models.CustomUser import CustomUser
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +122,7 @@ CALL_LOG_EXAMPLE = {
         responses={200: AgentCallLogDropdownSerializer(many=True)}
     )
 )
-class AgentCallLogViewSet(TenantBaseViewSet):
+class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Agent Call Log API.
     Provides read-only access to standard users and write access to Voicebot Agents.
@@ -136,37 +141,59 @@ class AgentCallLogViewSet(TenantBaseViewSet):
 
     select_related_fields = ["agent"]
 
+    # Full access: this viewset exists for machine callers. `bulk_delete` is absent
+    # because it is MethodNotAllowed for everyone, and there is no update/destroy —
+    # http_method_names above already limits this to GET and POST.
+    vb_agent_allowed_actions = frozenset({
+        "list",
+        "retrieve",
+        "dropdown",
+        "create",
+        "request_upload_url",
+        "confirm_upload",
+    })
+
     def get_permissions(self):
         """
         Instantiates and returns the list of permissions that this view requires.
         Only VB_AGENT can 'create'. Standard Authenticated users can 'list'/'retrieve'.
+
+        VBAgentActionPermission is included explicitly: returning a list here replaces
+        `permission_classes` wholesale, so the class BaseViewSet sets would otherwise be
+        dropped and every action would silently reopen to machine callers.
         """
         if self.action == "create":
-            return [IsAuthenticated(), IsVoicebotAgent()]
-        return [IsAuthenticated()]
+            return [IsAuthenticated(), IsVoicebotAgent(), VBAgentActionPermission()]
+        return [IsAuthenticated(), VBAgentActionPermission()]
 
     def get_queryset(self):
         user = self.request.user
         
-        # VB_AGENT users can globally read all call logs across tenants
-        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
+        # VB_AGENT reads call logs across tenants, narrowed to the tenant named in
+        # `X-Tenant-ID`, which is mandatory.
+        if is_vb_agent(user):
             if self.action in ["list", "retrieve", "dropdown"]:
                 # Bypass TenantBaseViewSet tenant scoping and call BaseViewSet directly
-                return BaseViewSet.get_queryset(self)
-                
+                return self.scope_to_agent_tenant(BaseViewSet.get_queryset(self))
+
         return super().get_queryset()
 
     def perform_create(self, serializer):
         user = self.request.user
-        
+
         # VB_AGENT bypasses the standard user tenant mapping constraint
-        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
-            # Derive the tenant from the associated Voicebot Agent instead
+        if is_vb_agent(user):
+            # The header is the authority on where this row lands — not the agent. The
+            # two are required to agree (below), but writing the header tenant is what
+            # keeps this honest if that check is ever relaxed.
+            tenant = self.get_agent_tenant()
+
             agent = serializer.validated_data.get('agent')
             if not agent:
-                from rest_framework.exceptions import ValidationError
                 raise ValidationError({"agent": "Agent must be specified."})
-            serializer.save(tenant=agent.tenant)
+            assert_agent_in_tenant(agent, tenant)
+
+            serializer.save(tenant=tenant)
             return
 
         super().perform_create(serializer)
@@ -180,16 +207,20 @@ class AgentCallLogViewSet(TenantBaseViewSet):
         """
         Resolve the tenant that owns a recording upload.
 
-        AI-team callers (VB_AGENT) act on behalf of an agent, so their tenant comes
-        from the agent rather than from a tenant mapping they do not have. Both upload
-        steps must resolve it the same way — a key authorized against the wrong tenant
-        is exactly the bug this guards.
+        AI-team callers (VB_AGENT) have no tenant mapping, so their tenant is the one
+        named in `X-Tenant-ID`. Both upload steps must resolve it the same way — a key
+        authorized against the wrong tenant is exactly the bug this guards.
 
         Returns (tenant_id, error_response). Exactly one is not None.
         """
         user = request.user
 
-        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
+        if is_vb_agent(user):
+            # The header decides the tenant, and therefore the object-key prefix. The
+            # `agent` is still required and still has to live in that tenant, but it
+            # only corroborates the scope — it never sets it.
+            tenant = self.get_agent_tenant()
+
             agent_id = serializer.validated_data.get("agent")
             if not agent_id:
                 return None, self.error(message="agent field is required for VB_AGENT.", status_code=status.HTTP_400_BAD_REQUEST)
@@ -197,7 +228,12 @@ class AgentCallLogViewSet(TenantBaseViewSet):
                 agent = Agent.objects.get(id=agent_id, is_deleted=False)
             except Agent.DoesNotExist:
                 return None, self.error(message="Agent not found.", status_code=status.HTTP_404_NOT_FOUND)
-            return agent.tenant_id, None
+            if agent.tenant_id != tenant.id:
+                return None, self.error(
+                    message="The specified agent does not belong to the requested tenant.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            return tenant.id, None
 
         try:
             return user.tenant_mapping.tenant_id, None

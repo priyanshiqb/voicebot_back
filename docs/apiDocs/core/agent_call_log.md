@@ -8,6 +8,7 @@ The Agent Call Log API provides endpoints to store and retrieve conversation det
 - **Authentication**: `Bearer <token>` (JWT or VB_AGENT token)
 - **Tenant Scoping**: All records are isolated per tenant. Users will only see logs belonging to their organization.
 - **Creation Restrictions**: The `POST` (create) method is strictly restricted to `VB_AGENT` tokens. Standard users cannot manually create call logs.
+- **`X-Tenant-ID` header** (VB_AGENT only, **required**): scopes `GET` requests to one tenant, and is the tenant written on every created log. The `agent` named on `POST` must belong to it (`403` otherwise) but never sets it. Omitting the header returns **400**. See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 
 | Field | Type | Description | Required | Default |
 | :--- | :--- | :--- | :--- | :--- |

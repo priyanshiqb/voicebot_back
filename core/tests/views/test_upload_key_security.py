@@ -355,9 +355,13 @@ class FileIdUploadPathTests(APITestCase):
 
 class VoicebotAgentUploadPathTests(APITestCase):
     """
-    The VB_AGENT path resolves its tenant from the agent, not from a tenant mapping.
-    Authorizing against request.user.tenant_mapping would silently break AI-team
-    uploads, so this guards the reordering done in the fix.
+    The VB_AGENT path resolves its tenant from the mandatory `X-Tenant-ID` header, not
+    from a tenant mapping it does not have. Authorizing against
+    request.user.tenant_mapping would silently break AI-team uploads, so this guards the
+    reordering done in the fix.
+
+    The `agent` field is still required and must live in the named tenant, but it only
+    corroborates the scope — the header is what decides the object-key prefix.
     """
 
     def setUp(self):
@@ -378,6 +382,7 @@ class VoicebotAgentUploadPathTests(APITestCase):
         )
         self.client_vb = APIClient()
         self.client_vb.force_authenticate(user=self.vb_user)
+        self.client_vb.credentials(HTTP_X_TENANT_ID=str(self.tenant.id))
 
     @patch("core.views.agent_call_log.S3StorageService")
     def test_vb_agent_request_url_uses_agent_tenant(self, mock_s3):

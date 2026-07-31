@@ -289,7 +289,10 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ),
     "EXCEPTION_HANDLER": "utils.exception.custom_exception_handler",
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Subclasses drf-spectacular's AutoSchema to document the X-Tenant-ID header on the
+    # operations agent tokens can reach, driven off each viewset's
+    # `vb_agent_allowed_actions` so Swagger cannot drift from what is enforced.
+    "DEFAULT_SCHEMA_CLASS": "tenant.common.views.agent_tenant_scope.VBAgentAwareAutoSchema",
 }
 
 # OpenAPI Settings
@@ -302,6 +305,29 @@ SPECTACULAR_SETTINGS = {
         "TransactionStatusEnum": "onboard.models.transaction.Transaction.TransactionStatusChoices",
         "SubscriptionStatusEnum": "onboard.models.subscription.Subscription.SubscriptionStatusChoices",
         "KBETLTrackerStatusEnum": "core.models.kb_etl_tracker.KBETLTracker.OverallStatus",
+        
+        # Types
+        "ExceptionTypeEnum": "core.models.availability_exception.AvailabilityException.ExceptionType",
+        "EventTypeEnum": "core.models.booking_event.BookingEvent.EventType",
+        "LocationTypeEnum": "core.models.event_template.EventTemplate.LocationType",
+        "NotificationTypeEnum": "core.models.notification_log.NotificationLog.NotificationType",
+        "UserTypeEnum": "user.models.CustomUser.CustomUser.UserType",
+        "PlanTypeEnum": "onboard.models.plan.Plan.PlanTypeChoices",
+
+        # Statuses
+        "CampaignMemberStatusEnum": "core.models.campaign_member.CampaignMember.Status",
+        "BookingStatusEnum": "core.models.booking.Booking.Status",
+        "ContactImportSessionStatusEnum": "core.models.contact_import.ContactImportSession.Status",
+        "ContactImportRowStatusEnum": "core.models.contact_import.ContactImportRow.Status",
+        "NotificationLogStatusEnum": "core.models.notification_log.NotificationLog.Status",
+        "CampaignStatusEnum": "core.models.campaign.Campaign.Status",
+        "BookingParticipantResponseStatusEnum": "core.models.booking_participant.BookingParticipant.ResponseStatus",
+        "ContactConsentStatusEnum": "core.models.contact.Contact.ConsentStatus",
+        
+        # Sources
+        "BookingSourceEnum": "core.models.booking.Booking.Source",
+        "ContactSourceEnum": "core.models.contact.Contact.Source",
+        "CampaignAudienceSourceEnum": "core.models.campaign.Campaign.AudienceSource",
     },
 }
 

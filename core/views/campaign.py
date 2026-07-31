@@ -22,6 +22,7 @@ from core.serializers.campaign import (
 )
 from core.services import campaigns as campaign_service
 from core.tasks import materialize_campaign
+from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def blocked_fields(campaign, submitted):
         description="Soft delete. Refused with 409 while the campaign is live.",
     ),
 )
-class CampaignViewSet(TenantBaseViewSet):
+class CampaignViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Campaign management.
 
@@ -112,8 +113,15 @@ class CampaignViewSet(TenantBaseViewSet):
     ordering = ["-created_at"]
     select_related_fields = ["tenant", "agent"]
 
+    # Retrieve only, and the header is mandatory — a machine caller has no tenant
+    # mapping, and campaign audiences are bulk contact PII, so there is no version of
+    # this that should default to every tenant.
+    vb_agent_allowed_actions = frozenset({"retrieve"})
+
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = self.agent_scoped_queryset()
+        if queryset is None:
+            queryset = super().get_queryset()
         # Prefetched only where it is rendered. Applying it globally would pull an
         # audience of thousands for every campaign on every list page, to populate a
         # field the list serializer does not expose.

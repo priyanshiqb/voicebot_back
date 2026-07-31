@@ -15,6 +15,7 @@ from drf_spectacular.utils import (
 from utils.permissions.login_window import (
     IsWithinLoginWindow
 )
+from tenant.common.views.agent_tenant_scope import VBAgentActionPermission
 
 class SetPagination(PageNumberPagination):
     page_size = 10
@@ -62,8 +63,16 @@ class ResponseMixin:
 
 
 class BaseViewSet(ResponseMixin, ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    # VBAgentActionPermission denies machine (VB_AGENT) callers unless the viewset
+    # declares `vb_agent_allowed_actions`. Ordinary users are unaffected. It lives here
+    # rather than in DEFAULT_PERMISSION_CLASSES because this tuple overrides that
+    # setting for every model viewset in the project, so the default would never apply.
+    permission_classes = (IsAuthenticated, VBAgentActionPermission)
     pagination_class = SetPagination
+
+    # DRF action names a machine caller may reach. Empty means "none" — see
+    # VBAgentActionPermission for why closed-by-default is the right default here.
+    vb_agent_allowed_actions = frozenset()
 
     queryset = None # type: models.QuerySet
     serializer_class = None

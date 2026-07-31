@@ -4,6 +4,13 @@
 **Auth:** JWT — `Authorization: Bearer <access_token>`
 **Scope:** every endpoint is filtered to the caller's tenant.
 
+> **VB_AGENT access:** `retrieve` only (`GET /campaigns/{id}/`), and the token **must** send
+> `X-Tenant-ID: <tenant uuid>` (**400** if omitted; **404** if the campaign is in another
+> tenant). `list`, `launch`, `pause`, `resume`, `cancel`, `members`, `stats`,
+> `preview-audience` and all writes return **403** — the runner reports outcomes through the
+> [Campaign Runner API](campaign_runner.md), it does not drive campaign lifecycle.
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
+
 For architecture, flow diagrams, and how the statuses fit together, see the
 [Campaign Overview](../../campaigns/README.md). For the machine-facing side, see the
 [Campaign Runner API](campaign_runner.md).

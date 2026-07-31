@@ -4,6 +4,11 @@ Manage bookable appointment types (e.g. "30-Min Demo") scoped to the authenticat
 An event template defines duration, buffers, how a host is chosen, and the booking policy
 (min notice, horizon, lead times).
 
+> **VB_AGENT access:** read-only — `list`, `retrieve`, `dropdown`. Creating, updating and
+> deleting bookable types is human configuration and returns **403**. Agent tokens **must**
+> send `X-Tenant-ID: <tenant uuid>` (**400** if omitted).
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
+
 ## Endpoints Summary
 - `GET /api/v1/core/event-templates/` - List all event templates (paginated)
 - `GET /api/v1/core/event-templates/dropdown/` - Get label/value list

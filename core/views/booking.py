@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 
+from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.booking import Booking
 from core.models.event_template import EventTemplate
@@ -19,12 +20,18 @@ from core.services.exceptions import (
     SlotConflictError,
 )
 
+from drf_spectacular.utils import extend_schema
 
-class BookingViewSet(TenantBaseViewSet):
+@extend_schema(tags=["Booking"])
+class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Booking management. Bookings are created/mutated only through the booking
     service (never direct serializer.save), so PUT/PATCH are disabled and DELETE
     maps to cancellation. Domain errors are mapped to precise HTTP codes.
+
+    Machine (`VB_AGENT`) callers have full access here — booking, holding, confirming
+    and cancelling is the voicebot's job — but must name their tenant with
+    `X-Tenant-ID`. They have no tenant mapping, and a booking has to land somewhere.
     """
 
     queryset = Booking.objects.all()
@@ -38,7 +45,34 @@ class BookingViewSet(TenantBaseViewSet):
     select_related_fields = ["event_template", "primary_host"]
     prefetch_related_fields = ["participants"]
 
+    # Every action this viewset exposes. `destroy` is included: DELETE here is a
+    # cancellation, not a data deletion — see perform_destroy.
+    vb_agent_allowed_actions = frozenset({
+        "list",
+        "retrieve",
+        "create",
+        "hold",
+        "confirm",
+        "cancel",
+        "complete",
+        "no_show",
+        "destroy",
+    })
+
+    def get_queryset(self):
+        scoped = self.agent_scoped_queryset()
+        if scoped is not None:
+            return scoped
+        return super().get_queryset()
+
     def _tenant(self, request):
+        # Machine callers resolve their tenant from the header; everyone else from
+        # their mapping. Both paths must agree with get_queryset above, or a create
+        # would land in a tenant the caller cannot then read back.
+        agent_tenant = self.get_agent_tenant()
+        if agent_tenant is not None:
+            return agent_tenant
+
         try:
             return request.user.tenant_mapping.tenant
         except Exception:

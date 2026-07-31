@@ -38,6 +38,9 @@ class RunnerTestCase(APITestCase):
 
         self.client_runner = APIClient()
         self.client_runner.force_authenticate(user=self.runner)
+        # X-Tenant-ID is mandatory on every endpoint an agent token can reach; without
+        # it these requests are a 400 regardless of what they are testing.
+        self.client_runner.credentials(HTTP_X_TENANT_ID=str(self.tenant.id))
         self.client_human = APIClient()
         self.client_human.force_authenticate(user=self.human)
 

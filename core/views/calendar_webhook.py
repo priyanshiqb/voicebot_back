@@ -1,5 +1,6 @@
 import logging
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,6 +10,7 @@ from core.models.calendar_integration import CalendarIntegration
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(tags=["Calendar Integration"])
 class GoogleCalendarWebhookView(APIView):
     """
     Public endpoint Google POSTs calendar-change notifications to. Unauthenticated
@@ -20,6 +22,7 @@ class GoogleCalendarWebhookView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(request=None, responses={200: None})
     def post(self, request, *args, **kwargs):
         channel_id = request.headers.get("X-Goog-Channel-ID", "")
         token = request.headers.get("X-Goog-Channel-Token", "")

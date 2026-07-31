@@ -5,7 +5,14 @@ Manage configured Voicebot Agents under the active tenant context.
 ## General Rules
 - **Authentication**: `Bearer <token>` (JWT or VB_AGENT token)
 - **Tenant Scoping**: All records are isolated per tenant by default.
-- **VB_AGENT Access**: Tokens with `VB_AGENT` user type automatically bypass tenant-scoping for `GET` requests (`list`, `retrieve`, `dropdown`) and can access all active agents system-wide.
+- **VB_AGENT Access**: `retrieve` **only** (`GET /agents/{id}/`). It bypasses tenant scoping and can
+  reach any tenant's agent. `list`, `dropdown` and every write action return **403**.
+  ⚠️ `list` and `dropdown` were previously open to agent tokens — this is a breaking change for
+  any runner that enumerated agents.
+- **`X-Tenant-ID` header** (VB_AGENT only, **required**): scopes `retrieve` to one tenant, so an
+  agent outside it returns 404. Omitting it returns **400**. See
+  [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md). Ignored for JWT users,
+  whose scope always comes from their tenant mapping.
 
 ## Endpoints Summary
 - `GET /api/v1/core/agents/` - List all agents (paginated)
@@ -243,6 +250,11 @@ Manage configured Voicebot Agents under the active tenant context.
   - `file`: Required. A `.csv`, `.xls`, or `.xlsx` file.
 - **Behaviour**: Parsed and validated in a dry run first; only committed if the whole file is
   valid (all-or-nothing). Tenant/user context is injected from the caller.
+- **Requires a tenant**: the caller must have an active tenant mapping, or be a superuser.
+  `VB_AGENT` tokens have no mapping and receive **403** — bulk CSV writes are not a machine
+  caller's action. An `id` column resolves only within the caller's own tenant, so a CSV
+  carrying another tenant's id creates a new row rather than updating theirs.
+  See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 - **Success Response (200 OK)**: `{ "status": true, "message": "Successfully imported N records." }`
 - **Error Response (400 Bad Request)**:
   - No file: `{ "status": false, "message": "No file provided" }`

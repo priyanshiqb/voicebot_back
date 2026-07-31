@@ -8,6 +8,12 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
 **Statuses:** `HELD`, `SCHEDULED`, `CONFIRMED`, `COMPLETED`, `CANCELED`, `NO_SHOW`,
 `REQUIRES_RESCHEDULE`, `RESCHEDULED`.
 
+> **VB_AGENT access:** full — every action on this page, including `DELETE` (which cancels).
+> Agent tokens **must** send `X-Tenant-ID: <tenant uuid>`; they have no tenant mapping and a
+> booking has to land somewhere. Omitting it returns **400**. `event_template` must belong to
+> the named tenant (**400** otherwise), and a booking in another tenant returns **404**.
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
+
 ## Endpoints Summary
 - `GET /api/v1/core/bookings/` - List bookings (paginated)
 - `GET /api/v1/core/bookings/{id}/` - Retrieve a booking

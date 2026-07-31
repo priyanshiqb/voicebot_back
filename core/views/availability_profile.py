@@ -6,7 +6,9 @@ from core.serializers.availability_profile import (
     AvailabilityProfileSerializer,
 )
 
+from drf_spectacular.utils import extend_schema
 
+@extend_schema(tags=["Availability Profile"])
 class AvailabilityProfileViewSet(TenantBaseViewSet):
     """CRUD for per-user weekly working hours (with nested rules), tenant-scoped."""
 

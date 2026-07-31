@@ -2,6 +2,10 @@ from rest_framework.decorators import action
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 import django_filters
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
+from tenant.common.views.agent_tenant_scope import (
+    VBAgentTenantScopedMixin,
+    is_vb_agent,
+)
 from core.models.agent import Agent
 from core.serializers.agent import (
     AgentSerializer,
@@ -14,7 +18,6 @@ from onboard.serializers.onboarding import GeneralResponseSerializer
 from utils.views.base_model_viewset import BaseViewSet
 from core.views.mixins import ImportExportMixin
 from core.resources import AgentResource
-from user.models.CustomUser import CustomUser
 
 class AgentFilter(django_filters.FilterSet):
     industry = django_filters.CharFilter(field_name="agent_template__industry")
@@ -108,7 +111,7 @@ class AgentFilter(django_filters.FilterSet):
         }
     )
 )
-class AgentViewSet(ImportExportMixin, TenantBaseViewSet):
+class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Agent Management API.
     Provides complete row-level isolation and multi-tenant scoping for Agents.
@@ -127,16 +130,22 @@ class AgentViewSet(ImportExportMixin, TenantBaseViewSet):
     select_related_fields = ["agent_template"]
     prefetch_related_fields = ["knowledge_bases", "probing_questions"]
 
+    # Retrieve only. `list` and `dropdown` were previously open to machine callers and
+    # are deliberately not here: a runner is handed the agent id it is acting for, so
+    # enumerating every tenant's agents was reach it never needed.
+    vb_agent_allowed_actions = frozenset({"retrieve"})
+
     def get_queryset(self):
         user = self.request.user
-        
-        # VB_AGENT users can globally read all agents across tenants
-        if getattr(user, "user_type", None) == CustomUser.UserType.VB_AGENT:
-            if self.action in ["list", "retrieve", "dropdown"]:
+
+        # VB_AGENT reads are scoped to the tenant named in the mandatory `X-Tenant-ID`
+        # header; an agent in any other tenant is a 404.
+        if is_vb_agent(user):
+            if self.action == "retrieve":
                 # Bypass TenantBaseViewSet tenant scoping and call BaseViewSet directly
                 # This applies is_deleted=False and select/prefetch fields globally
-                return BaseViewSet.get_queryset(self)
-                
+                return self.scope_to_agent_tenant(BaseViewSet.get_queryset(self))
+
         return super().get_queryset()
 
     @extend_schema(

@@ -17,3 +17,16 @@ Use the sidebar navigation to explore the developer resources.
 * **[Authentication APIs](/#/apiDocs/user/auth.md)**: JWT session lifetimes and refresh tokens.
 * **[Signup & Onboarding Flows](/#/apiDocs/onboard/signup_flow.md)**: Onboarding steps, parameters, and verification requirements.
 * **[Agent Management](/#/apiDocs/core/agent.md)**: CRUD operations for voice agents and templates.
+
+---
+
+## 🤖 Integrating a Voicebot Agent Token
+
+Building the voice runner, or anything that authenticates with a `vb_…` agent token? Start here:
+
+* **[Tenant Scoping & Access Matrix](/#/apiDocs/core/vb_agent_tenant_scoping.md)**: the `X-Tenant-ID`
+  header (**required on every request**), exactly which endpoints an agent token may call, and
+  where the `tenant` on records it creates comes from.
+
+> ⚠️ **Breaking changes** for existing runners are listed on that page: `X-Tenant-ID` is now
+> mandatory everywhere, and `GET /core/agents/` and `/core/agents/dropdown/` now return 403.

@@ -1,5 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
+from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.booking import Booking
 from core.models.event_template import EventTemplate
@@ -9,9 +10,16 @@ from core.serializers.event_template import (
     EventTemplateSerializer,
 )
 
+from drf_spectacular.utils import extend_schema
 
-class EventTemplateViewSet(TenantBaseViewSet):
-    """CRUD for bookable event types, tenant-scoped."""
+@extend_schema(tags=["Event Template"])
+class EventTemplateViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
+    """CRUD for bookable event types, tenant-scoped.
+
+    Machine (`VB_AGENT`) callers get read access only — a voicebot needs to find the
+    event type it is booking, but creating and deleting bookable types is human
+    configuration work.
+    """
 
     queryset = EventTemplate.objects.all()
     serializer_class = EventTemplateSerializer
@@ -22,6 +30,14 @@ class EventTemplateViewSet(TenantBaseViewSet):
     search_fields = ["name", "description"]
     ordering_fields = ["name", "created_at", "updated_at", "duration_minutes"]
     ordering = ["-created_at"]
+
+    vb_agent_allowed_actions = frozenset({"list", "retrieve", "dropdown"})
+
+    def get_queryset(self):
+        scoped = self.agent_scoped_queryset()
+        if scoped is not None:
+            return scoped
+        return super().get_queryset()
 
     def perform_destroy(self, instance):
         active = Booking.objects.filter(

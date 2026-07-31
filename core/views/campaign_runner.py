@@ -16,6 +16,10 @@ from core.serializers.campaign_runner import (
     RunnerMemberSerializer,
     RunnerMemberUpdateBatchSerializer,
 )
+from tenant.common.views.agent_tenant_scope import (
+    VBAgentActionPermission,
+    VBAgentTenantScopedMixin,
+)
 from user.permissions import IsVoicebotAgent
 from utils.views.base_model_viewset import ResponseMixin, SetPagination
 
@@ -26,7 +30,9 @@ WORKABLE_STATUSES = [Campaign.Status.RUNNING, Campaign.Status.HANDING_OFF]
 
 
 @extend_schema(tags=["Campaign Runner"])
-class CampaignRunnerViewSet(ResponseMixin, viewsets.GenericViewSet):
+class CampaignRunnerViewSet(
+    VBAgentTenantScopedMixin, ResponseMixin, viewsets.GenericViewSet
+):
     """
     Machine-facing campaign handoff. `VB_AGENT` tokens only.
 
@@ -35,24 +41,33 @@ class CampaignRunnerViewSet(ResponseMixin, viewsets.GenericViewSet):
     validation, and counter maintenance stay in one place rather than being trusted to
     an external service.
 
-    SCOPING NOTE — deliberate, and worth understanding before changing anything here.
-    `AgentToken` carries no tenant, and `VB_AGENT` is a global role by design: it
-    already reads every tenant's agents ([agent.py:133]) and call logs
-    ([agent_call_log.py:151]). These endpoints follow that same posture, which means a
-    valid runner token can read ANY tenant's campaign audience. That audience is bulk
-    contact PII, so if per-tenant scoping is ever wanted, the fix is a tenant on
-    AgentToken — not a check bolted on here, and not an `agent` id taken from the
-    caller, which is the caller naming its own scope.
+    SCOPING NOTE — worth understanding before changing anything here. These endpoints
+    are scoped to the tenant named in the mandatory `X-Tenant-ID` header; a campaign in
+    any other tenant is a 404.
+
+    That header is a filter, not an authorization boundary. `AgentToken` carries no
+    tenant, so nothing stops a token holder from naming a different one, and a valid
+    runner token can still reach ANY tenant's campaign audience — bulk contact PII —
+    by asking for it. Making that a real boundary requires a tenant on AgentToken; the
+    header then selects among the tenants that token is allowed, and
+    `resolve_agent_tenant` is the only thing that changes. It must not become an `agent`
+    id taken from the caller, which is the caller naming its own scope.
     """
 
     queryset = Campaign.objects.all()
     serializer_class = RunnerCampaignContextSerializer
-    permission_classes = [IsAuthenticated, IsVoicebotAgent]
+    permission_classes = [IsAuthenticated, IsVoicebotAgent, VBAgentActionPermission]
     pagination_class = SetPagination
 
+    # Everything this viewset exposes. There is no destroy action and none should be
+    # added: a runner reports outcomes, it does not remove campaigns. Listing the
+    # actions explicitly means a future @action is denied until deliberately added.
+    vb_agent_allowed_actions = frozenset({"context", "update_members"})
+    http_method_names = ["get", "post", "head", "options"]
+
     def get_queryset(self):
-        # Not tenant-filtered — see the scoping note above.
-        return Campaign.objects.filter(is_deleted=False)
+        # Global unless the caller narrows it with `X-Tenant-ID` — see the note above.
+        return self.scope_to_agent_tenant(Campaign.objects.filter(is_deleted=False))
 
     def _get_campaign(self):
         return get_object_or_404(self.get_queryset(), pk=self.kwargs["pk"])

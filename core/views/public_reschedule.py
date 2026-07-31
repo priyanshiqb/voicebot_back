@@ -18,6 +18,9 @@ from core.services.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
+
 class RescheduleRateThrottle(AnonRateThrottle):
     scope = "public_reschedule"
 
@@ -25,6 +28,7 @@ class RescheduleRateThrottle(AnonRateThrottle):
         return "30/min"
 
 
+@extend_schema(tags=["Booking"])
 class PublicRescheduleView(APIView):
     """
     Public, unauthenticated rebooking behind a single-use reschedule token.
@@ -36,6 +40,17 @@ class PublicRescheduleView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [RescheduleRateThrottle]
 
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="PublicRescheduleGetResponse",
+                fields={
+                    "status": serializers.BooleanField(),
+                    "data": serializers.DictField()
+                }
+            )
+        }
+    )
     def get(self, request, token):
         now = timezone.now()
         try:
@@ -74,6 +89,22 @@ class PublicRescheduleView(APIView):
             status=200,
         )
 
+    @extend_schema(
+        request=inline_serializer(
+            name="PublicReschedulePostRequest",
+            fields={"start_time": serializers.DateTimeField()}
+        ),
+        responses={
+            201: inline_serializer(
+                name="PublicReschedulePostResponse",
+                fields={
+                    "status": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "data": serializers.DictField()
+                }
+            )
+        }
+    )
     def post(self, request, token):
         raw_start = request.data.get("start_time")
         start_time = parse_datetime(raw_start) if raw_start else None

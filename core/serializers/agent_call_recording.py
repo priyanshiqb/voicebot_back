@@ -1,18 +1,18 @@
 from rest_framework import serializers
-from tenant.common.serializers.tenant_base_model_serializer import TenantBaseModelSerializer
+from tenant.common.serializers.tenant_base_model_core_serializer import TenantBaseModelCoreSerializer
 from core.models.agent_call_recording import AgentCallRecording
 
-class AgentCallRecordingSerializer(TenantBaseModelSerializer):
-    class Meta(TenantBaseModelSerializer.Meta):
+class AgentCallRecordingSerializer(TenantBaseModelCoreSerializer):
+    class Meta(TenantBaseModelCoreSerializer.Meta):
         model = AgentCallRecording
-        fields = TenantBaseModelSerializer.Meta.fields + [
+        fields = TenantBaseModelCoreSerializer.Meta.fields + [
             "file", 
             "original_name", 
             "file_size_in_bytes", 
             "extension", 
             "is_processed"
         ]
-        read_only_fields = TenantBaseModelSerializer.Meta.read_only_fields
+        read_only_fields = TenantBaseModelCoreSerializer.Meta.read_only_fields
 
 class AgentCallRecordingRefSerializer(serializers.ModelSerializer):
     class Meta:

@@ -6,7 +6,9 @@ from core.serializers.availability_exception import (
     AvailabilityExceptionSerializer,
 )
 
+from drf_spectacular.utils import extend_schema
 
+@extend_schema(tags=["Availability Exception"])
 class AvailabilityExceptionViewSet(TenantBaseViewSet):
     """
     CRUD for time-off / leave / emergency windows, tenant-scoped. Creating one

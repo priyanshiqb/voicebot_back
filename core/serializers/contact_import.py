@@ -112,6 +112,8 @@ class StartContactImportSerializer(serializers.Serializer):
         return attrs
 
 
+from drf_spectacular.utils import extend_schema_field
+
 class ContactImportSessionSerializer(serializers.ModelSerializer):
     import_file = ContactImportFileSerializer(read_only=True)
     created_by_email = serializers.CharField(
@@ -146,6 +148,7 @@ class ContactImportSessionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.DictField())
     def get_counts(self, obj):
         return {
             "total": obj.total_rows,

@@ -3,6 +3,9 @@
 * **🔌 WebSockets**
   * [WS Event Protocol](wsDocs/instruction.md)
 
+* **🤖 Voicebot Agent Tokens**
+  * [Tenant Scoping & Access Matrix](apiDocs/core/vb_agent_tenant_scoping.md)
+
 * **🌐 Core APIs**
   * [Agent Management](apiDocs/core/agent.md)
   * [Agent Call Logs](apiDocs/core/agent_call_log.md)

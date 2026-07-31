@@ -5,6 +5,12 @@ authenticated tenant. The engine takes each eligible host's working hours and su
 existing bookings (including buffers), leave, and connected external-calendar busy times,
 then applies the event's minimum-notice and horizon policy.
 
+> **VB_AGENT access:** allowed. Agent tokens **must** send `X-Tenant-ID: <tenant uuid>`
+> (**400** if omitted), and the `event_template` must belong to that tenant (**403** otherwise).
+> The tenant is taken from the header and then checked against the template — never derived
+> from the template the caller named.
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
+
 ## Endpoints Summary
 - `GET /api/v1/core/availability/available-slots/` - List bookable slots
 

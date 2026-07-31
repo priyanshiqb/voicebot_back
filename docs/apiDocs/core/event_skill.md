@@ -3,6 +3,11 @@
 Defines which users (hosts) are allowed to host which event templates, scoped to the
 authenticated tenant. A template with no skills cannot be booked.
 
+> **VB_AGENT access:** read-only — `list`, `retrieve`, `dropdown`. Who is eligible to host is
+> human configuration; writes return **403**. Agent tokens **must** send
+> `X-Tenant-ID: <tenant uuid>` (**400** if omitted).
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
+
 ## Endpoints Summary
 - `GET /api/v1/core/event-skills/` - List host↔event-type links (paginated)
 - `GET /api/v1/core/event-skills/{id}/` - Retrieve a link

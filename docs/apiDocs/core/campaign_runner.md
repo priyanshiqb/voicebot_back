@@ -52,7 +52,11 @@ Authorization: Bearer vb_a1b2c3_s3cr3tstring
 ```
 
 Tokens are issued to `VB_AGENT` users. `AgentTokenAuthentication` is a default auth class, so no
-special header beyond the bearer token is needed.
+special header beyond the bearer token is required.
+
+`X-Tenant-ID: <tenant uuid>` is **required** on every call; omitting it returns `400`. A
+campaign outside that tenant returns `404`. See
+[Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 
 | Caller | Result |
 |---|---|
@@ -66,17 +70,20 @@ special header beyond the bearer token is needed.
 ## ⚠️ Scoping warning
 
 `AgentToken` carries **no tenant**, and `VB_AGENT` is a **global role** in this system — it
-already reads every tenant's agents and call logs.
+also reads every tenant's agents and call logs.
 
-These endpoints follow the same posture, so **a valid runner token can read any tenant's
-campaign**, including the full audience with contact names and phone numbers.
+`X-Tenant-ID` is mandatory and scopes these endpoints to one tenant. But it is a **filter, not
+an authorization boundary**: nothing stops a token holder from naming a different tenant, so **a
+valid runner token can still reach any tenant's campaign**, including the full audience with
+contact names and phone numbers.
 
 Treat runner tokens as high-value credentials: store them in a secret manager, rotate them, and
 never expose one to a browser.
 
-If per-tenant scoping becomes a requirement, the correct fix is a tenant field on `AgentToken` —
-**not** a check added to these views, and **not** an agent id supplied by the caller, which is
-the caller naming its own scope.
+Making this a real boundary still requires a tenant field on `AgentToken`; the header then
+selects among the tenants that token is allowed. It must **not** become an agent id supplied by
+the caller, which is the caller naming its own scope. Full rationale:
+[Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 
 ---
 

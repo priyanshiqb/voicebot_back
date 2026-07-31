@@ -2,6 +2,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status, serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser, FormParser
 from drf_spectacular.utils import extend_schema, inline_serializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
@@ -12,8 +13,37 @@ class ImportExportMixin:
     """
     Provides import and export actions for a ViewSet using django-import-export.
     Requires `resource_class` to be defined on the ViewSet.
+
+    Both actions are tenant-scoped work and require a caller with a tenant. Machine
+    (`VB_AGENT`) callers have no tenant mapping and are refused — see
+    `_resolve_import_tenant`.
     """
     resource_class = None
+
+    def _resolve_import_tenant(self, request):
+        """
+        The tenant a bulk import/export runs against, as (tenant, allow_cross_tenant).
+
+        Superusers keep the global access they already have throughout
+        `TenantBaseViewSet`. Every other caller must have an active tenant mapping.
+
+        This is enforced here rather than left to the viewset's `get_queryset`, because
+        `import_data` never calls it: the tenant guard that protects every other write
+        on these viewsets simply does not run on the import path. Machine callers are
+        the concrete case — bulk CSV writes are not theirs to perform, and without this
+        a VB_AGENT token could update any tenant's rows by naming their ids.
+        """
+        user = request.user
+
+        if user.is_superuser:
+            return None, True
+
+        try:
+            return user.tenant_mapping.tenant, False
+        except Exception:
+            raise PermissionDenied(
+                "Your user account is not associated with any active tenant."
+            )
 
     @extend_schema(
         summary="Export Data",
@@ -28,6 +58,12 @@ class ImportExportMixin:
     def export_data(self, request, *args, **kwargs):
         if not self.resource_class:
             return Response({"status": False, "message": "Export not supported for this resource."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+        # Checked explicitly rather than relying on get_queryset to raise. It does today,
+        # but only because "export_data" happens not to appear in the VB_AGENT bypass
+        # lists in agent.py / agent_call_log.py — adding it there must not silently turn
+        # this into a cross-tenant data dump.
+        self._resolve_import_tenant(request)
 
         queryset = self.filter_queryset(self.get_queryset())
         resource = self.resource_class()
@@ -66,7 +102,10 @@ class ImportExportMixin:
     def import_data(self, request, *args, **kwargs):
         if not self.resource_class:
             return Response({"status": False, "message": "Import not supported for this resource."}, status=status.HTTP_501_NOT_IMPLEMENTED)
-            
+
+        # Before the file is read: a caller with no tenant has nothing to import into.
+        self._resolve_import_tenant(request)
+
         file = request.FILES.get('file')
         if not file:
             return Response({"status": False, "message": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
@@ -127,9 +166,13 @@ class ImportExportMixin:
     def _run_import(self, request, dataset, dry_run):
         resource = self.resource_class()
 
-        # Inject tenant and user context for the resource to use during save
-        if hasattr(request.user, 'tenant_mapping'):
-            resource.tenant = request.user.tenant_mapping.tenant
+        # Inject tenant and user context for the resource to use during save.
+        # Assigned unconditionally, including the None/True superuser case: the previous
+        # `if hasattr(...)` left `tenant` unset for anyone without a mapping, and the
+        # resource read that absence as "unscoped".
+        tenant, allow_cross_tenant = self._resolve_import_tenant(request)
+        resource.tenant = tenant
+        resource.allow_cross_tenant = allow_cross_tenant
         resource.user = request.user
 
         return resource.import_data(

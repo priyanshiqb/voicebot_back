@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from tenant.common import TenantBaseModelSerializer
+from tenant.common.views.agent_tenant_scope import require_agent_tenant
 from user.models import CustomUser
 from core.models.booking import Booking
 from core.models.booking_participant import BookingParticipant
@@ -117,12 +118,18 @@ class BookingCreateSerializer(serializers.Serializer):
         request = self.context.get("request")
         tenant = None
         if request and request.user and not request.user.is_superuser:
-            try:
-                tenant = request.user.tenant_mapping.tenant
-            except AttributeError:
-                raise serializers.ValidationError(
-                    "User is not associated with an active tenant."
-                )
+            # Machine callers name their tenant in `X-Tenant-ID`. They have no tenant
+            # mapping, and the lookup below raises RelatedObjectDoesNotExist — which
+            # subclasses AttributeError — so without this branch every VB_AGENT booking
+            # would fail as "not associated with an active tenant".
+            tenant = require_agent_tenant(request)
+            if tenant is None:
+                try:
+                    tenant = request.user.tenant_mapping.tenant
+                except AttributeError:
+                    raise serializers.ValidationError(
+                        "User is not associated with an active tenant."
+                    )
 
         event_template = attrs["event_template"]
         if tenant is not None and event_template.tenant_id != tenant.id:

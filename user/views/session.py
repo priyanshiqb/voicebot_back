@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
+from tenant.common.views.agent_tenant_scope import VBAgentActionPermission
 from utils.views.base_model_viewset import BaseViewSet
 from user.models.user_session import UserSession
 from user.serializers.session import (
@@ -13,11 +14,15 @@ from user.serializers.session import (
 )
 from onboard.serializers.onboarding import GeneralResponseSerializer
 
+@extend_schema(tags=["Auth / Session"])
 class UserSessionViewSet(BaseViewSet):
     """
     ViewSet to manage user sessions/devices.
     """
-    permission_classes = (IsAuthenticated,)
+    # VBAgentActionPermission restated because assigning permission_classes here would
+    # otherwise drop the one BaseViewSet sets, silently reopening this to machine
+    # callers. No `vb_agent_allowed_actions`, so they are denied.
+    permission_classes = (IsAuthenticated, VBAgentActionPermission)
     http_method_names = ["get", "delete", "post", "options", "head"]
 
     # Explicit properties as required by AGENTS.md guidelines

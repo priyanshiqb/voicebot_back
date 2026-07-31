@@ -87,6 +87,11 @@ Verifies that the uploaded MP3 file successfully arrived in S3 and promotes the 
 >
 > For `VB_AGENT` callers the tenant is resolved from `agent`, not from a tenant mapping —
 > both upload steps resolve it the same way.
+>
+> `X-Tenant-ID` is **required** (**400** if omitted) and decides the tenant and the S3
+> object-key prefix. The `agent` must belong to that tenant (**403** otherwise) but never
+> sets it.
+> See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 
 ### Success Response (HTTP 201 Created)
 Returns the created `AgentCallRecording` object containing its unique ID.

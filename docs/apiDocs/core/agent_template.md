@@ -337,6 +337,7 @@ Manage predefined or custom voicebot Agent Templates scoped to the authenticated
   - `Content-Type: multipart/form-data`
 - **Request Payload (Form-Data)**:
   - `file` (**Required**): A `.csv`, `.xls`, or `.xlsx` file. The import is validated as a dry-run first and is all-or-nothing: if any row fails, nothing is persisted.
+- **Requires a tenant**: the caller must have an active tenant mapping, or be a superuser. `VB_AGENT` tokens have no mapping and receive **403**. An `id` column resolves only within the caller's own tenant, so a CSV carrying another tenant's id creates a new row rather than updating theirs. See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
 - **Success Response (200 OK)**:
   ```json
   {

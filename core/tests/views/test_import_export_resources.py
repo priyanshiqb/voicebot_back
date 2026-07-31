@@ -262,3 +262,128 @@ class ImportEndpointTests(APITestCase):
         existing.refresh_from_db()
         self.assertEqual(existing.name, "After")
         self.assertEqual(AgentTemplate.objects.filter(tenant=self.tenant).count(), 1)
+
+
+class ImportRequiresATenantTests(APITestCase):
+    """
+    `import_data` never calls the viewset's `get_queryset`, so the tenant guard that
+    protects every other write on these viewsets does not run on the import path.
+
+    The only thing standing between a caller and another tenant's rows was
+    `TenantModelResource.get_queryset`, and it skipped its filter whenever `tenant` was
+    unset — reading an absent scope as "no scope needed". A VB_AGENT token has no tenant
+    mapping, so it hit exactly that branch and could overwrite any tenant's records by
+    putting their ids in a CSV. It was verified doing so on agents, agent-templates and
+    probing-questions before this was fixed.
+    """
+
+    def setUp(self):
+        self.victim_tenant = Tenant.objects.create(
+            name="Globex", subdomain="globex-noten"
+        )
+        self.victim = AgentTemplate.objects.create(
+            tenant=self.victim_tenant, name="Victim Template"
+        )
+
+        self.runner = User.objects.create_user(
+            username="vb_noten",
+            email="vb-noten@example.com",
+            password="password",
+            user_type=User.UserType.VB_AGENT,
+        )
+        self.client_vb = APIClient()
+        self.client_vb.force_authenticate(user=self.runner)
+
+    def _hijack_csv(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        csv_bytes = (
+            b"id,name,short_description,industry,strict_facts,can_user_edit_flow,is_active\n"
+            + str(self.victim.id).encode()
+            + b",PWNED,Desc,Tech,False,True,True\n"
+        )
+        return SimpleUploadedFile("templates.csv", csv_bytes, content_type="text/csv")
+
+    def test_vb_agent_cannot_import(self):
+        response = self.client_vb.post(
+            "/api/v1/core/agent-templates/import/",
+            {"file": self._hijack_csv()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.victim.refresh_from_db()
+        self.assertEqual(self.victim.name, "Victim Template")
+
+    def test_vb_agent_cannot_export(self):
+        response = self.client_vb.get("/api/v1/core/agent-templates/export/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superusers_keep_their_global_carve_out(self):
+        """
+        Superusers have no tenant mapping either, so the fix must not lock them out —
+        TenantBaseViewSet exempts them everywhere else and import is no different.
+        """
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        admin = User.objects.create_superuser(
+            username="root_imp", email="root-imp@example.com", password="password"
+        )
+        client_admin = APIClient()
+        client_admin.force_authenticate(user=admin)
+
+        csv_bytes = (
+            b"id,name,short_description,industry,strict_facts,can_user_edit_flow,is_active\n"
+            + str(self.victim.id).encode()
+            + b",Renamed By Admin,Desc,Tech,False,True,True\n"
+        )
+        response = client_admin.post(
+            "/api/v1/core/agent-templates/import/",
+            {"file": SimpleUploadedFile("t.csv", csv_bytes, content_type="text/csv")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.victim.refresh_from_db()
+        self.assertEqual(self.victim.name, "Renamed By Admin")
+
+
+class ResourceFailsClosedTests(APITestCase):
+    """`get_queryset` is the boundary, so its unset-tenant behaviour is pinned directly."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-failclosed")
+        AgentTemplate.objects.create(tenant=self.tenant, name="Existing")
+
+    @staticmethod
+    def _resource():
+        from core.resources.agent_template import AgentTemplateResource
+
+        return AgentTemplateResource()
+
+    def test_unset_tenant_matches_nothing(self):
+        resource = self._resource()
+
+        self.assertEqual(resource.tenant, None)
+        self.assertFalse(resource.allow_cross_tenant)
+        self.assertEqual(resource.get_queryset().count(), 0)
+
+    def test_scoped_tenant_sees_only_its_own(self):
+        other = Tenant.objects.create(name="Globex", subdomain="globex-failclosed")
+        AgentTemplate.objects.create(tenant=other, name="Theirs")
+
+        resource = self._resource()
+        resource.tenant = self.tenant
+
+        names = set(resource.get_queryset().values_list("name", flat=True))
+        self.assertEqual(names, {"Existing"})
+
+    def test_cross_tenant_is_opt_in(self):
+        other = Tenant.objects.create(name="Globex", subdomain="globex-optin")
+        AgentTemplate.objects.create(tenant=other, name="Theirs")
+
+        resource = self._resource()
+        resource.allow_cross_tenant = True
+
+        self.assertEqual(resource.get_queryset().count(), 2)

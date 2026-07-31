@@ -26,7 +26,9 @@ _STATE_MAX_AGE = 600  # seconds
 # Providers that once existed and may still be sent by an old client build.
 _RETIRED_PROVIDERS = {"OUTLOOK"}
 
+from drf_spectacular.utils import extend_schema
 
+@extend_schema(tags=["Calendar Integration"])
 class CalendarIntegrationViewSet(TenantBaseViewSet):
     """
     Manage external-calendar connections. Integrations are created via the OAuth

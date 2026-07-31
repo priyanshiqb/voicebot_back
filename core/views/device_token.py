@@ -11,7 +11,9 @@ from core.serializers.device_token import (
     DeviceTokenSerializer,
 )
 
+from drf_spectacular.utils import extend_schema
 
+@extend_schema(tags=["Device Token"])
 class DeviceTokenViewSet(TenantBaseViewSet):
     """
     Register/deregister a device's FCM token for push notifications. Users only
