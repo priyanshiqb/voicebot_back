@@ -18,3 +18,33 @@ db.sqlite3
 Dockerfile
 docker-compose.yml
 .env*
+
+# Runtime state directories. These are gitignored but were NOT dockerignored, so
+# `COPY . .` baked them into the image: .data/ alone is ~850 MB holding the live
+# Postgres cluster, Redis dumps, MinIO objects, Grafana's DB and Caddy's private
+# CA key material. Anyone who could pull the image got an offline copy of everything.
+.data/
+media/
+staticfiles/
+
+# Developer-only content with no runtime role. Excluded to keep the build context
+# small and the image free of scratch scripts.
+# NOTE: json_files/ is deliberately NOT excluded — `manage.py load_data` and
+# onboard migration 0011 read it at runtime.
+# docs/ is safe to drop: the backend-docs service bind-mounts ../docs, it does not
+# read the directory out of this image.
+scratch/
+docs/
+*.md
+!README.md
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.sqlite3
+*.sqlite3-journal
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
