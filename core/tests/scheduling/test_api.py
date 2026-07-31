@@ -28,6 +28,7 @@ class BookingAPITests(APITestCase):
         return {
             "event_template": str(self.template.id),
             "start_time": self._future_start().isoformat(),
+            "target_host": str(self.host.id),
             "participants": [{"name": "Cust", "email": "cust@example.com"}],
         }
 
@@ -51,13 +52,34 @@ class BookingAPITests(APITestCase):
         response = self.client.post(self.bookings_url, payload, format="json")
         self.assertEqual(response.status_code, 400, response.data)
 
+    def test_missing_target_host_rejected(self):
+        payload = self._payload()
+        payload.pop("target_host")
+        response = self.client.post(self.bookings_url, payload, format="json")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("target_host", response.data["errors"])
+
+    def test_unskilled_target_host_rejected(self):
+        stranger = f.make_host(self.tenant, f.make_template(self.tenant))
+        payload = self._payload()
+        payload["target_host"] = str(stranger.id)
+        response = self.client.post(self.bookings_url, payload, format="json")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("target_host", response.data["errors"])
+
     def test_availability_cross_tenant_denied(self):
         other_tenant = f.make_tenant()
         other_template = f.make_template(other_tenant)
+        other_host = f.make_host(other_tenant, other_template)
         day = self._future_start().date().isoformat()
         response = self.client.get(
             self.slots_url,
-            {"event_template": str(other_template.id), "date_from": day, "date_to": day},
+            {
+                "event_template": str(other_template.id),
+                "date_from": day,
+                "date_to": day,
+                "target_host": str(other_host.id),
+            },
         )
         self.assertEqual(response.status_code, 403, response.data)
 
@@ -65,8 +87,21 @@ class BookingAPITests(APITestCase):
         day = self._future_start().date().isoformat()
         response = self.client.get(
             self.slots_url,
-            {"event_template": str(self.template.id), "date_from": day, "date_to": day},
+            {
+                "event_template": str(self.template.id),
+                "date_from": day,
+                "date_to": day,
+                "target_host": str(self.host.id),
+            },
         )
         self.assertEqual(response.status_code, 200, response.data)
         self.assertTrue(response.data["status"])
         self.assertIsInstance(response.data["data"], list)
+
+    def test_available_slots_requires_target_host(self):
+        day = self._future_start().date().isoformat()
+        response = self.client.get(
+            self.slots_url,
+            {"event_template": str(self.template.id), "date_from": day, "date_to": day},
+        )
+        self.assertEqual(response.status_code, 400, response.data)

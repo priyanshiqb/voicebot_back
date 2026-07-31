@@ -1,5 +1,11 @@
 # AI Agent ↔ Scheduling Bridge — Implementation Plan
 
+> ⚠️ **Superseded in part (2026-07-31): `ROUND_ROBIN` was removed.** Pooled
+> auto-assignment and leave-time auto-reassignment no longer exist — every
+> non-`COLLECTIVE` booking names its host, and a host's leave always flags the
+> booking `REQUIRES_RESCHEDULE`. This document is kept as the historical design
+> record; see [`implementation-plan-scratch/remove-round-robin-plan.md`](implementation-plan-scratch/remove-round-robin-plan.md).
+
 **Status:** 📝 PLANNED
 **Goal:** Let an **AI agent** book / hold / cancel meetings for hosts during a conversation —
 scoped to exactly what that agent is configured to book, tenant-isolated, and reusing the

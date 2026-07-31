@@ -58,7 +58,6 @@ No endpoint you call directly — it's automatic inside `available-slots`.
 |---|---|
 | Booking created / hold confirmed | insert event; store its id in `external_event_id` |
 | Booking canceled / completed¹ | delete the event |
-| Reassigned (Flow 3) | delete from old host, create fresh on new host |
 
 All async + idempotent (keyed on `external_event_id`); no-op if the host has no
 connected calendar. ¹ cancel removes it; completion leaves history.
@@ -106,5 +105,5 @@ soft-deletes the integration. Availability reverts to non-calendar-aware for tha
 
 ---
 
-**Related:** internal alerts for `REAUTH_REQUIRED` and reassignment are in
+**Related:** internal alerts for `REAUTH_REQUIRED` and needs-reschedule are in
 **[Flow 5 — Notifications & push](05-notifications-and-push.md)**.

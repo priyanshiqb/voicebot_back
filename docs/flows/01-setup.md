@@ -9,7 +9,6 @@ flowchart TD
     B --> C["POST /availability-profiles/"]
     C --> D{"Strategy?"}
     D -->|DIRECT| E["Bookable to one named host"]
-    D -->|ROUND_ROBIN| F["Bookable, auto-picks least-loaded host"]
     D -->|COLLECTIVE| G["Books ALL skilled hosts as one meeting"]
     C --> H["optional: GET /calendar-integrations/connect/"]
     C --> I["optional: POST /device-tokens/"]
@@ -31,9 +30,9 @@ Body highlights: `name`, `duration_minutes`, `buffer_before_minutes` /
 - `400` name already exists / invalid duration → fix and resubmit.
 
 **Options — `assignment_strategy` decides the whole downstream flow:**
-- `DIRECT` → the booker must name a `target_host`; the booking stays with that host.
-- `ROUND_ROBIN` → the system picks the least-loaded free host; on host leave it can
-  auto-reassign (Flow 3).
+- `DIRECT` (default) → the booker must name a `target_host`; the booking stays with that
+  host. On host leave the customer is asked to reschedule (Flow 3) — hosts are never
+  swapped automatically.
 - `COLLECTIVE` → **all** skilled hosts are booked as one meeting (one `Booking` row
   per host, shared `group_id`, all-or-nothing).
 
@@ -69,7 +68,7 @@ bookings are mirrored to their calendar.
 ## Step 5 — (Optional) Register a device for push
 `POST /device-tokens/` (body: `token`, `platform`) → see **Flow 5**.
 
-Enables internal push alerts (reassignment / needs-reschedule). Idempotent: re-posting
+Enables internal push alerts (needs-reschedule). Idempotent: re-posting
 the same token reactivates it.
 
 ---

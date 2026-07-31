@@ -126,8 +126,37 @@ def list_bookable_event_templates(agent):
     ]
 
 
+def list_event_hosts(agent, event_template_id):
+    """Hosts who can take this meeting type. Booking a DIRECT event needs a host
+    id, and the caller has no other way to obtain one."""
+    from core.models.user_event_skill import UserEventSkill
+
+    try:
+        template = _resolve_template(agent, event_template_id)
+    except _ENGINE_ERRORS as exc:
+        return _error_result(exc)
+    skills = UserEventSkill.objects.filter(
+        tenant=agent.tenant, event_template=template, is_deleted=False
+    ).select_related("user")
+    return {
+        "ok": True,
+        "hosts": [
+            {
+                "id": str(skill.user_id),
+                "name": skill.user.get_full_name() or skill.user.email,
+            }
+            for skill in skills
+        ],
+    }
+
+
 def check_availability(agent, event_template_id, date_from, date_to, target_host_id=None, now=None):
-    """Open slots for a template between two dates (inclusive `date` objects)."""
+    """Open slots for a template between two dates (inclusive `date` objects).
+
+    Each slot carries the ids of the hosts free for it. Omitting `target_host_id`
+    is allowed and answers "when is anyone free?" — but the follow-up book/hold
+    call must then name one of that slot's `host_ids`, since nothing auto-assigns.
+    """
     try:
         template = _resolve_template(agent, event_template_id)
     except _ENGINE_ERRORS as exc:
@@ -137,12 +166,30 @@ def check_availability(agent, event_template_id, date_from, date_to, target_host
     )
     return {
         "ok": True,
-        "slots": [{"start": s.start.isoformat(), "end": s.end.isoformat()} for s in slots],
+        "slots": [
+            {
+                "start": s.start.isoformat(),
+                "end": s.end.isoformat(),
+                "host_ids": [str(h) for h in s.eligible_host_ids],
+            }
+            for s in slots
+        ],
     }
 
 
+_HOST_REQUIRED = {
+    "ok": False,
+    "reason": "host_required",
+    "message": (
+        "This meeting type is booked with a specific host. Call list_event_hosts "
+        "(or use a host_id from check_availability) and pass target_host_id."
+    ),
+}
+
+
 def book(agent, event_template_id, start_time, participant=None, target_host_id=None, now=None):
-    """Create a booking (one-shot). COLLECTIVE templates book every skilled host."""
+    """Create a booking (one-shot). COLLECTIVE templates book every skilled host;
+    every other template requires `target_host_id`."""
     try:
         template = _resolve_template(agent, event_template_id)
         if template.assignment_strategy == EventTemplate.AssignmentStrategy.COLLECTIVE:
@@ -162,6 +209,8 @@ def book(agent, event_template_id, start_time, participant=None, target_host_id=
                 "booking_ids": [str(b.id) for b in created],
                 "group_id": str(created[0].group_id) if created else None,
             }
+        if not target_host_id:
+            return _HOST_REQUIRED
         booking = booking_service.create_booking(
             tenant=agent.tenant,
             event_template=template,
@@ -194,6 +243,8 @@ def hold(agent, event_template_id, start_time, participant=None, target_host_id=
                 "reason": "collective_no_hold",
                 "message": "Collective events are booked directly, not held.",
             }
+        if not target_host_id:
+            return _HOST_REQUIRED
         booking = booking_service.create_booking(
             tenant=agent.tenant,
             event_template=template,

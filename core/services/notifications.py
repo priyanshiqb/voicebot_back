@@ -141,24 +141,6 @@ def send_cancellation(booking_id):
     )
 
 
-def send_reassignment(booking_id, to_host_id):
-    """Internal-only notice to the newly assigned host (customer is not bothered)."""
-    booking = _load(booking_id)
-    if booking is None:
-        return False
-    host_email = booking.primary_host.email if booking.primary_host_id else None
-    recipients = [host_email] if host_email else []
-    return _emit(
-        booking,
-        NotificationLog.NotificationType.REASSIGNED,
-        f"{booking.id}:REASSIGNED:{to_host_id}",
-        "You have been assigned a booking",
-        _body(booking, extra="\nThis booking was reassigned to you.\n"),
-        recipients,
-        _ics_for(booking, "REQUEST", "CONFIRMED"),
-    )
-
-
 def send_reschedule_request(booking_id):
     """Customer-facing 'please pick a new time' notice with a tokenized link."""
     booking = _load(booking_id)

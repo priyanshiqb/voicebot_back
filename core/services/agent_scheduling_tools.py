@@ -32,7 +32,12 @@ _EVENT_TEMPLATE_ID = {
 }
 _TARGET_HOST_ID = {
     "type": "string",
-    "description": "Optional. Pin a specific host — only for DIRECT event types or when the caller names a person. Omit to let the system auto-assign a free host.",
+    "description": (
+        "The host to book. REQUIRED for every meeting type except collective ones — "
+        "nothing is auto-assigned. Get an id from list_event_hosts, or use one of the "
+        "host_ids returned with the slot you picked in check_availability. Omit ONLY "
+        "for a collective meeting, which books every host."
+    ),
 }
 _START_TIME = {
     "type": "string",
@@ -49,10 +54,25 @@ TOOL_SCHEMAS = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "list_event_hosts",
+        "description": (
+            "List the people who can take a meeting type, with the host ids needed to "
+            "book it. Call this when the caller names a person, or when you need a "
+            "target_host_id and don't have one from check_availability."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"event_template_id": _EVENT_TEMPLATE_ID},
+            "required": ["event_template_id"],
+        },
+    },
+    {
         "name": "check_availability",
         "description": (
             "Return open time slots for a meeting type between two dates (inclusive). "
-            "Offer the returned start times to the caller."
+            "Offer the returned start times to the caller. Each slot lists the host_ids "
+            "free at that time — carry one of them into book_meeting/hold_slot as "
+            "target_host_id. Pass target_host_id here to check one host's times only."
         ),
         "input_schema": {
             "type": "object",
@@ -69,8 +89,8 @@ TOOL_SCHEMAS = [
         "name": "hold_slot",
         "description": (
             "Temporarily reserve a slot while you confirm details on the call, so no "
-            "one else can take it. Always follow with confirm_booking. Not available "
-            "for collective meetings (use book_meeting)."
+            "one else can take it. Always follow with confirm_booking. Requires "
+            "target_host_id. Not available for collective meetings (use book_meeting)."
         ),
         "input_schema": {
             "type": "object",
@@ -97,8 +117,8 @@ TOOL_SCHEMAS = [
     {
         "name": "book_meeting",
         "description": (
-            "Book a meeting in one step (no prior hold). For a collective meeting this "
-            "books every required host together."
+            "Book a meeting in one step (no prior hold). Requires target_host_id, "
+            "except for a collective meeting, which books every required host together."
         ),
         "input_schema": {
             "type": "object",
@@ -148,6 +168,9 @@ def _parse_date(value):
 
 _DISPATCH = {
     "list_event_types": lambda agent, a: agent_scheduling.list_bookable_event_templates(agent),
+    "list_event_hosts": lambda agent, a: agent_scheduling.list_event_hosts(
+        agent, a["event_template_id"]
+    ),
     "check_availability": lambda agent, a: agent_scheduling.check_availability(
         agent,
         a["event_template_id"],

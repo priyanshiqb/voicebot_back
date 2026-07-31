@@ -25,7 +25,6 @@ The agent books an **event type**; the engine picks the host from the template's
 
 | Strategy | What the agent passes | Who is booked |
 |----------|-----------------------|---------------|
-| `ROUND_ROBIN` | just the event type | any eligible **free** host, auto-assigned |
 | `DIRECT` | event type **+ `target_host_id`** | that specific host |
 | `COLLECTIVE` | just the event type | **every** skilled host (one booking each, grouped) |
 

@@ -48,6 +48,27 @@ class _RebookBase(TestCase):
 
 @REQUIRES_PG
 class RebookingServiceTests(_RebookBase):
+    def test_listed_slots_are_for_the_host_that_will_be_booked(self):
+        """Slots offered on the reschedule page must be bookable by the original
+        host — otherwise the customer picks a time only a colleague is free for
+        and the submit 409s."""
+        colleague = f.make_host(self.tenant, self.template)
+        # Block the original host at 14:00 on the target day; the colleague is free.
+        f.make_exception(
+            self.tenant,
+            self.host,
+            self.new_start - timedelta(minutes=30),
+            self.new_start + timedelta(hours=1),
+        )
+        day = self.new_start.date()
+        _, slots = rebooking.list_slots(str(self.token), day, day, now=self.now)
+
+        starts = {s.start for s in slots}
+        self.assertNotIn(self.new_start, starts)
+        for slot in slots:
+            self.assertEqual(slot.eligible_host_ids, (self.host.id,))
+            self.assertNotIn(colleague.id, slot.eligible_host_ids)
+
     def test_rebook_creates_new_and_retires_old(self):
         new = rebooking.rebook(str(self.token), self.new_start)
         self.assertEqual(new.status, Booking.Status.SCHEDULED)

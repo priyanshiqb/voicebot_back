@@ -20,12 +20,7 @@ sequenceDiagram
     Sig->>Task: enqueue(tenant, exception_id)
     Task->>Eng: find overlapping active bookings for that host
     loop each booking
-        alt ROUND_ROBIN and another host is free
-            Eng->>Eng: reassign to new host (silent to customer)
-            Eng-->>Cust: (no message)
-            Note over Eng: calendar re-sync + push new host
-        else no free host / DIRECT / COLLECTIVE
-            Eng->>Eng: status = REQUIRES_RESCHEDULE, mint token
+        Eng->>Eng: status = REQUIRES_RESCHEDULE, mint token
             Eng-->>Cust: email reschedule link
             Note over Eng: push tenant admins
         end
@@ -45,23 +40,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    S["overlapping booking"] --> Q{"strategy == ROUND_ROBIN?"}
-    Q -->|no| F["flag REQUIRES_RESCHEDULE"]
-    Q -->|yes| H{"another eligible host free?"}
-    H -->|yes| R["reassign to new host"]
-    H -->|no| F
-    R --> RN["email new host + push; re-sync calendars"]
+    S["overlapping booking"] --> F["flag REQUIRES_RESCHEDULE"]
     F --> FN["mint token; email customer link; push admins"]
 ```
 
-### Outcome A — Reassigned (seamless)
-Only for `ROUND_ROBIN` when a substitute host is free. The booking's `primary_host`
-changes; the customer is **not** bothered.
-- Side effects: `REASSIGNED` event; old host's calendar event deleted + fresh one
-  pushed to the new host; push to the new host.
-- **Next:** booking continues normally (back to **Flow 2**, Step 4).
+> **No silent host swap.** A free colleague is not a substitute: a `DIRECT` booking is
+> for the host the customer chose, and a `COLLECTIVE` one needs everybody. Every
+> affected booking therefore takes the outcome below.
 
-### Outcome B — Flagged `REQUIRES_RESCHEDULE`
+### Outcome — Flagged `REQUIRES_RESCHEDULE`
 For `DIRECT`, `COLLECTIVE`, or when nobody is free. A single-use `reschedule_token`
 (default 72h) is minted; the customer is emailed a link; tenant admins get a push.
 - For a **COLLECTIVE** meeting, the **whole group** is flagged with one shared token.
@@ -86,8 +73,7 @@ Returns the booking summary + available slots for its event type.
 
 **Options / branches**
 - Reuse of a consumed token → `400` (proven single-use).
-- `DIRECT` rebooking targets the original host; `COLLECTIVE` rebooks the whole group;
-  `ROUND_ROBIN` picks any free host.
+- `DIRECT` rebooking targets the original host; `COLLECTIVE` rebooks the whole group.
 
 ---
 

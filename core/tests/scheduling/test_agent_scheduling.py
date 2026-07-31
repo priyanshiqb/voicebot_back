@@ -63,10 +63,30 @@ class AgentSchedulingTests(TestCase):
         starts = {s["start"] for s in result["slots"]}
         self.assertIn(at(10).isoformat(), starts)
 
+    def test_check_availability_carries_host_ids(self):
+        """The model needs a host id to book; slots must supply one."""
+        result = agent_scheduling.check_availability(
+            self.agent, self.template.id, D, D, now=NOW
+        )
+        slot = next(s for s in result["slots"] if s["start"] == at(10).isoformat())
+        self.assertEqual(slot["host_ids"], [str(self.host.id)])
+
+    def test_list_event_hosts(self):
+        result = agent_scheduling.list_event_hosts(self.agent, self.template.id)
+        self.assertTrue(result["ok"])
+        self.assertEqual([h["id"] for h in result["hosts"]], [str(self.host.id)])
+
+    def test_list_event_hosts_rejects_unlinked_template(self):
+        other = f.make_template(self.tenant)
+        result = agent_scheduling.list_event_hosts(self.agent, other.id)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "template_not_allowed")
+
     # --- booking -------------------------------------------------------------
     def test_book_creates_ai_tagged_booking(self):
         result = agent_scheduling.book(
-            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+            self.agent, self.template.id, at(10), participant=PARTICIPANT,
+            target_host_id=self.host.id, now=NOW,
         )
         self.assertTrue(result["ok"], result)
         booking = Booking.objects.get(pk=result["booking_id"])
@@ -76,7 +96,8 @@ class AgentSchedulingTests(TestCase):
 
     def test_book_records_participant(self):
         result = agent_scheduling.book(
-            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+            self.agent, self.template.id, at(10), participant=PARTICIPANT,
+            target_host_id=self.host.id, now=NOW,
         )
         booking = Booking.objects.get(pk=result["booking_id"])
         emails = set(booking.participants.values_list("email", flat=True))
@@ -110,7 +131,8 @@ class AgentSchedulingTests(TestCase):
     # --- hold -> confirm -----------------------------------------------------
     def test_hold_then_confirm(self):
         held = agent_scheduling.hold(
-            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+            self.agent, self.template.id, at(10), participant=PARTICIPANT,
+            target_host_id=self.host.id, now=NOW,
         )
         self.assertTrue(held["ok"], held)
         booking = Booking.objects.get(pk=held["booking_id"])
@@ -123,16 +145,23 @@ class AgentSchedulingTests(TestCase):
         self.assertEqual(booking.status, Booking.Status.CONFIRMED)
 
     def test_double_hold_same_slot_conflicts(self):
-        first = agent_scheduling.hold(self.agent, self.template.id, at(10), now=NOW)
+        first = agent_scheduling.hold(
+            self.agent, self.template.id, at(10),
+            target_host_id=self.host.id, now=NOW,
+        )
         self.assertTrue(first["ok"])
-        second = agent_scheduling.hold(self.agent, self.template.id, at(10), now=NOW)
+        second = agent_scheduling.hold(
+            self.agent, self.template.id, at(10),
+            target_host_id=self.host.id, now=NOW,
+        )
         self.assertFalse(second["ok"])
         self.assertEqual(second["reason"], "slot_taken")
 
     # --- cancel --------------------------------------------------------------
     def test_cancel_booking(self):
         booked = agent_scheduling.book(
-            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+            self.agent, self.template.id, at(10), participant=PARTICIPANT,
+            target_host_id=self.host.id, now=NOW,
         )
         result = agent_scheduling.cancel(self.agent, booked["booking_id"], now=NOW)
         self.assertTrue(result["ok"], result)
@@ -146,11 +175,28 @@ class AgentSchedulingTests(TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "not_found")
 
+    # --- host is mandatory, and the error tells the model what to do ---------
+    def test_book_without_host_is_structured_error(self):
+        result = agent_scheduling.book(
+            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "host_required")
+        self.assertFalse(Booking.objects.exists())
+
+    def test_hold_without_host_is_structured_error(self):
+        result = agent_scheduling.hold(
+            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=NOW
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "host_required")
+
     # --- policy errors are structured, not raised ----------------------------
     def test_book_in_the_past_is_policy_violation(self):
         # now is AFTER the requested start -> past booking.
         result = agent_scheduling.book(
-            self.agent, self.template.id, at(10), participant=PARTICIPANT, now=at(11)
+            self.agent, self.template.id, at(10), participant=PARTICIPANT,
+            target_host_id=self.host.id, now=at(11),
         )
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "policy_violation")
@@ -206,6 +252,7 @@ class AgentToolDispatchTests(TestCase):
             names,
             {
                 "list_event_types",
+                "list_event_hosts",
                 "check_availability",
                 "book_meeting",
                 "hold_slot",
@@ -222,6 +269,7 @@ class AgentToolDispatchTests(TestCase):
                 "event_template_id": str(self.template.id),
                 "start_time": at(10).isoformat().replace("+00:00", "Z"),
                 "participant": {"name": "Customer", "email": "customer@example.com"},
+                "target_host_id": str(self.host.id),
             },
         )
         self.assertTrue(result["ok"], result)

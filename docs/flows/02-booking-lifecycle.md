@@ -64,8 +64,9 @@ optional `target_host`.
 - `409` conflict → back to Step 1.
 - `400` policy / `no eligible host`.
 
-> `DIRECT` templates require `target_host`. `ROUND_ROBIN` auto-selects the least-loaded
-> free host. `COLLECTIVE` ignores `target_host` and books every skilled host.
+> `DIRECT` templates require `target_host`, and it must be a host with the matching
+> event-skill. `COLLECTIVE` rejects `target_host` and books every skilled host.
+> Nothing is ever auto-assigned.
 
 ## Step 3 — Confirm a hold
 `POST /bookings/{id}/confirm/`

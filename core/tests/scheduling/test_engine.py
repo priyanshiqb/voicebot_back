@@ -94,25 +94,34 @@ class BookingEngineTests(TestCase):
         ok = self._book(template=tmpl, host=host, start=at(11))
         self.assertEqual(ok.status, Booking.Status.SCHEDULED)
 
-    def test_round_robin_fallback_then_full(self):
+    def test_never_falls_back_to_a_free_colleague(self):
+        """The named host is the only candidate: a free second host does not make
+        the booked host's slot bookable twice."""
         second_host = f.make_host(self.tenant, self.template)
-        b1 = booking_service.create_booking(
-            tenant=self.tenant,
-            event_template=self.template,
-            start_time=at(10),
-            participants=ATTENDEES,
-            now=NOW,
-        )
-        b2 = booking_service.create_booking(
-            tenant=self.tenant,
-            event_template=self.template,
-            start_time=at(10),
-            participants=ATTENDEES,
-            now=NOW,
-        )
-        self.assertNotEqual(b1.primary_host_id, b2.primary_host_id)
-        self.assertIn(b2.primary_host_id, {self.host.id, second_host.id})
+        first = self._book(start=at(10))
+        self.assertEqual(first.primary_host_id, self.host.id)
+
         with self.assertRaises(SlotConflictError):
+            self._book(start=at(10))
+
+        # …while the colleague is bookable at that same time, when named.
+        other = self._book(start=at(10), host=second_host)
+        self.assertEqual(other.primary_host_id, second_host.id)
+
+    def test_target_host_accepts_string_uuid(self):
+        """The AI tool layer hands us JSON strings, not UUID objects."""
+        booking = booking_service.create_booking(
+            tenant=self.tenant,
+            event_template=self.template,
+            start_time=at(10),
+            participants=ATTENDEES,
+            target_host_id=str(self.host.id),
+            now=NOW,
+        )
+        self.assertEqual(booking.primary_host_id, self.host.id)
+
+    def test_target_host_is_required(self):
+        with self.assertRaises(NoEligibleHostError):
             booking_service.create_booking(
                 tenant=self.tenant,
                 event_template=self.template,
@@ -120,6 +129,21 @@ class BookingEngineTests(TestCase):
                 participants=ATTENDEES,
                 now=NOW,
             )
+
+    def test_unskilled_target_host_rejected(self):
+        """A user with a profile but no UserEventSkill for this template must not
+        be bookable just by naming them."""
+        other_template = f.make_template(self.tenant)
+        stranger = f.make_host(self.tenant, other_template)
+        with self.assertRaises(NoEligibleHostError):
+            self._book(start=at(10), host=stranger)
+
+    def test_cross_tenant_target_host_rejected(self):
+        other_tenant = f.make_tenant()
+        other_template = f.make_template(other_tenant)
+        foreign_host = f.make_host(other_tenant, other_template)
+        with self.assertRaises(NoEligibleHostError):
+            self._book(start=at(10), host=foreign_host)
 
     def test_no_eligible_host(self):
         tmpl = f.make_template(self.tenant)  # no skills configured

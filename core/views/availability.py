@@ -8,6 +8,8 @@ from core.serializers.availability import AvailableSlotsQuerySerializer, SlotSer
 from core.services import availability as availability_service
 
 
+from drf_spectacular.utils import extend_schema
+
 class AvailabilityViewSet(ResponseMixin, ViewSet):
     """Read-only availability endpoint. GET available-slots computes bookable
     slots for an event type over a date range, tenant-scoped."""
@@ -27,6 +29,16 @@ class AvailabilityViewSet(ResponseMixin, ViewSet):
             raise PermissionDenied("Event template does not belong to your tenant.")
         return tenant
 
+    @extend_schema(
+        parameters=[AvailableSlotsQuerySerializer],
+        responses={200: SlotSerializer(many=True)},
+        summary="Get Available Slots",
+        description=(
+            "Behaviour by strategy:\n"
+            "DIRECT: target_host is required; a slot is returned when that host is free.\n"
+            "COLLECTIVE: omit target_host; a slot is returned only if every skilled host is free at that time."
+        )
+    )
     @action(detail=False, methods=["get"], url_path="available-slots")
     def available_slots(self, request):
         query = AvailableSlotsQuerySerializer(

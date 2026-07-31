@@ -40,6 +40,34 @@ def skilled_host_ids(tenant, event_template):
     )
 
 
+def is_host_skilled(tenant, event_template, host_id):
+    """True if this host is configured (via UserEventSkill) for this event type."""
+    if not host_id:
+        return False
+    return UserEventSkill.objects.filter(
+        tenant=tenant, event_template=event_template, user_id=host_id, is_deleted=False
+    ).exists()
+
+
+def _resolve_host_ids(tenant, event_template, target_host_id):
+    """Hosts to consider for this template.
+
+    A caller-supplied ``target_host_id`` is still checked against UserEventSkill:
+    since every non-collective booking now names its host, an unchecked target
+    would be a way to book *any* user — including one from another tenant — as
+    host for an event type they were never configured for.
+    """
+    skilled = skilled_host_ids(tenant, event_template)
+    if target_host_id is None:
+        return skilled
+    # Callers pass a UUID or a str (the AI tool layer hands us JSON strings).
+    # Match on str, but return the canonical UUID — downstream lookups key the
+    # profile map by UUID, and a str would silently miss every host.
+    by_str = {str(h): h for h in skilled}
+    match = by_str.get(str(target_host_id))
+    return [match] if match is not None else []
+
+
 def _load_profiles(tenant, host_ids):
     """Return {host_id: (profile, [rules])} for the given hosts, tenant-scoped."""
     profiles = (
@@ -184,12 +212,15 @@ def eligible_free_hosts(
     """
     Hosts that (a) can host this event type, (b) have this time inside their
     working hours, and (c) have no overlapping active booking. Ordering is by
-    host id for determinism; the caller decides final selection.
+    host id for determinism.
+
+    With ``target_host_id`` this is a one-host yes/no check — an empty result
+    means that host is either not skilled for the template or not free.
     """
     eff_start = start_utc - timedelta(minutes=event_template.buffer_before_minutes)
     eff_end = end_utc + timedelta(minutes=event_template.buffer_after_minutes)
 
-    host_ids = [target_host_id] if target_host_id else skilled_host_ids(tenant, event_template)
+    host_ids = _resolve_host_ids(tenant, event_template, target_host_id)
     profiles = _load_profiles(tenant, host_ids)
 
     free = []
@@ -223,8 +254,9 @@ def get_available_slots(
 
     - ``date_from`` / ``date_to`` are ``date`` objects.
     - Applies min-notice and horizon policy.
-    - ROUND_ROBIN/DIRECT: a slot is offered if >=1 host is free (eligible hosts
-      carried on the slot). COLLECTIVE: only if every skilled host is free.
+    - DIRECT: a slot is offered if >=1 considered host is free (the free hosts are
+      carried on the slot). Pass ``target_host_id`` to scope this to the host who
+      will actually be booked. COLLECTIVE: only if every skilled host is free.
     """
     now = now or timezone.now()
     min_start = now + timedelta(minutes=event_template.min_notice_minutes)
@@ -234,7 +266,7 @@ def get_available_slots(
     buf_before = timedelta(minutes=event_template.buffer_before_minutes)
     buf_after = timedelta(minutes=event_template.buffer_after_minutes)
 
-    host_ids = [target_host_id] if target_host_id else skilled_host_ids(tenant, event_template)
+    host_ids = _resolve_host_ids(tenant, event_template, target_host_id)
     profiles = _load_profiles(tenant, host_ids)
 
     # Generous UTC window covering the local date range (+/- 1 day for tz skew).

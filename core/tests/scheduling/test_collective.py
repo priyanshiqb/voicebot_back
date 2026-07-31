@@ -54,12 +54,14 @@ class CollectiveBookingTests(TestCase):
         )
 
     def test_all_or_nothing_when_one_host_busy(self):
-        # Make h2 busy at the slot via a separate round-robin booking.
-        rr = f.make_template(self.tenant)
-        UserEventSkill.objects.create(tenant=self.tenant, user=self.h2, event_template=rr)
+        # Make h2 busy at the slot via a separate DIRECT booking.
+        other = f.make_template(self.tenant)
+        UserEventSkill.objects.create(
+            tenant=self.tenant, user=self.h2, event_template=other
+        )
         booking_service.create_booking(
             tenant=self.tenant,
-            event_template=rr,
+            event_template=other,
             start_time=at(10),
             participants=ATTENDEES,
             target_host_id=self.h2.id,

@@ -22,11 +22,6 @@ class UserEventSkill(TenantBaseModelCore):
         related_name="skills",
         help_text="The event type this user is eligible to host.",
     )
-    weight = models.PositiveSmallIntegerField(
-        default=1,
-        help_text="Relative bias for round-robin selection (higher = more often).",
-    )
-
     class Meta:
         db_table = "core_user_event_skills"
         verbose_name = "User Event Skill"

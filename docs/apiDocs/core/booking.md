@@ -118,9 +118,9 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
 - **Field Validations**:
   - `event_template`: Required. Must belong to the caller's tenant.
   - `start_time`: Required, UTC-aware. Must satisfy the template's min-notice and horizon; not in the past.
-  - `target_host`: Required for `DIRECT` templates; ignored for `COLLECTIVE`; optional for `ROUND_ROBIN` (auto-selected otherwise).
+  - `target_host`: **Required** for `DIRECT` templates, and must be a host with an active event-skill for that template (`400` otherwise). Must be omitted for `COLLECTIVE`, which books every skilled host. No host is ever auto-selected.
   - `participants`: Required, at least one. Each: `email` (required), `name`, `phone_number`, `role` (`ATTENDEE` or `GUEST`). The host is added automatically.
-- **Success Response (201 Created)** — `ROUND_ROBIN` / `DIRECT` (single booking):
+- **Success Response (201 Created)** — `DIRECT` (single booking):
   ```json
   { "status": true, "message": "Booked successfully", "data": { "id": "4cc8...", "status": "SCHEDULED", "...": "full booking object" }, "errors": null }
   ```

@@ -6,7 +6,7 @@
 > **Once-only:** every send is guarded by `NotificationLog` (unique per tenant +
 > `dedup_key`), so retries and duplicate triggers never double-send. Notifications are
 > emitted **explicitly from services** (not from a blanket signal), so internal saves
-> like audit stamping or reassignment don't spuriously fire them.
+> like audit stamping don't spuriously fire them.
 
 ```mermaid
 flowchart LR
@@ -15,10 +15,8 @@ flowchart LR
         C2["Reminder due"] --> E2["Reminder"]
         C3["Canceled"] --> E3["Cancellation"]
         C4["Needs reschedule"] --> E4["Reschedule link"]
-        C5["Reassigned"] --> E5["Notice to new host"]
     end
     subgraph PUSH["FCM push internal"]
-        P1["Reassigned"] --> F1["Push new host"]
         P2["Needs reschedule"] --> F2["Push tenant admins"]
     end
 ```
@@ -31,7 +29,6 @@ flowchart LR
 | Reminder | Beat | attendees + host | at each `BOOKING_REMINDER_OFFSETS_MINUTES` (24h, 1h) |
 | Cancellation | 2 | attendees + host | Cancellation + `.ics` cancel |
 | Reschedule request | 3 | customer (attendees) | link to `public/reschedule/{token}/` |
-| Reassignment | 3 | new host only | "assigned a booking" (customer not bothered) |
 
 Emails send via a Celery task (async, retrying) with the `.ics` attached.
 
@@ -54,8 +51,7 @@ auto-deactivated when FCM reports them unregistered/invalid.)
 ### When pushes fire
 | Event | From flow | Target |
 |---|---|---|
-| Booking reassigned | 3 (Outcome A) | the new host |
-| Booking needs reschedule | 3 (Outcome B) | tenant admins (`user_type = ADMIN`) |
+| Booking needs reschedule | 3 | tenant admins (`user_type = ADMIN`) |
 
 **Branch — push not configured:** if `FIREBASE_CREDENTIALS` is unset, push sends are
 no-ops (email still goes out). Nothing breaks.

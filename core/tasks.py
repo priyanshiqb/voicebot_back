@@ -158,9 +158,11 @@ def delete_booking_calendar_event(self, booking_id):
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def delete_calendar_event_for_host(self, tenant_id, host_id, external_event_id):
-    """Delete a specific external event from a specific host's calendar. Used on
-    reassignment, where the booking's primary_host has already moved to the new
-    host so the generic delete task can't target the old host."""
+    """Delete a specific external event from a specific host's calendar.
+
+    Legacy: its only caller was leave-time auto-reassignment, which was removed
+    with the ROUND_ROBIN strategy. Retained for one release so in-flight broker
+    messages still resolve; drop it after that."""
     if not external_event_id:
         return
     from core.models.calendar_integration import CalendarIntegration

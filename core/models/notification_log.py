@@ -18,6 +18,7 @@ class NotificationLog(TenantBaseModelCore):
         CONFIRMATION = "CONFIRMATION", "Confirmation"
         REMINDER = "REMINDER", "Reminder"
         RESCHEDULE_REQUEST = "RESCHEDULE_REQUEST", "Reschedule Request"
+        # Legacy: no longer written. Kept so historical rows still render.
         REASSIGNED = "REASSIGNED", "Reassigned"
         CANCELED = "CANCELED", "Canceled"
         RESCHEDULED = "RESCHEDULED", "Rescheduled"

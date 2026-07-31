@@ -15,8 +15,8 @@ actually uses them: first the one-time **setup**, then day-to-day **operation**,
 
 > **Admin sets up** meeting types (1) → who can run them (2) → when they work (3) → syncs
 > real calendars (4) → registers for alerts (5). **Customers then** view open slots (6) and
-> book / hold / confirm / cancel (7). **When a host goes down** (8), the system
-> auto-reassigns or hands the customer a **self-serve reschedule link** (9). **Google keeps
+> book / hold / confirm / cancel (7). **When a host goes down** (8), the system hands the
+> customer a **self-serve reschedule link** (9). **Google keeps
 > calendars honest** via the webhook (10).
 
 ```mermaid
@@ -70,8 +70,7 @@ flowchart TD
 **Purpose:** Defines a *bookable meeting type* — its duration, buffers, booking window, min
 notice, and crucially the **assignment strategy**:
 
-- `DIRECT` — a specific host.
-- `ROUND_ROBIN` / `POOLED` — any eligible free host.
+- `DIRECT` (default) — a specific, named host.
 - `COLLECTIVE` — everyone must attend (one booking per host).
 
 Every booking is created *against* a template.
@@ -79,7 +78,8 @@ Every booking is created *against* a template.
 **Real-life examples:**
 
 - A sales team creates **"30-Min Product Demo"** — 30 min, 15-min buffer after, bookable up
-  to 21 days out, `min_notice = 2h`, strategy `ROUND_ROBIN` so any free rep gets it.
+  to 21 days out, `min_notice = 2h`, strategy `DIRECT` so the customer books the rep they
+  picked.
 - A clinic creates **"Case Review (all doctors)"** — 60 min, strategy `COLLECTIVE`, so a
   booking blocks *every* doctor's calendar at once.
 
@@ -90,15 +90,15 @@ Every booking is created *against* a template.
 `GET · POST /event-skills/` · `DELETE /event-skills/{id}/`
 
 **Purpose:** Links a host (user) to an event template they're qualified for. This is the
-eligibility gate — round-robin and pooled assignment only ever pick from hosts who have the
+eligibility gate — a booking's `target_host` is rejected unless that host holds the
 matching skill.
 
 **Real-life examples:**
 
-- Assign reps **Emma** and **Raj** to "30-Min Product Demo" → both enter the round-robin
-  pool; a new rep without the skill is never auto-assigned.
-- Only **Dr. Chen** gets the "Cardiology Consult" skill → that template effectively behaves
-  as direct-to-Chen even though the org has 10 doctors.
+- Assign reps **Emma** and **Raj** to "30-Min Product Demo" → both become bookable for it;
+  a rep without the skill is rejected even if the booker names them.
+- Only **Dr. Chen** gets the "Cardiology Consult" skill → only Chen can be booked for it,
+  even though the org has 10 doctors.
 
 📄 [Full API reference](../apiDocs/core/event_skill.md)
 
@@ -149,13 +149,13 @@ A push "watch" keeps busy-times fresh via webhook (see #10). Tokens are encrypte
 `DELETE /device-tokens/{id}/`
 
 **Purpose:** Registers a browser/mobile FCM token so the **internal team** gets push
-notifications for operational events (a booking reassigned to them, a booking needing
-reschedule). Upsert-style: re-posting a token just reactivates it.
+notifications for operational events (a booking needing reschedule). Upsert-style:
+re-posting a token just reactivates it.
 
 **Real-life examples:**
 
 - The dispatcher's web dashboard registers its FCM token on login → they get an instant push
-  when a booking gets reassigned after a colleague calls in sick.
+  when a colleague calls in sick and their bookings need rescheduling.
 - On logout the client calls `/deactivate/` → that device stops receiving alerts (and
   FCM-reported dead tokens auto-deactivate anyway).
 
@@ -171,8 +171,8 @@ reschedule). Upsert-style: re-posting a token just reactivates it.
 
 **Purpose:** The read endpoint the booking UI calls. Given a template and a date window, it
 returns concrete open start/end times, already accounting for working hours, buffers,
-existing bookings, external calendar busy, and leave. For pooled/round-robin templates it
-returns slots where *at least one* eligible host is free.
+existing bookings, external calendar busy, and leave. `DIRECT` templates require a
+`target_host`, and slots are returned for that host.
 
 **Real-life examples:**
 
@@ -209,7 +209,7 @@ double-book).
 
 - **Simple flow:** Customer picks 3:00pm for a demo → `POST /bookings/` with the slot +
   their name/email → returns a `SCHEDULED` booking, fires a confirmation email + calendar
-  invite. Round-robin picked Raj because Emma was busy.
+  invite for Raj, the rep they picked.
 - **Hold flow (high-contention):** During a flash-sale webinar, the client calls
   `POST /bookings/hold/` the moment a slot is clicked, then `POST /{id}/confirm/` after
   payment. If two users clicked 3:00pm at once, the second gets a `409 Conflict` instead of
@@ -231,17 +231,17 @@ double-book).
 
 **Purpose:** Records a one-off time-off / block (planned leave or emergency). Creating one
 doesn't just hide future slots — it **triggers reprocessing of already-booked meetings** in
-that window: the system tries to auto-reassign each to another eligible free host, and if it
-can't, flags the booking `REQUIRES_RESCHEDULE` and emails the customer a reschedule link.
+that window: each is flagged `REQUIRES_RESCHEDULE` and the customer is emailed a self-serve
+reschedule link. Hosts are never substituted behind the customer's back.
 
 **Real-life examples:**
 
-- Emma logs **"Vacation, Jul 20–24"** a week ahead → her 3 booked demos in that window
-  silently get reassigned to Raj; customers get a "your host changed" note; no slots offered
-  to new customers.
+- Emma logs **"Vacation, Jul 20–24"** a week ahead → her 3 booked demos in that window are
+  flagged `REQUIRES_RESCHEDULE` and those customers get a link to pick a new time; no slots
+  offered to new customers.
 - Raj calls in sick this morning → ops posts an **emergency leave for today** → his 10am
-  demo can't be reassigned (everyone's booked), so it's flagged `REQUIRES_RESCHEDULE` and
-  the customer gets the self-serve link (next endpoint).
+  demo is flagged `REQUIRES_RESCHEDULE` and the customer gets the self-serve link (next
+  endpoint).
 
 📄 [Full API reference](../apiDocs/core/availability_exception.md) ·
 🔀 [Leave & reschedule flow](03-leave-and-reschedule.md)

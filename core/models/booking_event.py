@@ -7,14 +7,15 @@ from tenant.common.models.tenant_base_model_core import TenantBaseModelCore
 class BookingEvent(TenantBaseModelCore):
     """
     Append-only audit log of everything that happens to a Booking. Because the
-    project has no history/versioning layer and bookings can change host
-    automatically (reassignment), this is the trail support/debugging rely on.
+    project has no history/versioning layer, this is the trail support and
+    debugging rely on.
     Rows are never updated or deleted. Tier 1 Core.
     """
 
     class EventType(models.TextChoices):
         CREATED = "CREATED", "Created"
         CONFIRMED = "CONFIRMED", "Confirmed"
+        # Legacy: no longer written. Kept so historical rows still render.
         REASSIGNED = "REASSIGNED", "Reassigned"
         RESCHEDULE_REQUESTED = "RESCHEDULE_REQUESTED", "Reschedule Requested"
         RESCHEDULED = "RESCHEDULED", "Rescheduled"

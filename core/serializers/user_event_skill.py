@@ -33,7 +33,6 @@ class UserEventSkillSerializer(TenantBaseModelCoreSerializer):
             "tenant",
             "user",
             "event_template",
-            "weight",
             "is_active",
             "created_at",
             "updated_at",
@@ -83,7 +82,7 @@ class UserEventSkillListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserEventSkill
-        fields = ("id", "user", "event_template", "weight", "is_active", "created_at")
+        fields = ("id", "user", "event_template", "is_active", "created_at")
 
 
 class UserEventSkillDropdownSerializer(serializers.Serializer):

@@ -3,16 +3,16 @@ Booking service — the single source of truth for all booking mutations.
 
 Correctness invariants:
   * Every query/create is explicitly tenant-scoped (no request-layer scoping here).
+  * Host selection is caller-driven: a DIRECT booking names its host, a COLLECTIVE
+    booking takes every skilled host. Nothing is auto-assigned from a pool.
   * Double-booking is prevented by the DB exclusion constraint, not by the
-    pre-checks. Insert attempts catch IntegrityError; ROUND_ROBIN falls back to
-    the next free host, and only a genuinely full slot raises SlotConflictError.
+    pre-checks. Insert attempts catch IntegrityError and raise SlotConflictError.
   * External side effects (notifications) are enqueued via transaction.on_commit
     so they never fire on a rolled-back booking.
 """
 
 import logging
 import uuid
-from collections import Counter
 from datetime import timedelta
 
 from django.conf import settings
@@ -53,21 +53,6 @@ def _validate_policy(event_template, start_time, now):
             f"This event cannot be booked more than {event_template.max_horizon_days} days in advance.",
             field="start_time",
         )
-
-
-def _order_hosts_by_load(tenant, host_ids, window_start, window_end):
-    """Least-loaded first (fewest active bookings in the window), tie-break by id."""
-    counts = Counter(
-        Booking.objects.filter(
-            tenant=tenant,
-            primary_host_id__in=host_ids,
-            is_deleted=False,
-            status__in=Booking.ACTIVE_STATUSES,
-            start_time__gte=window_start,
-            start_time__lt=window_end,
-        ).values_list("primary_host_id", flat=True)
-    )
-    return sorted(host_ids, key=lambda h: (counts.get(h, 0), str(h)))
 
 
 def _create_participants(booking, host, participants):
@@ -144,10 +129,16 @@ def create_booking(
     hold_ttl_seconds=None,
     now=None,
 ):
-    """Create a booking, selecting a free host. Raises PolicyViolationError (400),
+    """Create a booking for a named host. Raises PolicyViolationError (400),
     NoEligibleHostError (400), or SlotConflictError (409). Transient Postgres
-    deadlocks from concurrent overlap checks are retried against fresh state."""
+    deadlocks from concurrent overlap checks are retried against fresh state.
+
+    ``target_host_id`` is required: there is no host pool to fall back on. The
+    serializer rejects a missing host first; this guard keeps the service correct
+    for non-request callers (AI bridge, rebooking, tasks)."""
     now = now or timezone.now()
+    if not target_host_id:
+        raise NoEligibleHostError("This event type requires a specific host.")
     end_time = start_time + timedelta(minutes=event_template.duration_minutes)
     _validate_policy(event_template, start_time, now)
 
@@ -186,17 +177,15 @@ def _create_once(
         tenant, event_template, start_time, end_time, target_host_id=target_host_id
     )
     if not free:
-        candidates = (
-            [target_host_id]
-            if target_host_id
-            else availability.skilled_host_ids(tenant, event_template)
-        )
-        if not candidates:
-            raise NoEligibleHostError("No host is configured to host this event type.")
+        # Distinguish "this host may never take this event type" (a 400 the caller
+        # must fix) from "this host is busy right then" (a 409 worth retrying).
+        if not availability.is_host_skilled(tenant, event_template, target_host_id):
+            raise NoEligibleHostError(
+                "The requested host is not configured to host this event type."
+            )
         raise SlotConflictError("The selected time is no longer available.")
 
-    horizon = now + timedelta(days=event_template.max_horizon_days)
-    ordered = _order_hosts_by_load(tenant, free, now, horizon)
+    host_id = free[0]
 
     eff_start = start_time - timedelta(minutes=event_template.buffer_before_minutes)
     eff_end = end_time + timedelta(minutes=event_template.buffer_after_minutes)
@@ -208,41 +197,31 @@ def _create_once(
 
     from user.models import CustomUser
 
-    booking = None
-    chosen_host_id = None
     with transaction.atomic():
-        for host_id in ordered:
-            try:
-                # Savepoint so an exclusion-constraint IntegrityError rolls back
-                # only this attempt and we can try the next host.
-                with transaction.atomic():
-                    # Lock the host to serialize inserts and prevent Postgres GiST deadlocks
-                    CustomUser.objects.filter(pk=host_id).select_for_update().get()
-                    booking = Booking.objects.create(
-                        tenant=tenant,
-                        event_template=event_template,
-                        title=event_template.name,
-                        primary_host_id=host_id,
-                        start_time=start_time,
-                        end_time=end_time,
-                        effective_start_time=eff_start,
-                        effective_end_time=eff_end,
-                        status=status,
-                        source=source,
-                        hold_expires_at=hold_expires_at,
-                        created_by=actor,
-                        updated_by=actor,
-                    )
-            except IntegrityError:
-                booking = None
-                continue
-            chosen_host_id = host_id
-            break
-
-        if booking is None:
+        try:
+            # Lock the host to serialize inserts and prevent Postgres GiST deadlocks
+            CustomUser.objects.filter(pk=host_id).select_for_update().get()
+            booking = Booking.objects.create(
+                tenant=tenant,
+                event_template=event_template,
+                title=event_template.name,
+                primary_host_id=host_id,
+                start_time=start_time,
+                end_time=end_time,
+                effective_start_time=eff_start,
+                effective_end_time=eff_end,
+                status=status,
+                source=source,
+                hold_expires_at=hold_expires_at,
+                created_by=actor,
+                updated_by=actor,
+            )
+        except IntegrityError:
+            # The exclusion constraint — not the pre-check above — is what
+            # actually decides. Someone committed a conflicting row first.
             raise SlotConflictError("The selected time is no longer available.")
 
-        host = CustomUser.objects.filter(pk=chosen_host_id).first()
+        host = CustomUser.objects.filter(pk=host_id).first()
         _create_participants(booking, host, participants)
         events.log_event(
             booking,

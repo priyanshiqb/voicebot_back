@@ -34,7 +34,6 @@ authenticated tenant. A template with no skills cannot be booked.
         "id": "9aa85f64-5717-4562-b3fc-2c963f66afa1",
         "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
         "event_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-        "weight": 1,
         "is_active": true,
         "created_at": "2026-06-03T18:00:00Z"
       }
@@ -52,14 +51,12 @@ authenticated tenant. A template with no skills cannot be booked.
   ```json
   {
     "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
-    "event_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "weight": 1
+    "event_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
   }
   ```
 - **Field Validations**:
   - `user`: Required. Must belong to the caller's tenant.
   - `event_template`: Required. Must belong to the caller's tenant.
-  - `weight`: Optional (default 1). Relative bias for round-robin selection (higher = chosen more often).
   - `is_active`: Optional (default `true`). Writable on create/update.
   - A `(user, event_template)` pair is unique per tenant among active rows.
 - **Success Response (201 Created)**:
@@ -72,7 +69,6 @@ authenticated tenant. A template with no skills cannot be booked.
       "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
       "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
       "event_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "weight": 1,
       "is_active": true,
       "created_at": "2026-06-03T18:00:00Z",
       "updated_at": "2026-06-03T18:00:00Z",
@@ -94,7 +90,7 @@ authenticated tenant. A template with no skills cannot be booked.
 ---
 
 ### 3. Update / Delete
-- **Path**: `PUT` / `PATCH /api/v1/core/event-skills/{id}/` — update `weight` / `is_active`.
+- **Path**: `PUT` / `PATCH /api/v1/core/event-skills/{id}/` — update `is_active`.
 - **Path**: `DELETE /api/v1/core/event-skills/{id}/` — soft-delete → `{ "status": true, "message": "Deleted successfully" }`.
 
 ---

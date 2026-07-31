@@ -67,7 +67,7 @@ def make_template(tenant, **kwargs):
         max_horizon_days=400,
         cancellation_lead_minutes=60,
         reschedule_lead_minutes=60,
-        assignment_strategy=EventTemplate.AssignmentStrategy.ROUND_ROBIN,
+        assignment_strategy=EventTemplate.AssignmentStrategy.DIRECT,
     )
     defaults.update(kwargs)
     return EventTemplate.objects.create(tenant=tenant, **defaults)

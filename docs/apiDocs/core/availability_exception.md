@@ -2,8 +2,8 @@
 
 Log time off / leave / emergency absence for a user, scoped to the authenticated tenant.
 **Creating an exception triggers the reschedule workflow**: any of that user's future
-active bookings that overlap the window are auto-reassigned (ROUND_ROBIN, when another
-host is free) or flagged `REQUIRES_RESCHEDULE` with a customer reschedule link.
+active bookings that overlap the window are flagged `REQUIRES_RESCHEDULE` and the
+customer is emailed a self-serve reschedule link. Hosts are never swapped silently.
 
 ## Endpoints Summary
 - `GET /api/v1/core/availability-exceptions/` - List exceptions (paginated)

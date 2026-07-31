@@ -19,9 +19,9 @@ then applies the event's minimum-notice and horizon policy.
   - `event_template` (required): Event template id. Must belong to the caller's tenant.
   - `date_from` (required): Start date `YYYY-MM-DD` (inclusive).
   - `date_to` (required): End date `YYYY-MM-DD` (inclusive). Must be on/after `date_from` and within the template's `max_horizon_days`.
-  - `target_host` (optional): Restrict slot computation to a single host. Recommended for `DIRECT` templates, but **not enforced** — if omitted, the engine considers all skilled hosts regardless of strategy.
+  - `target_host`: **Required for `DIRECT` templates** — slots are computed for that host, who must then be the one booked. Must be omitted for `COLLECTIVE` (`400` otherwise).
 - **Behaviour by strategy**:
-  - `ROUND_ROBIN` / `DIRECT`: a slot is returned if at least one eligible host is free; `eligible_host_ids` lists who.
+  - `DIRECT`: a slot is returned when the named `target_host` is free; `eligible_host_ids` contains that host.
   - `COLLECTIVE`: a slot is returned only if **every** skilled host is free at that time.
 - **Success Response (200 OK)**:
   ```json

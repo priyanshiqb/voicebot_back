@@ -16,7 +16,6 @@ class EventTemplate(TenantBaseModel):
     """
 
     class AssignmentStrategy(models.TextChoices):
-        ROUND_ROBIN = "ROUND_ROBIN", "Round Robin"
         COLLECTIVE = "COLLECTIVE", "Collective"
         DIRECT = "DIRECT", "Direct"
 
@@ -57,8 +56,11 @@ class EventTemplate(TenantBaseModel):
     assignment_strategy = models.CharField(
         max_length=20,
         choices=AssignmentStrategy.choices,
-        default=AssignmentStrategy.ROUND_ROBIN,
-        help_text="How a host is selected when booking this event type.",
+        default=AssignmentStrategy.DIRECT,
+        help_text=(
+            "How hosts are assigned when booking this event type. DIRECT books the "
+            "named host; COLLECTIVE books every skilled host as one meeting."
+        ),
     )
     min_notice_minutes = models.PositiveIntegerField(
         default=120,

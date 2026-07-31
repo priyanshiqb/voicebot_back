@@ -51,8 +51,21 @@ def get_context(token, now=None):
 def list_slots(token, date_from, date_to, now=None):
     now = now or timezone.now()
     booking = _load_by_token(token, now)
+    # Scope to the host rebook() will actually book, or the customer could pick a
+    # slot that only a *different* host is free for and get a 409 on submit.
+    target_host_id = (
+        None
+        if booking.event_template.assignment_strategy
+        == EventTemplate.AssignmentStrategy.COLLECTIVE
+        else booking.primary_host_id
+    )
     slots = availability.get_available_slots(
-        booking.tenant, booking.event_template, date_from, date_to, now=now
+        booking.tenant,
+        booking.event_template,
+        date_from,
+        date_to,
+        target_host_id=target_host_id,
+        now=now,
     )
     return booking, slots
 
@@ -105,18 +118,13 @@ def rebook(token, start_time, now=None):
                 now=now,
             )
         else:
-            target_host_id = (
-                booking.primary_host_id
-                if template.assignment_strategy
-                == EventTemplate.AssignmentStrategy.DIRECT
-                else None
-            )
+            # DIRECT: the customer rebooks with the host they already had.
             new = booking_service.create_booking(
                 tenant=tenant,
                 event_template=template,
                 start_time=start_time,
                 participants=participants,
-                target_host_id=target_host_id,
+                target_host_id=booking.primary_host_id,
                 source=Booking.Source.PUBLIC_LINK,
                 now=now,
             )

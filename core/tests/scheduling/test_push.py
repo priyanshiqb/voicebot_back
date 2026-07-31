@@ -96,24 +96,6 @@ class ReschedulePushTests(TestCase):
         self.tenant = f.make_tenant()
         self.template = f.make_template(self.tenant)
 
-    @patch("core.services.push.send_to_user")
-    def test_reassignment_pushes_new_host(self, mock_push):
-        host1 = f.make_host(self.tenant, self.template)
-        host2 = f.make_host(self.tenant, self.template)
-        booking_service.create_booking(
-            tenant=self.tenant,
-            event_template=self.template,
-            start_time=at(10),
-            participants=ATTENDEES,
-            target_host_id=host1.id,
-            now=NOW,
-        )
-        leave = f.make_exception(self.tenant, host1, at(9), at(12))
-        with self.captureOnCommitCallbacks(execute=True):
-            reschedule.handle_leave(self.tenant, leave.id, now=NOW)
-        self.assertTrue(mock_push.called)
-        self.assertEqual(mock_push.call_args.args[1].id, host2.id)
-
     @patch("core.services.push.notify_tenant_admins")
     def test_requires_reschedule_pushes_admins(self, mock_push):
         host1 = f.make_host(self.tenant, self.template)  # only host -> flag

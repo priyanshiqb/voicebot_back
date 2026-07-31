@@ -13,7 +13,6 @@ class UserEventSkillAdmin(TenantBaseAdminCore):
         "user",
         "event_template",
         "tenant",
-        "weight",
         "is_active",
         "created_at",
     )

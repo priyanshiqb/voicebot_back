@@ -1,5 +1,11 @@
 # Generalized Scheduling & Booking — Implementation Plan (V4)
 
+> ⚠️ **Superseded in part (2026-07-31): `ROUND_ROBIN` was removed.** Pooled
+> auto-assignment and leave-time auto-reassignment no longer exist — every
+> non-`COLLECTIVE` booking names its host, and a host's leave always flags the
+> booking `REQUIRES_RESCHEDULE`. This document is kept as the historical design
+> record; see [`implementation-plan-scratch/remove-round-robin-plan.md`](implementation-plan-scratch/remove-round-robin-plan.md).
+
 > **Status: ✅ IMPLEMENTED** (Phases 1–4 + webhook incremental sync + reassignment re-sync).
 > Code under `core/` (models, services, serializers, views, urls, admin, tasks); migrations `0020`–`0026`; 79 tests in `core/tests/scheduling/` (Postgres). To deploy, follow [`scheduling-deployment-checklist.md`](scheduling-deployment-checklist.md).
 > **Decision resolved:** COLLECTIVE = **one `Booking` per host** (shared `group_id`, all-or-nothing), per the open question in §20.

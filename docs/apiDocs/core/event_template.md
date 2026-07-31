@@ -28,7 +28,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
   - `search` (optional): Filter by `name` or `description` (partial, case-insensitive)
   - `ordering` (optional): Sort by `name`, `created_at`, `updated_at`, `duration_minutes` (prefix `-` for descending; default `-created_at`)
   - `is_active` (optional): Boolean filter
-  - `assignment_strategy` (optional): One of `ROUND_ROBIN`, `COLLECTIVE`, `DIRECT`
+  - `assignment_strategy` (optional): One of `COLLECTIVE`, `DIRECT`
   - `location_type` (optional): One of `IN_PERSON`, `PHONE`, `VIDEO`
 - **Success Response (200 OK)**:
   ```json
@@ -40,7 +40,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
         "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         "name": "30-Min Demo",
         "duration_minutes": 30,
-        "assignment_strategy": "ROUND_ROBIN",
+        "assignment_strategy": "DIRECT",
         "location_type": "VIDEO",
         "is_active": true,
         "created_at": "2026-06-03T18:00:00Z"
@@ -82,7 +82,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
       "duration_minutes": 30,
       "buffer_before_minutes": 5,
       "buffer_after_minutes": 5,
-      "assignment_strategy": "ROUND_ROBIN",
+      "assignment_strategy": "DIRECT",
       "min_notice_minutes": 120,
       "max_horizon_days": 60,
       "slot_granularity_minutes": 15,
@@ -114,7 +114,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
     "duration_minutes": 30,
     "buffer_before_minutes": 5,
     "buffer_after_minutes": 5,
-    "assignment_strategy": "ROUND_ROBIN",
+    "assignment_strategy": "DIRECT",
     "min_notice_minutes": 120,
     "max_horizon_days": 60,
     "slot_granularity_minutes": 15,
@@ -129,7 +129,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
   - `description`: Optional text.
   - `duration_minutes`: Required, integer >= 1.
   - `buffer_before_minutes` / `buffer_after_minutes`: Optional, integer >= 0 (default 0). Counted in overlap/double-booking checks.
-  - `assignment_strategy`: Optional (default `ROUND_ROBIN`). One of `ROUND_ROBIN` (auto least-loaded host), `DIRECT` (booker names the host), `COLLECTIVE` (books all skilled hosts as one meeting).
+  - `assignment_strategy`: Optional (default `DIRECT`). One of `DIRECT` (booker names the host) or `COLLECTIVE` (books all skilled hosts as one meeting). `ROUND_ROBIN` was removed — sending it returns `400`.
   - `min_notice_minutes`: Optional (default 120). Earliest a slot may be booked from now.
   - `max_horizon_days`: Optional (default 60). Furthest a slot may be booked.
   - `slot_granularity_minutes`: Optional (default 15), integer >= 1. Step between candidate slots.

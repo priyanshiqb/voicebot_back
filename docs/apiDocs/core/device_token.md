@@ -1,7 +1,7 @@
 # Device Token API Documentation
 
 Register a device's FCM token to receive push notifications (internal-team alerts such as
-booking reassignment or needs-reschedule), scoped to the authenticated tenant. Users only
+a booking needing to be rescheduled), scoped to the authenticated tenant. Users only
 see and manage their own tokens.
 
 ## Endpoints Summary

@@ -5,11 +5,25 @@ from core.models.event_template import EventTemplate
 
 
 class AvailableSlotsQuerySerializer(serializers.Serializer):
-    event_template = serializers.PrimaryKeyRelatedField(queryset=EventTemplate.objects.all())
-    date_from = serializers.DateField()
-    date_to = serializers.DateField()
+    event_template = serializers.PrimaryKeyRelatedField(
+        queryset=EventTemplate.objects.all(),
+        help_text="Event template id. Must belong to the caller's tenant."
+    )
+    date_from = serializers.DateField(
+        help_text="Start date YYYY-MM-DD (inclusive)."
+    )
+    date_to = serializers.DateField(
+        help_text="End date YYYY-MM-DD (inclusive). Must be on/after date_from and within the template's max_horizon_days."
+    )
     target_host = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), required=False, allow_null=True
+        queryset=CustomUser.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The host whose slots to compute. Required for DIRECT event types "
+            "(the same host must then be booked); omit for COLLECTIVE, which "
+            "returns only slots where every skilled host is free."
+        ),
     )
 
     def validate(self, attrs):
@@ -20,6 +34,23 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
         if span_days > event_template.max_horizon_days:
             raise serializers.ValidationError(
                 f"Date range exceeds this event's {event_template.max_horizon_days}-day horizon."
+            )
+
+        is_collective = (
+            event_template.assignment_strategy
+            == EventTemplate.AssignmentStrategy.COLLECTIVE
+        )
+        target_host = attrs.get("target_host")
+        # Booking a DIRECT event names its host, so slots must be computed for
+        # that host. Returning the union over all skilled hosts would advertise
+        # slots that 409 on booking.
+        if not is_collective and not target_host:
+            raise serializers.ValidationError(
+                {"target_host": "This event type requires a specific host."}
+            )
+        if is_collective and target_host:
+            raise serializers.ValidationError(
+                {"target_host": "Collective event types consider every skilled host."}
             )
         return attrs
 

@@ -5,7 +5,10 @@ from user.models import CustomUser
 from core.models.booking import Booking
 from core.models.booking_participant import BookingParticipant
 from core.models.event_template import EventTemplate
+from core.models.user_event_skill import UserEventSkill
 from core.serializers.event_template import EventTemplateRefSerializer
+from utils.serializers.hybrid_related_field import HybridRelatedField
+from user.serializers.custom_user import UserRefSerializer
 
 
 class BookingParticipantSerializer(serializers.ModelSerializer):
@@ -28,6 +31,7 @@ class BookingSerializer(TenantBaseModelSerializer):
 
     participants = BookingParticipantSerializer(many=True, read_only=True)
     event_template = EventTemplateRefSerializer(read_only=True)
+    primary_host = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
 
     class Meta(TenantBaseModelSerializer.Meta):
         model = Booking
@@ -61,6 +65,7 @@ class BookingSerializer(TenantBaseModelSerializer):
 
 class BookingListSerializer(serializers.ModelSerializer):
     event_template = EventTemplateRefSerializer(read_only=True)
+    primary_host = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
 
     class Meta:
         model = Booking
@@ -93,7 +98,13 @@ class BookingCreateSerializer(serializers.Serializer):
     event_template = serializers.PrimaryKeyRelatedField(queryset=EventTemplate.objects.all())
     start_time = serializers.DateTimeField()
     target_host = serializers.PrimaryKeyRelatedField(
-        queryset=CustomUser.objects.all(), required=False, allow_null=True
+        queryset=CustomUser.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The host to book. Required for DIRECT event types; omit for "
+            "COLLECTIVE, which books every skilled host."
+        ),
     )
     participants = BookingParticipantInputSerializer(many=True)
 
@@ -118,13 +129,35 @@ class BookingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"event_template": "Event template does not belong to your tenant."}
             )
-        if (
+        is_collective = (
             event_template.assignment_strategy
-            == EventTemplate.AssignmentStrategy.DIRECT
-            and not attrs.get("target_host")
-        ):
+            == EventTemplate.AssignmentStrategy.COLLECTIVE
+        )
+        target_host = attrs.get("target_host")
+
+        if is_collective:
+            # Every skilled host is booked; naming one is meaningless.
+            if target_host:
+                raise serializers.ValidationError(
+                    {"target_host": "Collective event types book every skilled host."}
+                )
+            return attrs
+
+        if not target_host:
             raise serializers.ValidationError(
                 {"target_host": "This event type requires a specific host."}
+            )
+        # target_host is an unscoped queryset (any user in any tenant), and it is
+        # now the sole host-selection input — so it must be checked here.
+        host_tenant_id = tenant.id if tenant is not None else event_template.tenant_id
+        if not UserEventSkill.objects.filter(
+            tenant_id=host_tenant_id,
+            event_template=event_template,
+            user=target_host,
+            is_deleted=False,
+        ).exists():
+            raise serializers.ValidationError(
+                {"target_host": "This host is not configured to host this event type."}
             )
         return attrs
 
