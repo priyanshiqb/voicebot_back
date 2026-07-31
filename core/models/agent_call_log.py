@@ -51,7 +51,25 @@ class AgentCallLog(TenantBaseModelCore):
         max_length=255,
         blank=True,
         null=True,
-        help_text=_("The campaign ID associated with this call, if any.")
+        help_text=_(
+            "Free-text campaign tag written by the runner. Left as-is deliberately: a "
+            "real `campaign` FK cannot be added alongside it, because Django derives "
+            "the attribute `campaign_id` from it and the two collide. Reach the "
+            "campaign through `campaign_member__campaign` until this field is retired."
+        )
+    )
+    campaign_member = models.ForeignKey(
+        "core.CampaignMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        related_name="call_logs",
+        help_text=_(
+            "The member this call answers. Set explicitly rather than inferred from "
+            "contact plus a time window — this log may be inbound, or belong to a "
+            "different campaign running concurrently."
+        ),
     )
     duration_seconds = models.PositiveIntegerField(
         default=0,

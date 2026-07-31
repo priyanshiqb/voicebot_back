@@ -1,5 +1,7 @@
 from django.core.validators import MinLengthValidator, MaxLengthValidator, RegexValidator
 from django.db import models
+
+from core.models.campaign import Campaign
 from tenant.common.models.tenant_base_model import TenantBaseModel
 
 
@@ -104,14 +106,28 @@ class Agent(TenantBaseModel):
         """
         Custom soft delete implementation for Agent.
         Locks row and flags as deleted, renaming the bot_name to avoid uniqueness clashes.
+
+        Refuses while a live campaign depends on this agent. PROTECT on the FK cannot
+        cover this: agents are soft-deleted, so the database constraint never fires and
+        the campaign would be left pointing at a deleted bot mid-run.
         """
+        from django.core.exceptions import ValidationError
         from django.db import transaction
         from django.utils import timezone
 
         with transaction.atomic():
             # Lock row in DB
             Agent.objects.select_for_update().get(pk=self.pk)
-            
+
+            blocking = Campaign.objects.filter(
+                agent=self, status__in=Campaign.LIVE_STATUSES
+            ).count()
+            if blocking:
+                raise ValidationError(
+                    f"This bot is used by {blocking} campaign(s) that are still "
+                    "running. Cancel them before deleting the bot."
+                )
+
             self.is_deleted = True
             self.deleted_at = timezone.now()
             if user:

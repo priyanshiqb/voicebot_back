@@ -30,6 +30,10 @@ from core.admin.contact_import_admin import (
     ContactImportSessionAdmin,
 )
 
+# Campaigns
+from core.admin.campaign_admin import CampaignAdmin
+from core.admin.campaign_member_admin import CampaignMemberAdmin
+
 __all__ = [
     "KBTextAdmin",
     "KBFilesAdmin",
@@ -56,6 +60,8 @@ __all__ = [
     "ContactImportFileAdmin",
     "ContactImportSessionAdmin",
     "ContactImportRowAdmin",
+    "CampaignAdmin",
+    "CampaignMemberAdmin",
 ]
 
 

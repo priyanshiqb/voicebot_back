@@ -36,6 +36,10 @@ from core.models.contact_import import (
     ContactImportSession,
 )
 
+# Campaigns
+from core.models.campaign import Campaign
+from core.models.campaign_member import CampaignMember
+
 __all__ = [
     "KBText",
     "KBFiles",
@@ -66,6 +70,8 @@ __all__ = [
     "ContactImportFile",
     "ContactImportSession",
     "ContactImportRow",
+    "Campaign",
+    "CampaignMember",
 ]
 
 
