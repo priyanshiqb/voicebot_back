@@ -349,3 +349,20 @@ def cleanup_expired_contact_imports():
     from core.services import contact_import
 
     return contact_import.cleanup_expired_sessions()
+
+
+@shared_task
+def materialize_campaign(campaign_id):
+    """Freeze a campaign's audience into CampaignMember rows and start it running."""
+    from core.services import campaigns as campaign_service
+
+    campaign = campaign_service.materialize_campaign(campaign_id)
+    return str(campaign.status) if campaign else None
+
+
+@shared_task
+def start_due_campaigns():
+    """Beat task: launch campaigns whose scheduled start time has arrived."""
+    from core.services import campaigns as campaign_service
+
+    return campaign_service.start_due_campaigns()

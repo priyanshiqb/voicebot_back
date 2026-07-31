@@ -447,6 +447,15 @@ CONTACT_IMPORT_COMMIT_BATCH_SIZE = env.int(
 )
 CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=25)
 
+# Campaigns
+# MAX_SELECTED_CONTACTS bounds the request body on create/update; MAX_MEMBERS bounds
+# what materialisation will build. They are separate ceilings because a future
+# filter-based audience resolves server-side and never passes through a request body.
+CAMPAIGN_MAX_SELECTED_CONTACTS = env.int("CAMPAIGN_MAX_SELECTED_CONTACTS", default=5_000)
+CAMPAIGN_MAX_MEMBERS = env.int("CAMPAIGN_MAX_MEMBERS", default=100_000)
+CAMPAIGN_MATERIALIZE_BATCH_SIZE = env.int("CAMPAIGN_MATERIALIZE_BATCH_SIZE", default=1000)
+CAMPAIGN_MAX_CONCURRENT_RUNNING = env.int("CAMPAIGN_MAX_CONCURRENT_RUNNING", default=5)
+
 # Celery Beat schedule for the scheduling module. Run with:
 #   celery -A config beat -l info
 CELERY_BEAT_SCHEDULE = {
@@ -469,6 +478,12 @@ CELERY_BEAT_SCHEDULE = {
     "contacts-cleanup-expired-imports": {
         "task": "core.tasks.cleanup_expired_contact_imports",
         "schedule": 600.0,  # every 10 minutes
+    },
+    # 60s, not the 300s used for reminders: "starts automatically at the selected time"
+    # is a user-facing promise, and a five-minute lag reads as broken.
+    "campaigns-start-due": {
+        "task": "core.tasks.start_due_campaigns",
+        "schedule": 60.0,  # every minute
     },
 }
 

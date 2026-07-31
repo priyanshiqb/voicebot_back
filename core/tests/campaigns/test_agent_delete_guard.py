@@ -63,13 +63,29 @@ class AgentDeleteGuardTests(TestCase):
         self.assertIn("2", str(ctx.exception))
 
     def test_soft_deleted_campaign_does_not_block(self):
-        """A cancelled-then-deleted campaign is not a reason to keep a bot alive."""
+        """
+        A cancelled-then-deleted campaign is not a reason to keep a bot alive.
+
+        The campaign must be cancelled first — `Campaign.soft_delete` refuses while it
+        is live, which is the guard that closes the `bulk_delete` route.
+        """
         campaign = self._campaign(Campaign.Status.RUNNING, name="Gone")
+        campaign.status = Campaign.Status.CANCELLED
+        campaign.save(update_fields=["status"])
         campaign.soft_delete()
 
         self.agent.soft_delete()
         self.agent.refresh_from_db()
         self.assertTrue(self.agent.is_deleted)
+
+    def test_live_campaign_cannot_be_soft_deleted_to_free_the_bot(self):
+        """The two guards must not cancel each other out."""
+        campaign = self._campaign(Campaign.Status.RUNNING, name="Still Live")
+        with self.assertRaises(ValidationError):
+            campaign.soft_delete()
+
+        campaign.refresh_from_db()
+        self.assertFalse(campaign.is_deleted)
 
     def test_unrelated_agent_is_unaffected(self):
         self._campaign(Campaign.Status.RUNNING, name="Busy")

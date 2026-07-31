@@ -313,6 +313,21 @@ class Campaign(TenantBaseModel):
         self.scheduled_start_at = instant
         self.schedule_timezone = tz_name
 
+    def soft_delete(self, user=None):
+        """
+        Refuse while the runner may still be working this campaign's audience.
+
+        Guarded at the model rather than the viewset because `BaseViewSet.bulk_delete`
+        calls `soft_delete()` directly on each object, bypassing `destroy()` entirely.
+        A viewset-only check would leave `POST /bulk_delete/` as an open route to
+        deleting a live campaign.
+        """
+        if self.status in self.LIVE_STATUSES:
+            raise ValidationError(
+                "This campaign is still running. Cancel it before deleting."
+            )
+        super().soft_delete(user=user)
+
     def recompute_counts(self, save=True):
         """Rebuild the denormalised counters from CampaignMember. Drift repair."""
         rows = CampaignMember.objects.filter(campaign=self).values("status")

@@ -14,6 +14,11 @@
   * [Contacts](apiDocs/core/contact.md)
   * [Contact Import - Bulk CSV](apiDocs/core/contact_import.md)
 
+* **📣 Campaigns**
+  * [Overview & Complete Flow](campaigns/README.md)
+  * [Campaigns API](apiDocs/core/campaign.md)
+  * [Campaign Runner - Machine API](apiDocs/core/campaign_runner.md)
+
 * **📅 Scheduling & Booking APIs**
   * [Event Templates](apiDocs/core/event_template.md)
   * [Host Event Skills](apiDocs/core/event_skill.md)

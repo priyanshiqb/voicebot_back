@@ -24,4 +24,7 @@ urlpatterns = [
     # Contacts
     path("", include("core.urls.contact")),
     path("", include("core.urls.contact_import")),
+    # Campaigns
+    path("", include("core.urls.campaign")),
+    path("", include("core.urls.campaign_runner")),
 ]
