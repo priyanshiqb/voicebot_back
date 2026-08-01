@@ -13,6 +13,11 @@ The header is MANDATORY on every endpoint a VB_AGENT token can reach. Omitting i
 400, never a global read — an unscoped machine call is precisely the cross-tenant leak
 this exists to prevent.
 
+TEMPORARY EXCEPTION: `AgentViewSet.retrieve` opts out and treats the header as optional
+until the voicebot runtime starts sending it. See the comment in `core/views/agent.py`
+for why that one endpoint can absorb it, and revert it there — nothing in this module
+changes for it.
+
 It is also the sole source of `tenant` on anything a machine caller creates. That is not
 just a scoping detail: a record written without the right tenant is invisible to the
 humans who own it, so a booking the voicebot made would simply never appear in their

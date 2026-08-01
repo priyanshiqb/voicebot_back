@@ -5,6 +5,7 @@ from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from tenant.common.views.agent_tenant_scope import (
     VBAgentTenantScopedMixin,
     is_vb_agent,
+    resolve_agent_tenant,  # TEMPORARY — drop with the header bypass in get_queryset.
 )
 from core.models.agent import Agent
 from core.serializers.agent import (
@@ -138,13 +139,34 @@ class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSe
     def get_queryset(self):
         user = self.request.user
 
+        # TEMPORARY — the `X-Tenant-ID` header is OPTIONAL on retrieve until the voicebot
+        # runtime starts sending it. An absent header no longer 400s; it means "do not
+        # narrow", so a runner that knows only the agent id can still fetch it. A header
+        # that IS sent is still validated and still scopes the read.
+        #
+        # Tolerable only because `retrieve` is the single action open to agent tokens
+        # (see `vb_agent_allowed_actions` above) and the pk is a UUID4, so there is no
+        # enumeration path — a caller can only fetch an id it already holds. What it does
+        # cost: a stale or wrong id now reads across tenants instead of 404ing.
+        #
+        # TO REVERT: delete the block below, uncomment the original, and drop
+        # `resolve_agent_tenant` from this module's imports.
+        #
         # VB_AGENT reads are scoped to the tenant named in the mandatory `X-Tenant-ID`
         # header; an agent in any other tenant is a 404.
-        if is_vb_agent(user):
-            if self.action == "retrieve":
-                # Bypass TenantBaseViewSet tenant scoping and call BaseViewSet directly
-                # This applies is_deleted=False and select/prefetch fields globally
-                return self.scope_to_agent_tenant(BaseViewSet.get_queryset(self))
+        # if is_vb_agent(user):
+        #     if self.action == "retrieve":
+        #         # Bypass TenantBaseViewSet tenant scoping and call BaseViewSet directly
+        #         # This applies is_deleted=False and select/prefetch fields globally
+        #         return self.scope_to_agent_tenant(BaseViewSet.get_queryset(self))
+
+        if is_vb_agent(user) and self.action == "retrieve":
+            # BaseViewSet.get_queryset rather than super(): TenantBaseViewSet raises for
+            # any caller without a tenant mapping, which every machine caller is. This
+            # still applies is_deleted=False and the select/prefetch configuration.
+            queryset = BaseViewSet.get_queryset(self)
+            tenant = resolve_agent_tenant(self.request)
+            return queryset if tenant is None else queryset.filter(tenant=tenant)
 
         return super().get_queryset()
 
