@@ -147,12 +147,37 @@ class EventTemplate(TenantBaseModel):
         Truncation-safe soft delete: frees the unique (name, tenant) slot for
         reuse by suffixing the name with a deletion timestamp, trimming the base
         name first so the result never exceeds max_length.
+
+        Refuses while active bookings still reference this type. PROTECT on the FK
+        cannot cover this: templates are soft-deleted, so the database constraint
+        never fires and customers would be left holding confirmed bookings for a
+        meeting type that no longer exists.
+
+        The check lives here rather than in the viewset so every path gets it —
+        the REST delete, `bulk_delete` (which calls `soft_delete` directly and
+        would otherwise skip it), and a shell session alike. It runs inside the
+        lock below so a booking created concurrently cannot slip past it.
         """
+        from django.core.exceptions import ValidationError
         from django.db import transaction
         from django.utils import timezone
 
+        from core.models.booking import ACTIVE_BOOKING_STATUSES, Booking
+
         with transaction.atomic():
             EventTemplate.objects.select_for_update().get(pk=self.pk)
+
+            blocking = Booking.objects.filter(
+                event_template=self,
+                is_deleted=False,
+                status__in=ACTIVE_BOOKING_STATUSES,
+            ).count()
+            if blocking:
+                raise ValidationError(
+                    f"This event type has {blocking} active booking(s) and cannot be "
+                    "deleted. Cancel or complete them first, or set is_active=false "
+                    "to stop new bookings while honouring the ones already made."
+                )
 
             self.is_deleted = True
             self.deleted_at = timezone.now()

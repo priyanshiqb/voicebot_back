@@ -1,8 +1,5 @@
-from rest_framework.exceptions import ValidationError
-
 from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
-from core.models.booking import Booking
 from core.models.event_template import EventTemplate
 from core.serializers.event_template import (
     EventTemplateDropdownSerializer,
@@ -39,14 +36,6 @@ class EventTemplateViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             return scoped
         return super().get_queryset()
 
-    def perform_destroy(self, instance):
-        active = Booking.objects.filter(
-            event_template=instance,
-            is_deleted=False,
-            status__in=Booking.ACTIVE_STATUSES,
-        ).exists()
-        if active:
-            raise ValidationError(
-                {"detail": "This event type has active bookings and cannot be deleted."}
-            )
-        super().perform_destroy(instance)
+    # No perform_destroy override: EventTemplate.soft_delete() refuses while active
+    # bookings reference the type, so bulk_delete — which calls soft_delete directly
+    # and never reaches this viewset method — is covered by the same guard.

@@ -82,8 +82,39 @@ existing record rather than adding a second one.
     "errors": null
   }
   ```
-- **`sync_status` values**: `CONNECTED`, `REAUTH_REQUIRED` (token refresh failed → host must
-  reconnect), `ERROR`, `DISCONNECTED`.
+#### `sync_status` — what each value means and what to do
+
+This is the field a UI should surface: it is how a host learns their calendar has stopped working.
+
+| Value | Meaning | What the host must do | Effect on availability |
+|---|---|---|---|
+| `CONNECTED` | Healthy. Free/busy is read and bookings are mirrored. | nothing | External busy times are subtracted from slots. |
+| `REAUTH_REQUIRED` | The provider rejected our credentials — access revoked, password changed, or the app's access withdrawn in the Google account settings. **Not retried**; retrying a revoked token never succeeds. | **Reconnect** via `connect/`. | The integration is skipped entirely, so the host's slots stop reflecting their external calendar. |
+| `ERROR` | The provider refused a request for a reason that will not fix itself — a malformed calendar, a permissions change, a deleted calendar. `last_error` carries the provider's message. | Inspect `last_error`; often reconnecting or fixing the calendar in Google resolves it. | Same as above. |
+| `DISCONNECTED` | Deliberately removed by the host. | nothing | The host is treated as having no external calendar. |
+
+**How a status gets set.** Provider failures are classified rather than blindly retried:
+
+| Provider response | Classified as | Result |
+|---|---|---|
+| `401`, `403` | permanent — credentials are gone | `REAUTH_REQUIRED`, no retry |
+| `404`, `410` | permanent — the remote event no longer exists | the stored event link is cleared so the next push **re-creates** the event; the integration stays `CONNECTED` |
+| other `4xx` | permanent — the request itself is wrong | `ERROR` with `last_error` |
+| `408`, `429` | transient — timeout or rate limit | retried with backoff; status unchanged |
+| `5xx`, network errors | transient | retried with backoff; status unchanged |
+
+The `404` case is worth calling out: it used to be retried three times and then abandoned, leaving
+a stored pointer to a deleted event so **every later update failed forever**. Now the pointer is
+cleared and the event is simply re-created.
+
+**`last_error`** holds the most recent provider message (truncated to 500 chars). It is not
+cleared automatically on recovery, so treat it as diagnostic history rather than current state —
+`sync_status` is the authoritative signal.
+
+> **Availability degrades open, and says so.** If a provider is unreachable while slots are being
+> computed, the slot is still offered but flagged `external_check_failed: true` — an outage should
+> not empty a calendar. Attempting to *book* such a slot returns **503** rather than risking a
+> double-booking. See [Available Slots](./availability_slots.md).
 
 #### Dropdown
 - **Path**: `GET /api/v1/core/calendar-integrations/dropdown/` — `{label, value}` pairs where

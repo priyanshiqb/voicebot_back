@@ -303,8 +303,27 @@ def push_booking_to_calendar(self, booking_id):
                 external_event_id=external_id, external_provider=integration.provider
             )
         event_log.log_event(booking, BookingEvent.EventType.EXTERNAL_SYNCED)
+        
+        logger.info(
+            "Successfully synced booking %s to calendar", 
+            booking_id, 
+            extra={
+                "booking_id": str(booking.id), 
+                "tenant_id": str(booking.tenant_id), 
+                "provider": integration.provider,
+                "action": "update" if booking.external_event_id else "insert"
+            }
+        )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("push_booking_to_calendar failed for %s", booking_id)
+        logger.exception(
+            "push_booking_to_calendar failed for %s", 
+            booking_id, 
+            extra={
+                "booking_id": str(booking.id), 
+                "tenant_id": str(booking.tenant_id),
+                "provider": integration.provider
+            }
+        )
         if _handle_permanent_calendar_error(integration, exc, booking=booking):
             return
         raise self.retry(exc=exc)
@@ -330,8 +349,28 @@ def delete_booking_calendar_event(self, booking_id):
         provider = calendars.get_provider_for(integration)
         provider.delete_event(integration, booking.external_event_id)
         Booking.objects.filter(pk=booking.pk).update(external_event_id=None)
+        
+        logger.info(
+            "Successfully deleted external calendar event for booking %s", 
+            booking_id,
+            extra={
+                "booking_id": str(booking.id), 
+                "tenant_id": str(booking.tenant_id), 
+                "external_event_id": booking.external_event_id,
+                "provider": integration.provider
+            }
+        )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("delete_booking_calendar_event failed for %s", booking_id)
+        logger.exception(
+            "delete_booking_calendar_event failed for %s", 
+            booking_id,
+            extra={
+                "booking_id": str(booking.id), 
+                "tenant_id": str(booking.tenant_id),
+                "external_event_id": booking.external_event_id,
+                "provider": integration.provider
+            }
+        )
         if _handle_permanent_calendar_error(integration, exc, booking=booking):
             # Already-gone counts as done: clear the id so we stop chasing it.
             Booking.objects.filter(pk=booking.pk).update(external_event_id=None)
