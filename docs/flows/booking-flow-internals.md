@@ -265,6 +265,33 @@ These are the properties the code is built to preserve. Each is enforced somewhe
 | 8 | Wall-clock hours resolve DST-correctly | `Timezone.to_utc()` ([timezone.py](../../onboard/models/timezone.py)), applied once at materialization |
 | 9 | Every interval the engine compares is an absolute UTC instant | `AvailabilityWindow.start_utc`/`end_utc`; the engine never reads a `TimeField` |
 
+### 3.1 Auditing them
+
+`manage.py audit_bookings [--tenant=<uuid>] [--check=<name>] [--limit=N] [--quiet]` asserts the
+above against live data and exits non-zero on any finding, so it can be wired to a cron alert.
+
+Note what it deliberately does **not** do. Most invariants here are unreachable through the ORM
+*because a constraint exists*, so scanning rows to re-derive them finds nothing by construction.
+The failure mode that is actually real is the constraint going missing — a faked migration, a
+restore from an older dump, `btree_gist` absent on a fresh database. So `schema-guards` checks the
+catalog, which is O(1), rather than the rows, which is O(n) and can only confirm what a working
+constraint already guarantees.
+
+| Check | Finds |
+|---|---|
+| `schema-guards` | a required constraint or the `btree_gist` extension is missing |
+| `effective-times` | `effective_*` does not bracket `start_time`/`end_time` — the half Postgres does **not** enforce, and where buffers silently stop protecting a slot |
+| `tenant-coherence` | a booking, participant, or window whose FKs cross the tenant boundary |
+| `no-participants` | an active booking that will notify nobody |
+| `stranded-hold` | a `HELD` row past expiry still blocking its slot |
+| `unmaterialized-profile` | rules with no future windows — the host produces zero slots |
+| `orphan-window` | windows belonging to a deleted/inactive profile or a deleted rule |
+| `closing-horizon` | under 7 days of windows left, i.e. before hosts go dark |
+| `stuck-notification` | `PENDING` over an hour — the dedup key now blocks any retry |
+
+There is deliberately no `hostless-booking` check (invariant 3): `primary_host` is `NOT NULL`, so
+it could never fire.
+
 ---
 
 ## 4. Preconditions — what setup a booking requires
@@ -296,15 +323,30 @@ A host missing #3 produces **zero slots and no error message** — the most comm
 
 ### 5.1 Request validation
 
-[`AvailableSlotsQuerySerializer`](../../core/serializers/availability.py#L7) requires
-`event_template`, `date_from`, `date_to`, and conditionally `target_host`:
+[`AvailableSlotsQuerySerializer`](../../core/serializers/availability.py) requires
+`event_template`, `start_utc`, `end_utc`, and conditionally `target_host`:
 
-- `date_to >= date_from`
-- `(date_to - date_from).days <= max_horizon_days`
-- **DIRECT** → `target_host` **required**. The comment at
-  [availability.py:44-46](../../core/serializers/availability.py#L44-L46) explains why: returning the
-  union over all skilled hosts would advertise slots that then 409 on booking.
+- `end_utc > start_utc`
+- `end_utc - start_utc <= max_horizon_days`
+- **DIRECT** → `target_host` **required**. Returning the union over all skilled hosts would
+  advertise slots that then 409 on booking.
 - **COLLECTIVE** → `target_host` must be **absent**.
+
+**The bounds are instants, not dates — deliberately.** A date is a different 24 hours in every
+timezone, so a date range forces the server to guess whose day the caller meant. Guessing "the
+host's day" is defensible and was what this endpoint used to do, but it is wrong whenever the
+person choosing is not in the host's zone:
+
+> Host in Kolkata (+05:30), customer's UI set to New York. The customer picks **Aug 8**. Under a
+> date range the server returned three slots that fall on **Aug 7** in New York, and omitted two
+> that fall on the customer's Aug 8 afternoon (they were Aug 9 in Kolkata). Rendering in the user's
+> timezone cannot fix that — the wrong rows were selected before the client saw them.
+
+The caller is the only component that knows which timezone the human picked, so it resolves the day
+and sends `start_utc` / `end_utc`. See `core/tests/scheduling/test_slot_range_contract.py`.
+
+**Response** instants are UTC ISO-8601, `Z`-suffixed (`USE_TZ=True`, `TIME_ZONE="UTC"`). The client
+converts for display.
 
 ### 5.2 Tenant resolution
 
@@ -338,8 +380,9 @@ in JSON strings and downstream maps are keyed by UUID.
 Hosts with no profile are absent from the map and get skipped. The `rules` are used only to detect
 stale materialization (step 4a) — the engine does **not** generate slots from them.
 
-**4. Build a generous UTC window** — `date_from 00:00 UTC − 1 day` to `date_to 23:59:59.999999 UTC + 1 day`.
-The ±1 day absorbs timezone skew and picks up an overnight window anchored the day before the range.
+**4. Widen the load window** — `range_start − 1 day` to `range_end + 1 day`. A window overlapping
+the range can *start* before it (an overnight block the range begins partway through), so the load
+is wider than the range; slots are still bounded by the range itself in step 6.
 
 **4a. Load materialized windows** — [`_load_windows`](../../core/services/availability.py), one
 query for all hosts, returning `{host_id: [(start_utc, end_utc), …]}` ordered by start. The filter is
@@ -367,15 +410,14 @@ for w_start, w_end in host_windows:
     cursor = w_start
     while cursor + duration <= w_end:
         start_utc, end_utc = cursor, cursor + duration
-        if date_from <= start_utc.astimezone(tz).date() <= date_to and (
-            min_start <= start_utc <= horizon
-        ):
+        if range_start <= start_utc < range_end and min_start <= start_utc <= horizon:
             if not _overlaps(busy, start_utc - buf_before, end_utc + buf_after):
                 slot_map.setdefault(start_utc, set()).add(host_id)
         cursor += step
 ```
 
-Pure UTC arithmetic — DST was already resolved when the window was materialized.
+Pure UTC arithmetic — DST was already resolved when the window was materialized, and there is no
+timezone lookup anywhere in this loop.
 
 Two details that look incidental but are not:
 
@@ -383,10 +425,9 @@ Two details that look incidental but are not:
   instant the old per-day rule loop started from, so slot alignment is preserved exactly. Merging
   here would let a granularity that does not divide the day (e.g. 25 min) drift across day
   boundaries and silently move every advertised time.
-- **The local-date filter.** Windows are loaded a day either side, so the requested range is
-  enforced on the slot's **local** date — which is what `date_from`/`date_to` mean to the caller.
-  A consequence worth knowing: the 02:00 tail of a Monday-night shift is offered when **Tuesday**
-  is requested, not Monday.
+- **Half-open `[range_start, range_end)`.** Consecutive queries tile: paging day by day neither
+  duplicates a slot nor drops one. An inclusive upper bound would return the same slot twice at
+  every boundary.
 
 **7. Collapse to slots** — `slot_map` is `start_utc → set(host_id)`.
 
@@ -1041,21 +1082,14 @@ timezone is available on neither the participant nor the booking, so emails alwa
 though the whole engine is timezone-aware. The building block now exists —
 `Timezone.offset_label_at()` (§2.4) — but nothing captures the customer's zone to render with.
 
-### 20.4 No invariant-audit command
-
-There is no `manage.py audit_bookings` to assert the §3 invariants against live data (orphan
-participants, `effective_*` drift from buffers, `HELD` rows past expiry, windows whose rule no
-longer exists). Every invariant is enforced at write time, so this is monitoring rather than a
-fix — but nothing currently detects a row that got in another way.
-
-### 20.5 Legacy surface awaiting removal
+### 20.4 Legacy surface awaiting removal
 
 - `delete_calendar_event_for_host` ([tasks.py](../../core/tasks.py)) — retained one release for
   in-flight broker messages.
 - `BookingEvent.REASSIGNED` and `NotificationLog.REASSIGNED` — no longer written; kept so
   historical rows render.
 
-### 20.6 Recently closed
+### 20.5 Recently closed
 
 Listed because earlier revisions of this document described them as open:
 
@@ -1067,6 +1101,7 @@ Listed because earlier revisions of this document described them as open:
 | `NotificationLog` marked `SENT` at enqueue | row stays `PENDING`; the task writes `SENT`/`FAILED` |
 | `.ics` `SEQUENCE` always 0 | derived from the `BookingEvent` revision count |
 | External-calendar failure silently widened availability | browsing flags the slot `external_check_failed`; committing raises `ExternalCalendarUnavailable` |
+| No invariant-audit command | `manage.py audit_bookings` (§3.1) |
 
 ---
 

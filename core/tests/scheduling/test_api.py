@@ -67,30 +67,35 @@ class BookingAPITests(APITestCase):
         self.assertEqual(response.status_code, 400, response.data)
         self.assertIn("target_host", response.data["errors"])
 
+    def _range(self):
+        """The UTC day containing the test's future start, as ISO instants."""
+        start, end = f.utc_day(self._future_start().date())
+        return start.isoformat(), end.isoformat()
+
     def test_availability_cross_tenant_denied(self):
         other_tenant = f.make_tenant()
         other_template = f.make_template(other_tenant)
         other_host = f.make_host(other_tenant, other_template)
-        day = self._future_start().date().isoformat()
+        start_utc, end_utc = self._range()
         response = self.client.get(
             self.slots_url,
             {
                 "event_template": str(other_template.id),
-                "date_from": day,
-                "date_to": day,
+                "start_utc": start_utc,
+                "end_utc": end_utc,
                 "target_host": str(other_host.id),
             },
         )
         self.assertEqual(response.status_code, 403, response.data)
 
     def test_available_slots_returns_data(self):
-        day = self._future_start().date().isoformat()
+        start_utc, end_utc = self._range()
         response = self.client.get(
             self.slots_url,
             {
                 "event_template": str(self.template.id),
-                "date_from": day,
-                "date_to": day,
+                "start_utc": start_utc,
+                "end_utc": end_utc,
                 "target_host": str(self.host.id),
             },
         )
@@ -99,9 +104,26 @@ class BookingAPITests(APITestCase):
         self.assertIsInstance(response.data["data"], list)
 
     def test_available_slots_requires_target_host(self):
-        day = self._future_start().date().isoformat()
+        start_utc, end_utc = self._range()
         response = self.client.get(
             self.slots_url,
-            {"event_template": str(self.template.id), "date_from": day, "date_to": day},
+            {
+                "event_template": str(self.template.id),
+                "start_utc": start_utc,
+                "end_utc": end_utc,
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+
+    def test_inverted_range_rejected(self):
+        start_utc, end_utc = self._range()
+        response = self.client.get(
+            self.slots_url,
+            {
+                "event_template": str(self.template.id),
+                "start_utc": end_utc,
+                "end_utc": start_utc,
+                "target_host": str(self.host.id),
+            },
         )
         self.assertEqual(response.status_code, 400, response.data)

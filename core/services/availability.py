@@ -13,7 +13,7 @@ time in availability_materializer, not per request in here.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -90,6 +90,29 @@ def _load_profiles(tenant, host_ids):
         .prefetch_related("rules")
     )
     return {p.user_id: (p, list(p.rules.all())) for p in profiles}
+
+
+def _as_utc(value, label):
+    """Coerce a slot-range bound to an aware UTC datetime.
+
+    A naive datetime compared against the aware instants in AvailabilityWindow
+    raises ``TypeError: can't compare offset-naive and offset-aware datetimes``,
+    which surfaces as a 500 rather than a 400. Four entry points reach this
+    module with different parsing in front of them, so normalize here rather than
+    trusting each of them.
+
+    A ``date`` is rejected outright: silently reading it as UTC midnight is the
+    exact ambiguity this signature exists to remove, and a caller passing one is
+    a caller that has not yet decided whose day it means.
+    """
+    if isinstance(value, datetime):
+        if timezone.is_naive(value):
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    raise TypeError(
+        f"{label} must be an aware UTC datetime, not {type(value).__name__}. "
+        f"Resolve the caller's local day to instants before calling."
+    )
 
 
 def _load_windows(tenant, host_ids, range_start, range_end):
@@ -362,19 +385,27 @@ def eligible_free_hosts(
 
 
 def get_available_slots(
-    tenant, event_template, date_from, date_to, target_host_id=None, now=None
+    tenant, event_template, range_start, range_end, target_host_id=None, now=None
 ):
     """
-    Bookable slots between two dates (inclusive). One busy-interval query per
-    host (no N+1); interval math is done in memory.
+    Bookable slots in the half-open UTC interval ``[range_start, range_end)``.
+    One busy-interval query per host (no N+1); interval math is done in memory.
 
-    - ``date_from`` / ``date_to`` are ``date`` objects.
+    ``range_start`` / ``range_end`` are **aware UTC datetimes**, not dates. A date
+    is not an instant: "August 8th" is a different 24 hours in every timezone, so
+    a date range forces the server to guess whose day the caller meant. The
+    caller knows — it is the only component that knows which timezone the human
+    picked — so it resolves the day to instants and this function does pure UTC
+    interval math.
+
     - Applies min-notice and horizon policy.
     - DIRECT: a slot is offered if >=1 considered host is free (the free hosts are
       carried on the slot). Pass ``target_host_id`` to scope this to the host who
       will actually be booked. COLLECTIVE: only if every skilled host is free.
     """
     now = now or timezone.now()
+    range_start = _as_utc(range_start, "range_start")
+    range_end = _as_utc(range_end, "range_end")
     min_start = now + timedelta(minutes=event_template.min_notice_minutes)
     horizon = now + timedelta(days=event_template.max_horizon_days)
     duration = timedelta(minutes=event_template.duration_minutes)
@@ -385,9 +416,11 @@ def get_available_slots(
     host_ids = _resolve_host_ids(tenant, event_template, target_host_id)
     profiles = _load_profiles(tenant, host_ids)
 
-    # Generous UTC window covering the local date range (+/- 1 day for tz skew).
-    window_start = datetime.combine(date_from, time.min, tzinfo=UTC) - timedelta(days=1)
-    window_end = datetime.combine(date_to, time.max, tzinfo=UTC) + timedelta(days=1)
+    # A window overlapping the range can start before it (an overnight block the
+    # range begins partway through), so widen the LOAD by a day. Slots are still
+    # bounded by the requested range itself, below.
+    window_start = range_start - timedelta(days=1)
+    window_end = range_end + timedelta(days=1)
     windows = _load_windows(tenant, host_ids, window_start, window_end)
 
     slot_map = {}  # start_utc -> set(host_id)
@@ -398,12 +431,11 @@ def get_available_slots(
     unverified_hosts = set()
 
     for host_id in considered_hosts:
-        profile, rules = profiles[host_id]
+        _profile, rules = profiles[host_id]
         host_windows = windows.get(host_id, [])
         if not host_windows:
             _warn_if_unmaterialized(tenant, host_id, rules, now=now)
             continue
-        tz = profile.timezone.zone
 
         external, degraded = _external_busy(tenant, host_id, window_start, window_end)
         if degraded:
@@ -423,12 +455,12 @@ def get_available_slots(
             cursor = w_start
             while cursor + duration <= w_end:
                 start_utc, end_utc = cursor, cursor + duration
-                # Windows are loaded a day either side to catch overnight blocks
-                # anchored outside the range, so the requested range is enforced
-                # here instead — on the slot's LOCAL date, which is what
-                # date_from/date_to mean to the caller.
-                if date_from <= start_utc.astimezone(tz).date() <= date_to and (
-                    min_start <= start_utc <= horizon
+                # Half-open [range_start, range_end): windows were loaded a day
+                # wider, so the requested range is enforced here. Half-open means
+                # consecutive ranges tile without overlapping or dropping a slot.
+                if (
+                    range_start <= start_utc < range_end
+                    and min_start <= start_utc <= horizon
                 ):
                     if not _overlaps(busy, start_utc - buf_before, end_utc + buf_after):
                         slot_map.setdefault(start_utc, set()).add(host_id)

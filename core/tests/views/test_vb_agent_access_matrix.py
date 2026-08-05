@@ -216,11 +216,11 @@ class VBAgentAccessMatrixTestCase(APITestCase):
     # ---- availability + read-only booking config ----
 
     def _slots_query(self):
-        day = at(0).date()
+        start = at(0)
         return {
             "event_template": str(self.template.id),
-            "date_from": day.isoformat(),
-            "date_to": (day + timedelta(days=1)).isoformat(),
+            "start_utc": start.isoformat(),
+            "end_utc": (start + timedelta(days=2)).isoformat(),
             "target_host": str(self.host.id),
         }
 

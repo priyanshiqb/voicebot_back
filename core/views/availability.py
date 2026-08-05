@@ -73,8 +73,8 @@ class AvailabilityViewSet(ResponseMixin, ViewSet):
         slots = availability_service.get_available_slots(
             tenant=tenant,
             event_template=event_template,
-            date_from=data["date_from"],
-            date_to=data["date_to"],
+            range_start=data["start_utc"],
+            range_end=data["end_utc"],
             target_host_id=target.id if target else None,
         )
         payload = SlotSerializer(

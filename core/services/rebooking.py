@@ -53,7 +53,8 @@ def get_context(token, now=None):
     return _load_by_token(token, now or timezone.now())
 
 
-def list_slots(token, date_from, date_to, now=None):
+def list_slots(token, range_start, range_end, now=None):
+    """Slots the token holder may rebook into, over a half-open UTC interval."""
     now = now or timezone.now()
     booking = _load_by_token(token, now)
     # Scope to the host rebook() will actually book, or the customer could pick a
@@ -67,8 +68,8 @@ def list_slots(token, date_from, date_to, now=None):
     slots = availability.get_available_slots(
         booking.tenant,
         booking.event_template,
-        date_from,
-        date_to,
+        range_start,
+        range_end,
         target_host_id=target_host_id,
         now=now,
     )

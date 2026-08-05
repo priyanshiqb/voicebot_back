@@ -123,7 +123,7 @@ class IncrementalSyncTests(TestCase):
             end_time=at(10, 30),
         )
         slots = availability.get_available_slots(
-            self.tenant, self.template, date(2027, 3, 16), date(2027, 3, 16),
+            self.tenant, self.template, *f.utc_day(date(2027, 3, 16)),
             target_host_id=self.host.id, now=NOW,
         )
         starts = {s.start for s in slots}

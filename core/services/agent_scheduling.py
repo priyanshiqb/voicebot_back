@@ -15,7 +15,10 @@ by the source tag + the BookingEvent log).
 """
 
 import logging
+from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 
+from core.models.availability_profile import AvailabilityProfile
 from core.models.booking import Booking
 from core.models.event_template import EventTemplate
 from core.services import availability, bookings as booking_service
@@ -161,8 +164,46 @@ def list_event_hosts(agent, event_template_id):
     }
 
 
+def _day_range_utc(tenant, date_from, date_to, target_host_id=None):
+    """Resolve an inclusive local date range to a half-open UTC interval.
+
+    The engine takes instants, not dates, because a date is a different 24 hours
+    in every zone. This layer is the exception that still legitimately deals in
+    dates: a caller on the phone says "Tuesday", not an ISO timestamp — so the
+    resolution happens here, explicitly, instead of being guessed downstream.
+
+    Whose Tuesday? The named host's, when there is one — their working day is
+    what the caller is actually asking about. Otherwise the tenant's base
+    timezone, which is the closest thing to a house clock.
+    """
+    zone = None
+    if target_host_id:
+        profile = (
+            AvailabilityProfile.objects.filter(
+                tenant=tenant, user_id=target_host_id, is_deleted=False
+            )
+            .select_related("timezone")
+            .first()
+        )
+        if profile:
+            zone = profile.timezone.zone
+    if zone is None and tenant.timezone_id:
+        zone = tenant.timezone.zone
+    zone = zone or dt_timezone.utc
+
+    start = datetime.combine(date_from, time.min, tzinfo=zone)
+    # date_to is inclusive to the caller, so the exclusive UTC bound is the START
+    # of the following day. Using 23:59:59 would drop the last second, and any
+    # slot starting in it.
+    end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
+    return start.astimezone(dt_timezone.utc), end.astimezone(dt_timezone.utc)
+
+
 def check_availability(agent, event_template_id, date_from, date_to, target_host_id=None, now=None):
-    """Open slots for a template between two dates (inclusive `date` objects).
+    """Open slots for a template between two local dates (inclusive `date` objects).
+
+    Dates are resolved to UTC instants here — see `_day_range_utc` for whose day
+    they mean.
 
     Each slot carries the ids of the hosts free for it. Omitting `target_host_id`
     is allowed and answers "when is anyone free?" — but the follow-up book/hold
@@ -172,8 +213,12 @@ def check_availability(agent, event_template_id, date_from, date_to, target_host
         template = _resolve_template(agent, event_template_id)
     except _ENGINE_ERRORS as exc:
         return _error_result(exc)
+    range_start, range_end = _day_range_utc(
+        agent.tenant, date_from, date_to, target_host_id=target_host_id
+    )
     slots = availability.get_available_slots(
-        agent.tenant, template, date_from, date_to, target_host_id=target_host_id, now=now
+        agent.tenant, template, range_start, range_end,
+        target_host_id=target_host_id, now=now,
     )
     return {
         "ok": True,

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from rest_framework import serializers
 
 from user.models import CustomUser
@@ -12,11 +14,18 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
         queryset=EventTemplate.objects.filter(is_active=True),
         help_text="Event template id. Must belong to the caller's tenant and be active."
     )
-    date_from = serializers.DateField(
-        help_text="Start date YYYY-MM-DD (inclusive)."
+    start_utc = serializers.DateTimeField(
+        help_text=(
+            "Search window start, an ISO-8601 instant (e.g. 2026-08-08T04:00:00Z). "
+            "Inclusive. A naive value is read as UTC."
+        )
     )
-    date_to = serializers.DateField(
-        help_text="End date YYYY-MM-DD (inclusive). Must be on/after date_from and within the template's max_horizon_days."
+    end_utc = serializers.DateTimeField(
+        help_text=(
+            "Search window end, an ISO-8601 instant. EXCLUSIVE, so consecutive "
+            "windows tile without overlapping. Must be after start_utc and within "
+            "the template's max_horizon_days."
+        )
     )
     target_host = serializers.PrimaryKeyRelatedField(
         queryset=CustomUser.objects.all(),
@@ -30,13 +39,13 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        if attrs["date_to"] < attrs["date_from"]:
-            raise serializers.ValidationError("date_to must be on or after date_from.")
+        if attrs["end_utc"] <= attrs["start_utc"]:
+            raise serializers.ValidationError("end_utc must be after start_utc.")
         event_template = attrs["event_template"]
-        span_days = (attrs["date_to"] - attrs["date_from"]).days
-        if span_days > event_template.max_horizon_days:
+        span = attrs["end_utc"] - attrs["start_utc"]
+        if span > timedelta(days=event_template.max_horizon_days):
             raise serializers.ValidationError(
-                f"Date range exceeds this event's {event_template.max_horizon_days}-day horizon."
+                f"Range exceeds this event's {event_template.max_horizon_days}-day horizon."
             )
 
         is_collective = (

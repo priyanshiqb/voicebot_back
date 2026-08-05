@@ -1,8 +1,9 @@
 import logging
 from datetime import timedelta
+from datetime import timezone as dt_timezone
 
 from django.utils import timezone
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_datetime
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -76,17 +77,25 @@ class PublicRescheduleView(APIView):
             return Response({"status": False, "message": str(exc)}, status=400)
 
         template = booking.event_template
-        date_from = parse_date(request.query_params.get("date_from", "")) or now.date()
-        default_to = now.date() + timedelta(days=template.max_horizon_days)
-        date_to = parse_date(request.query_params.get("date_to", "")) or default_to
-        if date_to < date_from:
-            date_to = date_from
-        # never look past the horizon
-        horizon = now.date() + timedelta(days=template.max_horizon_days)
-        if date_to > horizon:
-            date_to = horizon
+        # UTC instants, matching the authenticated slots endpoint: the customer's
+        # browser knows their timezone and resolves their chosen day to instants.
+        # Defaults span from now to the template's horizon, so a client that sends
+        # nothing still gets a usable page.
+        horizon = now + timedelta(days=template.max_horizon_days)
+        range_start = parse_datetime(request.query_params.get("start_utc", "") or "") or now
+        range_end = (
+            parse_datetime(request.query_params.get("end_utc", "") or "") or horizon
+        )
+        if timezone.is_naive(range_start):
+            range_start = range_start.replace(tzinfo=dt_timezone.utc)
+        if timezone.is_naive(range_end):
+            range_end = range_end.replace(tzinfo=dt_timezone.utc)
+        range_start = max(range_start, now)
+        range_end = min(range_end, horizon)
+        if range_end <= range_start:
+            range_end = range_start + timedelta(days=1)
 
-        _, slots = rebooking.list_slots(str(token), date_from, date_to, now=now)
+        _, slots = rebooking.list_slots(str(token), range_start, range_end, now=now)
         return Response(
             {
                 "status": True,

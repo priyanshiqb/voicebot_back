@@ -19,8 +19,10 @@ single-use `reschedule_token` embedded in the "please reschedule" email link. Th
 ### 1. Get Reschedule Options
 - **Path**: `GET /api/v1/core/public/reschedule/{token}/`
 - **Query Parameters** (optional):
-  - `date_from`, `date_to`: `YYYY-MM-DD` window for slots. Defaults to today through the
-    event's horizon; clamped to the horizon.
+  - `start_utc`, `end_utc`: ISO-8601 **instants** bounding the slot search. Defaults to now
+    through the event's horizon, and both are clamped to that range. Resolve the customer's
+    chosen day in the timezone their browser is displaying — a date means a different 24 hours
+    in every zone. A value without an offset is read as UTC.
 - **Success Response (200 OK)**:
   ```json
   {

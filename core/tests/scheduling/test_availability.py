@@ -45,11 +45,12 @@ class AvailabilityEngineTests(TestCase):
         f.materialize(profile, date(2027, 1, 1), date(2027, 7, 31))
         now = at(0, 0, day=1, month=1)  # 2027-01-01
 
+        # The host's LOCAL day, which is what a New York user picking a date means.
         winter_slots = availability.get_available_slots(
-            tenant, template, winter, winter, target_host_id=host.id, now=now
+            tenant, template, *f.local_day(winter, tz), target_host_id=host.id, now=now
         )
         summer_slots = availability.get_available_slots(
-            tenant, template, summer, summer, target_host_id=host.id, now=now
+            tenant, template, *f.local_day(summer, tz), target_host_id=host.id, now=now
         )
         self.assertTrue(winter_slots and summer_slots)
         self.assertEqual(winter_slots[0].start.astimezone(UTC).hour, 14)  # EST -5
@@ -69,7 +70,7 @@ class AvailabilityEngineTests(TestCase):
             now=NOW,
         )
         slots = availability.get_available_slots(
-            tenant, template, date(2027, 3, 16), date(2027, 3, 16),
+            tenant, template, *f.utc_day(date(2027, 3, 16)),
             target_host_id=host.id, now=NOW,
         )
         starts = {s.start for s in slots}
@@ -85,7 +86,7 @@ class AvailabilityEngineTests(TestCase):
         # now = 2027-03-16 08:00; min notice 24h -> nothing bookable on 03-16
         now = at(8, 0, day=16)
         slots = availability.get_available_slots(
-            tenant, template, date(2027, 3, 16), date(2027, 3, 16),
+            tenant, template, *f.utc_day(date(2027, 3, 16)),
             target_host_id=host.id, now=now,
         )
         self.assertEqual(slots, [])
@@ -99,7 +100,7 @@ class AvailabilityEngineTests(TestCase):
         f.make_exception(tenant, host, at(9), at(12))  # leave 09:00-12:00
 
         slots = availability.get_available_slots(
-            tenant, template, date(2027, 3, 16), date(2027, 3, 16),
+            tenant, template, *f.utc_day(date(2027, 3, 16)),
             target_host_id=host.id, now=NOW,
         )
         starts = {s.start for s in slots}
@@ -117,7 +118,7 @@ class AvailabilityEngineTests(TestCase):
         host_b = f.make_host(tenant_b, template_b)
 
         slots = availability.get_available_slots(
-            tenant_a, template_a, date(2027, 3, 16), date(2027, 3, 16), now=NOW
+            tenant_a, template_a, *f.utc_day(date(2027, 3, 16)), now=NOW
         )
         host_ids = {h for s in slots for h in s.eligible_host_ids}
         self.assertIn(host_a.id, host_ids)

@@ -30,16 +30,19 @@ flowchart TD
 ```
 
 ## Step 1 — Find slots
-`GET /availability/available-slots/?event_template={id}&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD[&target_host={id}]`
+`GET /availability/available-slots/?event_template={id}&start_utc=<ISO>&end_utc=<ISO>[&target_host={id}]`
 
-Returns `[{ start, end, eligible_host_ids }]` — the engine subtracts existing bookings
+Returns `[{ start, end, eligible_host_ids }]` in UTC — the engine subtracts existing bookings
 (incl. buffers), leave, and external-calendar busy times, then applies min-notice and
 horizon.
 
+`start_utc` / `end_utc` are **instants, not dates**: resolve the user's chosen day in the timezone
+they are viewing before you call. `start_utc` is inclusive, `end_utc` exclusive.
+
 **Outcomes / options**
 - Slots returned → pick one. **Next:** Step 2.
-- Empty list → widen `date_from..date_to`, or the template has no hosts/availability.
-- `403` template belongs to another tenant. `400` range exceeds the horizon.
+- Empty list → widen the window, or the template has no hosts/availability/materialized windows.
+- `403` template belongs to another tenant. `400` inverted range, or range exceeds the horizon.
 
 ## Step 2 — Reserve or book
 

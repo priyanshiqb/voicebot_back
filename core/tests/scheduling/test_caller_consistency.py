@@ -121,7 +121,7 @@ class BufferConsistencyTests(_Base):
 
         day = self.start.date()
         slots = availability.get_available_slots(
-            self.tenant, self.template, day, day,
+            self.tenant, self.template, *f.utc_day(day),
             target_host_id=self.host.id, now=self.now,
         )
         self.assertNotIn(self.start, {s.start for s in slots})
@@ -185,7 +185,7 @@ class ExternalCalendarDegradationTests(_Base):
         day = self.start.date()
         with self.assertLogs("core.services.availability", level="ERROR"):
             slots = availability.get_available_slots(
-                self.tenant, self.template, day, day,
+                self.tenant, self.template, *f.utc_day(day),
                 target_host_id=self.host.id, now=self.now,
             )
         self.assertTrue(slots)
@@ -221,9 +221,8 @@ class ExternalCalendarDegradationTests(_Base):
     @patch("core.services.calendars.get_provider_for")
     def test_slots_are_unflagged_when_provider_is_healthy(self, provider):
         provider.return_value.get_busy.return_value = []
-        day = self.start.date()
         slots = availability.get_available_slots(
-            self.tenant, self.template, day, day,
+            self.tenant, self.template, *f.utc_day(self.start.date()),
             target_host_id=self.host.id, now=self.now,
         )
         self.assertTrue(slots)

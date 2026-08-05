@@ -151,6 +151,7 @@ class ContactImportViewSet(TenantBaseViewSet):
                         fields={
                             "file_id": serializers.UUIDField(),
                             "upload_url": serializers.CharField(),
+                            "object_key": serializers.CharField(),
                         },
                     ),
                 },
@@ -208,7 +209,11 @@ class ContactImportViewSet(TenantBaseViewSet):
             )
 
         return self.success(
-            data={"file_id": str(import_file.id), "upload_url": upload_url},
+            data={
+                "file_id": str(import_file.id), 
+                "upload_url": upload_url,
+                "object_key": object_key
+            },
             message="Upload URL generated successfully.",
         )
 

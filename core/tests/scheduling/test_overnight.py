@@ -113,7 +113,7 @@ class OvernightMaterializationTests(TestCase):
         now = datetime(2027, 3, 15, 8, 0, tzinfo=UTC)
 
         slots = availability.get_available_slots(
-            self.tenant, self.template, MONDAY, MONDAY, target_host_id=user.id, now=now
+            self.tenant, self.template, *f.utc_day(MONDAY), target_host_id=user.id, now=now
         )
         starts = {s.start for s in slots}
         # 23:30 + 30min lands at 00:00 the next day — the case the old engine
@@ -129,7 +129,7 @@ class OvernightMaterializationTests(TestCase):
         now = datetime(2027, 3, 15, 8, 0, tzinfo=UTC)
 
         slots = availability.get_available_slots(
-            self.tenant, self.template, TUESDAY, TUESDAY, target_host_id=user.id, now=now
+            self.tenant, self.template, *f.utc_day(TUESDAY), target_host_id=user.id, now=now
         )
         starts = {s.start for s in slots}
         self.assertIn(datetime(2027, 3, 16, 5, 0, tzinfo=UTC), starts)

@@ -37,6 +37,29 @@ def at(hour, minute=0, day=16, month=3, year=2027):
     return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
+def utc_day(day, days=1):
+    """``(range_start, range_end)`` spanning `days` UTC days from `day`.
+
+    `get_available_slots` takes instants, not dates — a date is a different 24
+    hours in every zone, so the caller has to say which one it means. Tests that
+    do not care about timezone edges mean "the UTC day", which is this.
+    """
+    start = datetime.combine(day, time.min, tzinfo=UTC)
+    return start, start + timedelta(days=days)
+
+
+def local_day(day, tz, days=1):
+    """``(range_start, range_end)`` spanning `days` LOCAL days in zone `tz`.
+
+    This is what a frontend does: resolve the user's chosen day to instants using
+    the timezone they are viewing in.
+    """
+    zone = tz.zone if hasattr(tz, "zone") else tz
+    start = datetime.combine(day, time.min, tzinfo=zone)
+    end = datetime.combine(day + timedelta(days=days), time.min, tzinfo=zone)
+    return start.astimezone(UTC), end.astimezone(UTC)
+
+
 def make_tenant(name=None, subdomain=None):
     n = _uid()
     return Tenant.objects.create(

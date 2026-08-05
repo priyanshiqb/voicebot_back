@@ -7,7 +7,7 @@ booking, and structured error results. Run on Postgres:
         --settings=config.settings.test_postgres
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from unittest import skipUnless
 
 from django.db import connection
@@ -19,7 +19,7 @@ from core.models.event_template import EventTemplate
 from core.services import agent_scheduling
 from core.services import agent_scheduling_tools as tools
 from core.tests.scheduling import factories as f
-from core.tests.scheduling.factories import NOW, at
+from core.tests.scheduling.factories import NOW, UTC, at
 
 REQUIRES_PG = skipUnless(
     connection.vendor == "postgresql", "Scheduling tests require PostgreSQL."
@@ -298,3 +298,63 @@ class AgentToolDispatchTests(TestCase):
         result = tools.call_tool(self.agent, "book_meeting", {})  # missing required keys
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason"], "bad_arguments")
+
+
+@REQUIRES_PG
+class AgentDateResolutionTests(TestCase):
+    """The AI bridge is the one caller that still speaks in dates — a person on the
+    phone says "Tuesday", not an ISO instant. So it resolves the date to UTC
+    instants itself, and whose day it means is a decision, not an accident.
+    """
+
+    def setUp(self):
+        self.tenant = f.make_tenant()
+        self.kolkata = f.make_timezone("Asia/Kolkata", "UTC+05:30", "Kolkata")
+        self.denver = f.make_timezone("America/Denver", "UTC-07:00", "Denver")
+
+    def test_named_host_zone_wins(self):
+        """The caller is asking about that host's working day."""
+        template = f.make_template(self.tenant)
+        host = f.make_host(self.tenant, template, tz=self.kolkata)
+
+        start, end = agent_scheduling._day_range_utc(
+            self.tenant, date(2027, 3, 16), date(2027, 3, 16), target_host_id=host.id
+        )
+        # 2027-03-16 00:00 IST == 2027-03-15 18:30Z
+        self.assertEqual(start, datetime(2027, 3, 15, 18, 30, tzinfo=UTC))
+        self.assertEqual(end, datetime(2027, 3, 16, 18, 30, tzinfo=UTC))
+
+    def test_falls_back_to_the_tenant_zone(self):
+        """'When is anyone free on Tuesday?' — no host named, so the tenant's base
+        timezone is the closest thing to a house clock."""
+        self.tenant.timezone = self.denver
+        self.tenant.save(update_fields=["timezone"])
+
+        start, end = agent_scheduling._day_range_utc(
+            self.tenant, date(2027, 3, 16), date(2027, 3, 16)
+        )
+        # 2027-03-16 00:00 MDT == 06:00Z
+        self.assertEqual(start, datetime(2027, 3, 16, 6, 0, tzinfo=UTC))
+
+    def test_end_date_is_inclusive_to_the_caller(self):
+        """"Monday to Tuesday" must cover all of Tuesday. Resolving date_to to
+        23:59:59 instead of the next midnight silently drops the last second and
+        any slot starting in it."""
+        self.tenant.timezone = self.denver
+        self.tenant.save(update_fields=["timezone"])
+
+        start, end = agent_scheduling._day_range_utc(
+            self.tenant, date(2027, 3, 15), date(2027, 3, 16)
+        )
+        self.assertEqual(end - start, timedelta(days=2))
+
+    def test_dst_transition_day_is_not_24_hours(self):
+        """Denver springs forward on 2027-03-14, so that local day is 23 hours.
+        Combining a date with a zone before converting is what gets this right."""
+        self.tenant.timezone = self.denver
+        self.tenant.save(update_fields=["timezone"])
+
+        start, end = agent_scheduling._day_range_utc(
+            self.tenant, date(2027, 3, 14), date(2027, 3, 14)
+        )
+        self.assertEqual(end - start, timedelta(hours=23))

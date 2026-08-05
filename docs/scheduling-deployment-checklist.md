@@ -198,6 +198,20 @@ Two log lines are worth paging on:
 The first is deliberately narrow: it fires only when a host has **no future windows at all**, not
 merely none on the queried date, so a host who does not work Wednesdays stays silent.
 
+### 5.2 Post-deploy verification
+
+```bash
+uv run python manage.py audit_bookings
+```
+
+Asserts the module's invariants against live data and **exits non-zero** on any finding, so it
+works as both a smoke test and a cron alert. Run it after every deploy — it is the fastest way to
+catch a migration that did not fully apply (`schema-guards` reports a missing constraint or a
+missing `btree_gist`) or a materialization step that was skipped (`unmaterialized-profile`).
+
+Scope it with `--tenant=<uuid>` or narrow it with `--check=<name>`; `--quiet` suppresses progress
+output for cron.
+
 ---
 
 ## 6. Endpoints

@@ -233,7 +233,7 @@ class StaleMaterializationTests(TestCase):
     def test_rules_without_windows_log_an_error(self):
         with self.assertLogs("core.services.availability", level="ERROR") as logs:
             slots = availability.get_available_slots(
-                self.tenant, self.template, MONDAY, MONDAY, target_host_id=self.user.id
+                self.tenant, self.template, *f.utc_day(MONDAY), target_host_id=self.user.id
             )
         self.assertEqual(slots, [])
         self.assertTrue(any("materialization is stale" in line for line in logs.output))
@@ -247,7 +247,7 @@ class StaleMaterializationTests(TestCase):
 
         with self.assertNoLogs("core.services.availability", level="ERROR"):
             availability.get_available_slots(
-                self.tenant, self.template, tuesday, tuesday, target_host_id=self.user.id
+                self.tenant, self.template, *f.utc_day(tuesday), target_host_id=self.user.id
             )
 
 

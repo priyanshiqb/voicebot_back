@@ -60,8 +60,9 @@ class RebookingServiceTests(_RebookBase):
             self.new_start - timedelta(minutes=30),
             self.new_start + timedelta(hours=1),
         )
-        day = self.new_start.date()
-        _, slots = rebooking.list_slots(str(self.token), day, day, now=self.now)
+        _, slots = rebooking.list_slots(
+            str(self.token), *f.utc_day(self.new_start.date()), now=self.now
+        )
 
         starts = {s.start for s in slots}
         self.assertNotIn(self.new_start, starts)
