@@ -92,6 +92,49 @@ def _load_profiles(tenant, host_ids):
     return {p.user_id: (p, list(p.rules.all())) for p in profiles}
 
 
+def display_zone(tenant, target_host_id=None, requested=None):
+    """The zone slot times should be *rendered* in, as ``(ZoneInfo, iana_name)``.
+
+    Purely presentational — nothing here affects which slots are returned. The
+    engine's answer is a set of UTC instants either way; this only decides how
+    they are spelled for a human.
+
+    Resolution order, most specific first:
+
+      1. ``requested`` — the caller stated a zone, so it knows best. This is the
+         viewer's zone, which is the only one that makes "9 AM" mean anything.
+      2. The named host's own profile zone. Useful even when the viewer differs:
+         it lets a UI say "6:30 PM for Dr. Sharma".
+      3. The tenant's base zone.
+      4. UTC.
+
+    A malformed ``requested`` value falls through rather than raising — the
+    serializer validates it, and a rendering hint must never be able to fail a
+    query that would otherwise succeed.
+    """
+    if requested:
+        try:
+            return ZoneInfo(requested), requested
+        except Exception:  # noqa: BLE001 — presentation only, never fatal
+            logger.warning("ignoring unusable display timezone %r", requested)
+
+    if target_host_id:
+        profile = (
+            AvailabilityProfile.objects.filter(
+                tenant=tenant, user_id=target_host_id, is_deleted=False
+            )
+            .select_related("timezone")
+            .first()
+        )
+        if profile and profile.timezone_id:
+            return profile.timezone.zone, profile.timezone.timezone
+
+    tz_model = getattr(tenant, "timezone", None)
+    if tz_model is not None:
+        return tz_model.zone, tz_model.timezone
+    return UTC, "UTC"
+
+
 def _as_utc(value, label):
     """Coerce a slot-range bound to an aware UTC datetime.
 

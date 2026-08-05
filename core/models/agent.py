@@ -66,6 +66,18 @@ class Agent(TenantBaseModel):
         null=True,
         help_text="Identifier for the chosen agent voice.",
     )
+    timezone = models.ForeignKey(
+        "onboard.Timezone",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name="agents",
+        help_text=(
+            "The timezone this agent SPEAKS in. Times quoted to and heard from the "
+            "caller are in this zone; everything crossing the API stays UTC. "
+            "Blank falls back to the tenant's base timezone."
+        ),
+    )
     knowledge_bases = models.ManyToManyField(
         "core.KnowledgeBase",
         blank=True,

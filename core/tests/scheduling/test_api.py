@@ -101,7 +101,8 @@ class BookingAPITests(APITestCase):
         )
         self.assertEqual(response.status_code, 200, response.data)
         self.assertTrue(response.data["status"])
-        self.assertIsInstance(response.data["data"], list)
+        self.assertIsInstance(response.data["data"]["slots"], list)
+        self.assertTrue(response.data["data"]["timezone"])
 
     def test_available_slots_requires_target_host(self):
         start_utc, end_utc = self._range()

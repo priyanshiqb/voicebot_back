@@ -39,6 +39,59 @@ class TemplateNotAllowed(Exception):
     """The agent is not configured to book the requested event template."""
 
 
+# --- the conversation timezone -----------------------------------------------
+#
+# Two clocks are in play on every AI call, and conflating them is the single most
+# likely way this bridge goes wrong:
+#
+#   * the WIRE clock — UTC. Every instant stored, compared, or passed to the
+#     booking engine. Never spoken.
+#   * the SPOKEN clock — `agent.timezone`. What the caller hears and says. Never
+#     stored.
+#
+# The agent's zone is the right one for speech because the agent is the party in
+# the conversation: a caller who says "Tuesday at 3" means 3pm where the service
+# operates, not where the host happens to live and certainly not UTC. So every
+# value leaving this module carries BOTH forms, and every value arriving without
+# an explicit offset is read as spoken time.
+
+
+def conversation_zone(agent):
+    """The ``ZoneInfo`` this agent speaks in: its own, else the tenant's, else UTC."""
+    tz_model = agent.timezone or getattr(agent.tenant, "timezone", None)
+    if tz_model is None:
+        return dt_timezone.utc
+    return tz_model.zone
+
+
+def conversation_zone_name(agent):
+    """The IANA name of the spoken zone, for prompts and result payloads."""
+    tz_model = agent.timezone or getattr(agent.tenant, "timezone", None)
+    return tz_model.timezone if tz_model else "UTC"
+
+
+def _spoken(instant, zone):
+    """Render a UTC instant the way the agent should say it out loud.
+
+    Preformatted deliberately. Asked to convert a UTC timestamp itself, an LLM
+    will occasionally get the offset wrong, and on a voice call a wrong time is
+    indistinguishable from a correct one until someone misses a meeting.
+    """
+    local = instant.astimezone(zone)
+    # "%-I" is not portable to Windows, so strip the zero by hand.
+    hour12 = local.strftime("%I").lstrip("0") or "12"
+    return f"{local:%A, %B} {local.day} at {hour12}:{local:%M %p}"
+
+
+def _times(instant, zone):
+    """The dual representation every instant leaves this module with."""
+    return {
+        "utc": instant.isoformat(),
+        "local": instant.astimezone(zone).isoformat(),
+        "spoken": _spoken(instant, zone),
+    }
+
+
 # --- helpers -----------------------------------------------------------------
 
 def _resolve_template(agent, event_template_id):
@@ -164,33 +217,19 @@ def list_event_hosts(agent, event_template_id):
     }
 
 
-def _day_range_utc(tenant, date_from, date_to, target_host_id=None):
-    """Resolve an inclusive local date range to a half-open UTC interval.
+def _day_range_utc(agent, date_from, date_to):
+    """Resolve an inclusive spoken date range to a half-open UTC interval.
 
     The engine takes instants, not dates, because a date is a different 24 hours
     in every zone. This layer is the exception that still legitimately deals in
     dates: a caller on the phone says "Tuesday", not an ISO timestamp — so the
     resolution happens here, explicitly, instead of being guessed downstream.
 
-    Whose Tuesday? The named host's, when there is one — their working day is
-    what the caller is actually asking about. Otherwise the tenant's base
-    timezone, which is the closest thing to a house clock.
+    Whose Tuesday? The agent's. The caller is talking to the agent, not to the
+    host — they neither know nor care which timezone the host sits in, so
+    resolving against the host's zone would answer a question nobody asked.
     """
-    zone = None
-    if target_host_id:
-        profile = (
-            AvailabilityProfile.objects.filter(
-                tenant=tenant, user_id=target_host_id, is_deleted=False
-            )
-            .select_related("timezone")
-            .first()
-        )
-        if profile:
-            zone = profile.timezone.zone
-    if zone is None and tenant.timezone_id:
-        zone = tenant.timezone.zone
-    zone = zone or dt_timezone.utc
-
+    zone = conversation_zone(agent)
     start = datetime.combine(date_from, time.min, tzinfo=zone)
     # date_to is inclusive to the caller, so the exclusive UTC bound is the START
     # of the following day. Using 23:59:59 would drop the last second, and any
@@ -200,32 +239,38 @@ def _day_range_utc(tenant, date_from, date_to, target_host_id=None):
 
 
 def check_availability(agent, event_template_id, date_from, date_to, target_host_id=None, now=None):
-    """Open slots for a template between two local dates (inclusive `date` objects).
+    """Open slots for a template between two spoken dates (inclusive `date` objects).
 
-    Dates are resolved to UTC instants here — see `_day_range_utc` for whose day
-    they mean.
+    Dates are resolved in the agent's timezone — see `_day_range_utc`.
 
     Each slot carries the ids of the hosts free for it. Omitting `target_host_id`
     is allowed and answers "when is anyone free?" — but the follow-up book/hold
     call must then name one of that slot's `host_ids`, since nothing auto-assigns.
+
+    Every slot reports its start three ways: `start` (UTC, the value to pass
+    back), `start_local`, and `speak` (say this one aloud).
     """
     try:
         template = _resolve_template(agent, event_template_id)
     except _ENGINE_ERRORS as exc:
         return _error_result(exc)
-    range_start, range_end = _day_range_utc(
-        agent.tenant, date_from, date_to, target_host_id=target_host_id
-    )
+    zone = conversation_zone(agent)
+    range_start, range_end = _day_range_utc(agent, date_from, date_to)
     slots = availability.get_available_slots(
         agent.tenant, template, range_start, range_end,
         target_host_id=target_host_id, now=now,
     )
     return {
         "ok": True,
+        "timezone": conversation_zone_name(agent),
         "slots": [
             {
+                # UTC — pass this back verbatim to book_meeting / hold_slot.
                 "start": s.start.isoformat(),
                 "end": s.end.isoformat(),
+                # Spoken — what the caller should hear.
+                "start_local": s.start.astimezone(zone).isoformat(),
+                "speak": _spoken(s.start, zone),
                 "host_ids": [str(h) for h in s.eligible_host_ids],
                 # Unverified: a host's external calendar was unreachable. Booking
                 # this slot will come back as calendar_unavailable until it clears.
@@ -261,12 +306,20 @@ def book(agent, event_template_id, start_time, participant=None, target_host_id=
                 source=_AI,
                 now=now,
             )
+            zone = conversation_zone(agent)
             return {
                 "ok": True,
                 "group": True,
                 "count": len(created),
                 "booking_ids": [str(b.id) for b in created],
                 "group_id": str(created[0].group_id) if created else None,
+                "timezone": conversation_zone_name(agent),
+                **(
+                    {"start": created[0].start_time.isoformat(),
+                     "speak": _spoken(created[0].start_time, zone)}
+                    if created
+                    else {}
+                ),
             }
         if not target_host_id:
             return _HOST_REQUIRED
@@ -280,12 +333,17 @@ def book(agent, event_template_id, start_time, participant=None, target_host_id=
             source=_AI,
             now=now,
         )
+        zone = conversation_zone(agent)
         return {
             "ok": True,
             "booking_id": str(booking.id),
             "host_id": str(booking.primary_host_id),
             "start": booking.start_time.isoformat(),
             "end": booking.end_time.isoformat(),
+            "timezone": conversation_zone_name(agent),
+            "start_local": booking.start_time.astimezone(zone).isoformat(),
+            # Read this back to confirm — never re-derive the time from `start`.
+            "speak": _spoken(booking.start_time, zone),
         }
     except _ENGINE_ERRORS as exc:
         return _error_result(exc)
@@ -315,6 +373,7 @@ def hold(agent, event_template_id, start_time, participant=None, target_host_id=
             status=Booking.Status.HELD,
             now=now,
         )
+        zone = conversation_zone(agent)
         return {
             "ok": True,
             "booking_id": str(booking.id),
@@ -322,6 +381,10 @@ def hold(agent, event_template_id, start_time, participant=None, target_host_id=
             "hold_expires_at": (
                 booking.hold_expires_at.isoformat() if booking.hold_expires_at else None
             ),
+            "timezone": conversation_zone_name(agent),
+            "start": booking.start_time.isoformat(),
+            "start_local": booking.start_time.astimezone(zone).isoformat(),
+            "speak": _spoken(booking.start_time, zone),
         }
     except _ENGINE_ERRORS as exc:
         return _error_result(exc)
@@ -336,7 +399,16 @@ def confirm(agent, booking_id, now=None):
         confirmed = booking_service.confirm_hold(booking=booking, actor=None, now=now)
     except _ENGINE_ERRORS as exc:
         return _error_result(exc)
-    return {"ok": True, "booking_id": str(confirmed.id), "status": confirmed.status}
+    zone = conversation_zone(agent)
+    return {
+        "ok": True,
+        "booking_id": str(confirmed.id),
+        "status": confirmed.status,
+        "timezone": conversation_zone_name(agent),
+        "start": confirmed.start_time.isoformat(),
+        "start_local": confirmed.start_time.astimezone(zone).isoformat(),
+        "speak": _spoken(confirmed.start_time, zone),
+    }
 
 
 def cancel(agent, booking_id, reason="", now=None):

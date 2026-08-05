@@ -32,12 +32,15 @@ flowchart TD
 ## Step 1 — Find slots
 `GET /availability/available-slots/?event_template={id}&start_utc=<ISO>&end_utc=<ISO>[&target_host={id}]`
 
-Returns `[{ start, end, eligible_host_ids }]` in UTC — the engine subtracts existing bookings
-(incl. buffers), leave, and external-calendar busy times, then applies min-notice and
-horizon.
+Returns `{ timezone, slots: [{ start, end, start_local, end_local, eligible_host_ids }] }` — the
+engine subtracts existing bookings (incl. buffers), leave, and external-calendar busy times, then
+applies min-notice and horizon.
 
 `start_utc` / `end_utc` are **instants, not dates**: resolve the user's chosen day in the timezone
 they are viewing before you call. `start_utc` is inclusive, `end_utc` exclusive.
+
+Book with `start` (UTC). Display `start_local`, which is the same instant rendered in the
+response's `timezone` — pass `?timezone=` to choose it, otherwise it is the host's.
 
 **Outcomes / options**
 - Slots returned → pick one. **Next:** Step 2.

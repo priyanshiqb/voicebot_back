@@ -37,7 +37,7 @@ class AgentAdmin(TenantBaseAdmin):
         "probing_questions",
         "event_templates",
     )
-    raw_id_fields = ("agent_template",)
+    raw_id_fields = ("agent_template", "timezone")
 
     readonly_fields = TenantBaseAdmin.readonly_fields + (
         "is_deleted",
@@ -74,7 +74,13 @@ class AgentAdmin(TenantBaseAdmin):
         ("Scheduling", {
             "fields": (
                 "event_templates",
-            )
+                "timezone",
+            ),
+            "description": (
+                "Timezone is the clock this agent SPEAKS in — times quoted to and "
+                "heard from the caller. Everything stored stays UTC. Blank falls "
+                "back to the tenant's base timezone."
+            ),
         }),
         ("User Auditing", {
             "fields": (

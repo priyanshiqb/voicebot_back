@@ -131,19 +131,24 @@ class ResponseFormatTests(APITestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.actor)
 
-    def test_slot_instants_are_utc_iso8601_with_z(self):
+    def _get(self, **extra):
         start, end = f.utc_day(MONDAY)
-        response = self.client.get(SLOTS_URL, {
+        params = {
             "event_template": str(self.template.id),
             "start_utc": start.isoformat(),
             "end_utc": end.isoformat(),
             "target_host": str(self.host.id),
-        })
+        }
+        params.update(extra)
+        return self.client.get(SLOTS_URL, params)
+
+    def test_slot_instants_are_utc_iso8601_with_z(self):
+        response = self._get()
         self.assertEqual(response.status_code, 200, response.data)
 
-        rendered = response.json()["data"]
-        self.assertTrue(rendered, "no slots to check the format of")
-        for slot in rendered[:5]:
+        body = response.json()["data"]
+        self.assertTrue(body["slots"], "no slots to check the format of")
+        for slot in body["slots"][:5]:
             for field in ("start", "end"):
                 value = slot[field]
                 self.assertTrue(
@@ -154,6 +159,41 @@ class ResponseFormatTests(APITestCase):
                 # Round-trips to an aware UTC instant.
                 parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
                 self.assertEqual(parsed.utcoffset(), timedelta(0))
+
+    def test_local_fields_are_the_same_instant_in_the_reported_zone(self):
+        """`start_local` is a rendering, not a different time. If these ever drift
+        apart, a UI shows one time and books another."""
+        response = self._get(timezone="Asia/Kolkata")
+        body = response.json()["data"]
+
+        self.assertEqual(body["timezone"], "Asia/Kolkata")
+        for slot in body["slots"][:5]:
+            utc = datetime.fromisoformat(slot["start"].replace("Z", "+00:00"))
+            local = datetime.fromisoformat(slot["start_local"])
+            self.assertEqual(utc, local)
+            self.assertEqual(local.utcoffset(), timedelta(hours=5, minutes=30))
+
+    def test_requested_zone_does_not_change_which_slots_are_returned(self):
+        """The display zone is presentation only. If it altered the result set,
+        two users viewing the same host would disagree about what is bookable."""
+        utc_body = self._get(timezone="UTC").json()["data"]
+        ist_body = self._get(timezone="Asia/Kolkata").json()["data"]
+
+        self.assertEqual(
+            [s["start"] for s in utc_body["slots"]],
+            [s["start"] for s in ist_body["slots"]],
+        )
+
+    def test_zone_defaults_to_the_target_hosts(self):
+        response = self._get()
+        self.assertEqual(response.json()["data"]["timezone"], "UTC")  # factory host
+
+    def test_unknown_zone_is_rejected(self):
+        """Falling back silently would render every time in the wrong zone with a
+        response that still looks perfectly well-formed."""
+        response = self._get(timezone="Mars/Olympus_Mons")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("timezone", response.data["errors"])
 
 
 @REQUIRES_PG

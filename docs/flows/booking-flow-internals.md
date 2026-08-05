@@ -345,8 +345,16 @@ person choosing is not in the host's zone:
 The caller is the only component that knows which timezone the human picked, so it resolves the day
 and sends `start_utc` / `end_utc`. See `core/tests/scheduling/test_slot_range_contract.py`.
 
-**Response** instants are UTC ISO-8601, `Z`-suffixed (`USE_TZ=True`, `TIME_ZONE="UTC"`). The client
-converts for display.
+**Response** carries both clocks — `{timezone, slots: [{start, end, start_local, end_local, …}]}`.
+`start`/`end` are UTC ISO-8601, `Z`-suffixed (`USE_TZ=True`, `TIME_ZONE="UTC"`) and are what you
+book with; `*_local` are the same instants rendered in `timezone`.
+
+The rendering zone comes from
+[`display_zone`](../../core/services/availability.py): the `timezone` query param, else the target
+host's profile zone, else the tenant's, else UTC. It is resolved **after** the engine has run, from
+the engine's own inputs — a presentational hint must never be able to change which slots exist.
+An unknown zone is a 400: falling back silently would return a perfectly well-formed response with
+every time in the wrong zone, which the caller has no way to detect.
 
 ### 5.2 Tenant resolution
 
@@ -925,6 +933,26 @@ list_event_types → check_availability(date_from, date_to)
                  → [collect name/email]
                  → confirm_booking(booking_id)
 ```
+
+### 14.1 The two clocks
+
+`Agent.timezone` is the zone the agent **speaks** in — falling back to the tenant's, then UTC
+([agent_scheduling.conversation_zone](../../core/services/agent_scheduling.py)). It is the only
+place in the system where a non-UTC time is deliberately produced, and it never reaches storage.
+
+Every instant leaving the bridge carries both forms: `start` / `end` (UTC, for passing back into
+another tool) alongside `start_local` and `speak` (the caller's clock). `speak` is preformatted —
+*"Tuesday, March 16 at 3:30 PM"* — because a model asked to do the conversion itself will sometimes
+get the offset wrong, and on a voice call that is indistinguishable from being right.
+
+Two input rules follow from the same principle:
+
+- `date_from` / `date_to` are the **caller's** dates. `_day_range_utc` resolves them in the agent's
+  zone, so "Tuesday" is Tuesday where the caller is — not where the host is, which is a fact the
+  caller neither knows nor asked about.
+- A `start_time` **without** an offset is read as the caller's wall clock, not UTC. Models echo
+  back `2027-03-16T15:00:00` after someone says "three o'clock"; reading that as UTC for an
+  IST-speaking agent books 20:30 local, and the confirmation email still looks correct.
 
 ---
 

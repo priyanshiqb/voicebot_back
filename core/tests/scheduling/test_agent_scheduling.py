@@ -311,50 +311,206 @@ class AgentDateResolutionTests(TestCase):
         self.tenant = f.make_tenant()
         self.kolkata = f.make_timezone("Asia/Kolkata", "UTC+05:30", "Kolkata")
         self.denver = f.make_timezone("America/Denver", "UTC-07:00", "Denver")
+        self.agent = make_agent(self.tenant)
 
-    def test_named_host_zone_wins(self):
-        """The caller is asking about that host's working day."""
-        template = f.make_template(self.tenant)
-        host = f.make_host(self.tenant, template, tz=self.kolkata)
+    def test_agent_zone_decides_whose_tuesday(self):
+        """The caller is talking to the AGENT. They neither know nor care which
+        timezone the host sits in, so the host's zone would answer a question
+        nobody asked."""
+        self.agent.timezone = self.kolkata
+        self.agent.save(update_fields=["timezone"])
 
         start, end = agent_scheduling._day_range_utc(
-            self.tenant, date(2027, 3, 16), date(2027, 3, 16), target_host_id=host.id
+            self.agent, date(2027, 3, 16), date(2027, 3, 16)
         )
         # 2027-03-16 00:00 IST == 2027-03-15 18:30Z
         self.assertEqual(start, datetime(2027, 3, 15, 18, 30, tzinfo=UTC))
         self.assertEqual(end, datetime(2027, 3, 16, 18, 30, tzinfo=UTC))
 
     def test_falls_back_to_the_tenant_zone(self):
-        """'When is anyone free on Tuesday?' — no host named, so the tenant's base
-        timezone is the closest thing to a house clock."""
+        """An agent with no timezone of its own uses the org's base clock."""
         self.tenant.timezone = self.denver
         self.tenant.save(update_fields=["timezone"])
+        self.agent.timezone = None
+        self.agent.save(update_fields=["timezone"])
 
-        start, end = agent_scheduling._day_range_utc(
-            self.tenant, date(2027, 3, 16), date(2027, 3, 16)
+        start, _end = agent_scheduling._day_range_utc(
+            self.agent, date(2027, 3, 16), date(2027, 3, 16)
         )
         # 2027-03-16 00:00 MDT == 06:00Z
         self.assertEqual(start, datetime(2027, 3, 16, 6, 0, tzinfo=UTC))
+
+    def test_agent_zone_overrides_the_tenant(self):
+        self.tenant.timezone = self.denver
+        self.tenant.save(update_fields=["timezone"])
+        self.agent.timezone = self.kolkata
+        self.agent.save(update_fields=["timezone"])
+
+        self.assertEqual(
+            agent_scheduling.conversation_zone_name(self.agent), "Asia/Kolkata"
+        )
 
     def test_end_date_is_inclusive_to_the_caller(self):
         """"Monday to Tuesday" must cover all of Tuesday. Resolving date_to to
         23:59:59 instead of the next midnight silently drops the last second and
         any slot starting in it."""
-        self.tenant.timezone = self.denver
-        self.tenant.save(update_fields=["timezone"])
+        self.agent.timezone = self.denver
+        self.agent.save(update_fields=["timezone"])
 
         start, end = agent_scheduling._day_range_utc(
-            self.tenant, date(2027, 3, 15), date(2027, 3, 16)
+            self.agent, date(2027, 3, 15), date(2027, 3, 16)
         )
         self.assertEqual(end - start, timedelta(days=2))
 
     def test_dst_transition_day_is_not_24_hours(self):
         """Denver springs forward on 2027-03-14, so that local day is 23 hours.
         Combining a date with a zone before converting is what gets this right."""
-        self.tenant.timezone = self.denver
-        self.tenant.save(update_fields=["timezone"])
+        self.agent.timezone = self.denver
+        self.agent.save(update_fields=["timezone"])
 
         start, end = agent_scheduling._day_range_utc(
-            self.tenant, date(2027, 3, 14), date(2027, 3, 14)
+            self.agent, date(2027, 3, 14), date(2027, 3, 14)
         )
         self.assertEqual(end - start, timedelta(hours=23))
+
+
+@REQUIRES_PG
+class AgentSpokenTimeTests(TestCase):
+    """Two clocks, never mixed.
+
+    The agent stores and passes UTC but speaks the caller's local time. Getting
+    this wrong on a voice call is uniquely bad: a wrong time sounds exactly like
+    a right one, and nobody finds out until someone misses the meeting.
+    """
+
+    def setUp(self):
+        self.tenant = f.make_tenant()
+        self.kolkata = f.make_timezone("Asia/Kolkata", "UTC+05:30", "Kolkata")
+        self.template = f.make_template(
+            self.tenant, duration_minutes=30, slot_granularity_minutes=30,
+            min_notice_minutes=0,
+        )
+        self.host = f.make_host(self.tenant, self.template)
+        self.agent = make_agent(self.tenant, [self.template])
+        self.agent.timezone = self.kolkata
+        self.agent.save(update_fields=["timezone"])
+
+    def test_slots_carry_utc_and_spoken_forms(self):
+        result = agent_scheduling.check_availability(
+            self.agent, self.template.id, D, D, target_host_id=self.host.id, now=NOW
+        )
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["timezone"], "Asia/Kolkata")
+        self.assertTrue(result["slots"])
+
+        slot = result["slots"][0]
+        utc_start = datetime.fromisoformat(slot["start"])
+        local_start = datetime.fromisoformat(slot["start_local"])
+
+        self.assertEqual(utc_start.utcoffset(), timedelta(0), "`start` must be UTC")
+        self.assertEqual(
+            local_start.utcoffset(), timedelta(hours=5, minutes=30), "IST offset"
+        )
+        self.assertEqual(utc_start, local_start, "the two forms are the same instant")
+
+    def test_spoken_string_is_the_local_wall_clock(self):
+        """The whole point: 18:30Z must be narrated as midnight IST, not 18:30."""
+        zone = agent_scheduling.conversation_zone(self.agent)
+        spoken = agent_scheduling._spoken(
+            datetime(2027, 3, 15, 18, 30, tzinfo=UTC), zone
+        )
+        self.assertIn("12:00 AM", spoken)
+        self.assertIn("March 16", spoken)  # next day in IST
+
+    def test_spoken_string_has_no_leading_zero_hour(self):
+        """'09:00 AM' reads as 'zero nine hundred' in some TTS voices."""
+        zone = agent_scheduling.conversation_zone(self.agent)
+        spoken = agent_scheduling._spoken(
+            datetime(2027, 3, 16, 3, 30, tzinfo=UTC), zone  # 09:00 IST
+        )
+        self.assertIn("at 9:00 AM", spoken)
+
+    def test_booking_result_reports_both_clocks(self):
+        result = agent_scheduling.check_availability(
+            self.agent, self.template.id, D, D, target_host_id=self.host.id, now=NOW
+        )
+        chosen = result["slots"][0]
+
+        booked = agent_scheduling.book(
+            self.agent,
+            self.template.id,
+            datetime.fromisoformat(chosen["start"]),
+            participant={"name": "Caller", "email": "caller@example.com"},
+            target_host_id=self.host.id,
+            now=NOW,
+        )
+        self.assertTrue(booked["ok"], booked)
+        self.assertEqual(booked["timezone"], "Asia/Kolkata")
+        self.assertEqual(booked["start"], chosen["start"])
+        self.assertEqual(booked["speak"], chosen["speak"])
+
+    def test_agent_without_a_timezone_speaks_utc(self):
+        """No agent zone and a UTC tenant: the two forms coincide, and nothing
+        raises."""
+        plain = make_agent(self.tenant, [self.template], bot_name="Plain")
+        self.assertEqual(agent_scheduling.conversation_zone_name(plain), "UTC")
+
+        result = agent_scheduling.check_availability(
+            plain, self.template.id, D, D, target_host_id=self.host.id, now=NOW
+        )
+        slot = result["slots"][0]
+        self.assertEqual(
+            datetime.fromisoformat(slot["start"]),
+            datetime.fromisoformat(slot["start_local"]),
+        )
+
+
+@REQUIRES_PG
+class AgentNaiveDatetimeTests(TestCase):
+    """A model that echoes back a bare wall-clock time must not be read as UTC.
+
+    Models routinely produce "2027-03-16T15:00:00" after a caller says "three
+    o'clock". Read as UTC for an IST-speaking agent, that books 20:30 local —
+    five and a half hours off, with a confirmation email that looks correct.
+    """
+
+    def setUp(self):
+        self.tenant = f.make_tenant()
+        self.kolkata = f.make_timezone("Asia/Kolkata", "UTC+05:30", "Kolkata")
+        self.template = f.make_template(
+            self.tenant, duration_minutes=30, slot_granularity_minutes=30,
+            min_notice_minutes=0,
+        )
+        self.host = f.make_host(self.tenant, self.template)
+        self.agent = make_agent(self.tenant, [self.template])
+        self.agent.timezone = self.kolkata
+        self.agent.save(update_fields=["timezone"])
+
+    def test_naive_datetime_is_read_as_the_spoken_zone(self):
+        parsed = tools._parse_dt("2027-03-16T15:00:00", self.agent)
+        # 15:00 IST == 09:30Z
+        self.assertEqual(parsed, datetime(2027, 3, 16, 9, 30, tzinfo=UTC))
+
+    def test_explicit_offset_is_honoured_unchanged(self):
+        """Passing a `start` straight back from check_availability must stay exact."""
+        parsed = tools._parse_dt("2027-03-16T15:00:00Z", self.agent)
+        self.assertEqual(parsed, datetime(2027, 3, 16, 15, 0, tzinfo=UTC))
+
+    def test_a_naive_time_books_the_hour_the_caller_agreed_to(self):
+        """End to end: the caller said 3pm, so the booking is 3pm to them."""
+        result = tools.call_tool(
+            self.agent,
+            "book_meeting",
+            {
+                "event_template_id": str(self.template.id),
+                "start_time": "2027-03-16T15:00:00",  # bare wall clock
+                "target_host_id": str(self.host.id),
+                "participant": {"name": "Caller", "email": "caller@example.com"},
+            },
+        )
+        self.assertTrue(result["ok"], result)
+
+        booking = Booking.objects.get(pk=result["booking_id"])
+        spoken_hour = booking.start_time.astimezone(self.kolkata.zone)
+        self.assertEqual(spoken_hour.hour, 15)
+        self.assertEqual(booking.start_time, datetime(2027, 3, 16, 9, 30, tzinfo=UTC))

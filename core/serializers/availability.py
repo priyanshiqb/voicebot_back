@@ -1,9 +1,11 @@
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from user.models import CustomUser
 from core.models.event_template import EventTemplate
+from onboard.models.timezone import validate_iana_timezone
 
 
 class AvailableSlotsQuerySerializer(serializers.Serializer):
@@ -27,6 +29,16 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
             "the template's max_horizon_days."
         )
     )
+    timezone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "IANA zone to render slot times in, e.g. Asia/Kolkata. Presentational "
+            "only — it does not change which slots are returned, and every slot "
+            "still carries its UTC `start`/`end`. Defaults to the target host's "
+            "timezone, then the tenant's."
+        ),
+    )
     target_host = serializers.PrimaryKeyRelatedField(
         queryset=CustomUser.objects.all(),
         required=False,
@@ -37,6 +49,21 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
             "returns only slots where every skilled host is free."
         ),
     )
+
+    def validate_timezone(self, value):
+        """Reject an unknown zone at the boundary.
+
+        Silently falling back would be worse than a 400: the caller would render
+        every time in some other zone and have no way to notice, because the
+        response would still look completely well-formed.
+        """
+        if not value:
+            return value
+        try:
+            validate_iana_timezone(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0]) from exc
+        return value
 
     def validate(self, attrs):
         if attrs["end_utc"] <= attrs["start_utc"]:
@@ -68,8 +95,16 @@ class AvailableSlotsQuerySerializer(serializers.Serializer):
 
 
 class SlotSerializer(serializers.Serializer):
-    start = serializers.DateTimeField()
-    end = serializers.DateTimeField()
+    start = serializers.DateTimeField(help_text="UTC. Use this value when booking.")
+    end = serializers.DateTimeField(help_text="UTC.")
+    start_local = serializers.CharField(
+        help_text=(
+            "The same instant as `start`, rendered in the response's `timezone` "
+            "with that zone's offset for that date. Display only — booking with "
+            "this value is equivalent, but `start` is the canonical form."
+        )
+    )
+    end_local = serializers.CharField(help_text="The same instant as `end`, rendered locally.")
     eligible_host_ids = serializers.ListField(child=serializers.UUIDField())
     external_check_failed = serializers.BooleanField(
         help_text=(
@@ -78,3 +113,17 @@ class SlotSerializer(serializers.Serializer):
             "refused with 503 while the provider is still unreachable."
         )
     )
+
+
+class AvailableSlotsResponseSerializer(serializers.Serializer):
+    """Slots plus the zone they were rendered in.
+
+    The zone is returned rather than assumed because the caller's own timezone,
+    the host's, and the tenant's can all differ — and a bare list of UTC instants
+    gives a UI no way to label them without a second request.
+    """
+
+    timezone = serializers.CharField(
+        help_text="IANA zone the `*_local` fields are expressed in."
+    )
+    slots = SlotSerializer(many=True)

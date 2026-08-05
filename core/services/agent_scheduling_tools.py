@@ -9,6 +9,19 @@ datetime strings and routes to the guardrailed `agent_scheduling` service.
 
 Every tool returns the service's structured result: `{"ok": True, ...}` or
 `{"ok": False, "reason": "...", ...}` — safe to narrate directly to the caller.
+
+**Timezone contract.** The agent thinks in two clocks and must never mix them:
+
+  * `start` / `end` / `hold_expires_at` are **UTC**. They exist to be passed back
+    into another tool call, never to be spoken.
+  * `speak` and `start_local` are the **caller's** clock (`agent.timezone`).
+    `speak` is preformatted for exactly this reason — an LLM asked to convert a
+    UTC timestamp mid-call will sometimes get the offset wrong, and on a voice
+    call a wrong time sounds identical to a right one.
+
+Dates going in (`date_from`/`date_to`) are the caller's dates. Datetimes going in
+without an offset are read as the caller's wall clock; with an offset, honoured
+as given. See `agent_scheduling.conversation_zone`.
 """
 
 from datetime import date, datetime
@@ -41,7 +54,14 @@ _TARGET_HOST_ID = {
 }
 _START_TIME = {
     "type": "string",
-    "description": "Chosen slot start in ISO-8601 UTC, e.g. 2027-03-16T10:00:00Z (use a start returned by check_availability).",
+    "description": (
+        "Chosen slot start. STRONGLY PREFER copying the `start` value from the "
+        "check_availability slot the caller picked, exactly as given (ISO-8601 UTC, "
+        "e.g. 2027-03-16T10:00:00Z). If you must construct a time yourself, write it "
+        "in the caller's local wall-clock with NO timezone suffix (e.g. "
+        "2027-03-16T15:00:00) and it will be read in the agent's timezone. Never "
+        "convert a time to UTC yourself."
+    ),
 }
 
 TOOL_SCHEMAS = [
@@ -70,16 +90,26 @@ TOOL_SCHEMAS = [
         "name": "check_availability",
         "description": (
             "Return open time slots for a meeting type between two dates (inclusive). "
-            "Offer the returned start times to the caller. Each slot lists the host_ids "
-            "free at that time — carry one of them into book_meeting/hold_slot as "
-            "target_host_id. Pass target_host_id here to check one host's times only."
+            "Dates are the CALLER'S dates — 'Tuesday' means Tuesday where the caller "
+            "is, and that is how they are interpreted. "
+            "Read each slot's `speak` field aloud; it is already in the caller's "
+            "timezone. Do NOT read `start` aloud — it is UTC, and is only for passing "
+            "back to book_meeting/hold_slot. Each slot lists the host_ids free at that "
+            "time — carry one into book_meeting/hold_slot as target_host_id. Pass "
+            "target_host_id here to check one host's times only."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "event_template_id": _EVENT_TEMPLATE_ID,
-                "date_from": {"type": "string", "description": "Search window start, YYYY-MM-DD."},
-                "date_to": {"type": "string", "description": "Search window end (inclusive), YYYY-MM-DD."},
+                "date_from": {
+                    "type": "string",
+                    "description": "Search window start, YYYY-MM-DD, in the caller's local calendar.",
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "Search window end (inclusive), YYYY-MM-DD, in the caller's local calendar.",
+                },
                 "target_host_id": _TARGET_HOST_ID,
             },
             "required": ["event_template_id", "date_from", "date_to"],
@@ -148,14 +178,25 @@ TOOL_SCHEMAS = [
 
 # --- argument parsing --------------------------------------------------------
 
-def _parse_dt(value):
+def _parse_dt(value, agent):
+    """Parse a datetime the LLM produced, into an aware UTC instant.
+
+    A value WITHOUT an offset is read in the agent's SPOKEN timezone, not UTC.
+    This matters: models routinely echo back "2027-03-16T15:00:00" after a caller
+    says "three o'clock". Reading that as UTC books 15:00Z — which for an agent
+    speaking IST is 20:30 to the caller, five and a half hours from what they
+    agreed to, with a confirmation email that looks perfectly correct.
+
+    An explicit offset (including `Z`) is always honoured as given, so passing a
+    `start` straight back from check_availability stays exact.
+    """
     if isinstance(value, datetime):
         dt = value
     else:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=dt_timezone.utc)
-    return dt
+        dt = dt.replace(tzinfo=agent_scheduling.conversation_zone(agent))
+    return dt.astimezone(dt_timezone.utc)
 
 
 def _parse_date(value):
@@ -181,7 +222,7 @@ _DISPATCH = {
     "hold_slot": lambda agent, a: agent_scheduling.hold(
         agent,
         a["event_template_id"],
-        _parse_dt(a["start_time"]),
+        _parse_dt(a["start_time"], agent),
         participant=a.get("participant"),
         target_host_id=a.get("target_host_id"),
     ),
@@ -189,7 +230,7 @@ _DISPATCH = {
     "book_meeting": lambda agent, a: agent_scheduling.book(
         agent,
         a["event_template_id"],
-        _parse_dt(a["start_time"]),
+        _parse_dt(a["start_time"], agent),
         participant=a.get("participant"),
         target_host_id=a.get("target_host_id"),
     ),

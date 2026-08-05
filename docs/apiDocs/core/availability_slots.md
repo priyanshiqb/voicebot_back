@@ -26,6 +26,7 @@ then applies the event's minimum-notice and horizon policy.
   - `start_utc` (required): Search window start, an ISO-8601 **instant** (e.g. `2026-08-08T04:00:00Z`). **Inclusive.** A value without an offset is read as UTC.
   - `end_utc` (required): Search window end, an ISO-8601 instant. **Exclusive**, so consecutive windows tile without overlapping. Must be after `start_utc` and within the template's `max_horizon_days`.
   - `target_host`: **Required for `DIRECT` templates** — slots are computed for that host, who must then be the one booked. Must be omitted for `COLLECTIVE` (`400` otherwise).
+  - `timezone` (optional): IANA zone to render `*_local` fields in, e.g. `Asia/Kolkata`. **Presentational only** — it does not change which slots are returned. Defaults to the `target_host`'s timezone, then the tenant's, then UTC. An unknown zone is a `400` rather than a silent fallback, because a silent fallback produces a well-formed response with every time in the wrong zone.
 
 #### Why instants and not dates
 
@@ -51,24 +52,45 @@ display cannot repair it — the wrong slots were selected server-side.
   {
     "status": true,
     "message": "Available slots retrieved successfully",
-    "data": [
-      {
-        "start": "2026-07-05T14:00:00Z",
-        "end": "2026-07-05T14:30:00Z",
-        "eligible_host_ids": ["5fa85f64-5717-4562-b3fc-2c963f66afa7"]
-      },
-      {
-        "start": "2026-07-05T14:30:00Z",
-        "end": "2026-07-05T15:00:00Z",
-        "eligible_host_ids": [
-          "5fa85f64-5717-4562-b3fc-2c963f66afa7",
-          "6ab85f64-5717-4562-b3fc-2c963f66afb8"
-        ]
-      }
-    ],
+    "data": {
+      "timezone": "Asia/Kolkata",
+      "slots": [
+        {
+          "start": "2026-07-05T14:00:00Z",
+          "end": "2026-07-05T14:30:00Z",
+          "start_local": "2026-07-05T19:30:00+05:30",
+          "end_local": "2026-07-05T20:00:00+05:30",
+          "eligible_host_ids": ["5fa85f64-5717-4562-b3fc-2c963f66afa7"],
+          "external_check_failed": false
+        },
+        {
+          "start": "2026-07-05T14:30:00Z",
+          "end": "2026-07-05T15:00:00Z",
+          "start_local": "2026-07-05T20:00:00+05:30",
+          "end_local": "2026-07-05T20:30:00+05:30",
+          "eligible_host_ids": [
+            "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+            "6ab85f64-5717-4562-b3fc-2c963f66afb8"
+          ],
+          "external_check_failed": false
+        }
+      ]
+    },
     "errors": null
   }
   ```
+
+#### The two forms of every slot
+
+| Field | Clock | Use |
+|---|---|---|
+| `start` / `end` | UTC, `Z`-suffixed | **Book with these.** The canonical value. |
+| `start_local` / `end_local` | the response's `timezone`, with that date's offset | Display. |
+| `timezone` | IANA name | Label the column, and know what the `*_local` values mean. |
+
+`start_local` is the *same instant* as `start`, spelled differently — never a different time. The
+offset shown is resolved for that specific date, so a range spanning a DST transition correctly
+carries different offsets on either side of it.
 - **Notes**:
   - `start` / `end` are always UTC ISO-8601 with a `Z` suffix. Convert to the user's timezone for display; book in UTC.
   - Times returned here are candidate `start_time` values for `POST /bookings/` or `POST /bookings/hold/`.

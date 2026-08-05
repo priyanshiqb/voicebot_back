@@ -77,7 +77,7 @@ offers fresh times. The DB exclusion constraint + hold TTL make double-booking i
 | Tool | Purpose | Key args |
 |------|---------|----------|
 | `list_event_types` | What this agent may book | — |
-| `check_availability` | Open slots for a type between two dates | `event_template_id`, `date_from`, `date_to`, `target_host_id?` |
+| `check_availability` | Open slots for a type between two of the **caller's** dates | `event_template_id`, `date_from`, `date_to`, `target_host_id?` |
 | `hold_slot` | Reserve a slot during the call (then confirm) | `event_template_id`, `start_time`, `participant`, `target_host_id?` |
 | `confirm_booking` | Confirm a held slot | `booking_id` |
 | `book_meeting` | One-shot booking (collective books all hosts) | `event_template_id`, `start_time`, `participant`, `target_host_id?` |
@@ -87,6 +87,37 @@ The schemas are exported as `agent_scheduling_tools.TOOL_SCHEMAS` (Anthropic `to
 `name` / `description` / `input_schema`). The **agent is not a tool argument** — the runtime binds
 it via `call_tool(agent, name, arguments)`, which parses date/datetime strings and routes to the
 service.
+
+---
+
+## Timezones — two clocks, never mixed
+
+`Agent.timezone` is **the clock the agent speaks in**. Everything stored and passed between tools
+stays UTC. Blank falls back to the tenant's base timezone, then UTC.
+
+| Direction | Field | Clock |
+|---|---|---|
+| out | `start`, `end`, `hold_expires_at` | **UTC** — pass back into another tool, never say aloud |
+| out | `start_local` | caller's clock, ISO with offset |
+| out | `speak` | caller's clock, preformatted: *"Tuesday, March 16 at 3:30 PM"* |
+| out | `timezone` | the IANA zone the agent is speaking in |
+| in | `date_from` / `date_to` | the **caller's** dates — "Tuesday" means Tuesday where the caller is |
+| in | `start_time` **with** an offset (or `Z`) | honoured exactly as given |
+| in | `start_time` **without** an offset | read as the caller's wall clock |
+
+**Why `speak` is preformatted rather than left to the model.** Asked to convert a UTC timestamp
+mid-call, an LLM will occasionally get the offset wrong — and on a voice call a wrong time sounds
+exactly like a right one. Nobody finds out until someone misses the meeting. The conversion happens
+in Python, once, and the model reads the result.
+
+**Why the agent's zone and not the host's.** The caller is talking to the agent. They neither know
+nor care which timezone the host sits in, so resolving "Tuesday" against the host's zone answers a
+question nobody asked. For an agent speaking `Asia/Kolkata` with a host in `America/Denver`,
+"Tuesday" is Tuesday IST.
+
+**The failure this prevents.** A model that echoes back `2027-03-16T15:00:00` after the caller says
+"three o'clock" used to have that read as UTC. For an IST-speaking agent that books 20:30 local —
+five and a half hours from what was agreed, with a confirmation email that looks perfectly correct.
 
 ### Example: `book_meeting` schema
 ```json

@@ -84,6 +84,7 @@ Manage configured Voicebot Agents under the active tenant context.
     "tone": "PROFESSIONAL",
     "agent_template": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "voice_name": "en-IN-Wavenet-B",
+    "timezone": "2b1c85f64-5717-4562-b3fc-2c963f66afa9",
     "add_knowledge_bases": [
       "9734df89-1065-4f40-8458-1c4b81cf738b"
     ],
@@ -105,6 +106,7 @@ Manage configured Voicebot Agents under the active tenant context.
   - `tone`: Required. Tone of the agent interaction. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`.
   - `agent_template`: Optional, valid UUID of an active Agent Template.
   - `voice_name`: Optional string.
+  - `timezone`: Optional UUID of a `Timezone`, or `null`. **The clock this agent speaks in** — times it quotes to a caller, and times it hears back, are in this zone. Everything stored and everything crossing the API stays UTC. Blank falls back to the tenant's base timezone, then UTC. See [06-ai-agent-booking.md](../../flows/06-ai-agent-booking.md#timezones--two-clocks-never-mixed).
   - `knowledge_bases`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
   - `add_knowledge_bases`: Optional list of UUID strings. Used to incrementally add knowledge bases. Each referenced KB must belong to the active tenant's context.
   - `remove_knowledge_bases`: Optional list of UUID strings. Used to incrementally remove knowledge bases.

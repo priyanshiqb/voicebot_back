@@ -251,7 +251,7 @@ class OvernightBookingOverHttpTests(APITestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.data)
-        starts = [s["start"] for s in response.data["data"]]
+        starts = [s["start"] for s in response.data["data"]["slots"]]
         self.assertTrue(starts, "no slots offered for the night shift")
 
         # The last slot of the requested date starts at 23:30 and ends at 00:00 —

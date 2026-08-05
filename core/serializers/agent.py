@@ -11,6 +11,8 @@ from core.serializers.agent_template import AgentTemplateRefSerializer, AgentTem
 from core.serializers.event_template import EventTemplateRefSerializer
 from core.serializers.knowledge_base import KnowledgeBaseRefSerializer
 from core.serializers.probing_question import ProbingQuestionRefSerializer
+from onboard.models.timezone import Timezone
+from onboard.serializers.timezone import TimezoneRefSerializer
 
 
 class AgentRefSerializer(serializers.ModelSerializer):
@@ -64,6 +66,12 @@ class AgentSerializer(TenantBaseModelSerializer):
         many=True,
         required=False,
     )
+    timezone = HybridRelatedField(
+        serializer=TimezoneRefSerializer,
+        queryset=Timezone.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     add_event_templates = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
@@ -86,6 +94,7 @@ class AgentSerializer(TenantBaseModelSerializer):
             "tone",
             "agent_template",
             "voice_name",
+            "timezone",
             "knowledge_bases",
             "add_knowledge_bases",
             "remove_knowledge_bases",
