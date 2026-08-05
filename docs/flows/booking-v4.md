@@ -167,12 +167,16 @@ re-posting a token just reactivates it.
 
 ## 6. Available Slots — *what times can I actually book*
 
-`GET /availability/available-slots/?event_template=<id>&date_from=…&date_to=…`
+`GET /availability/available-slots/?event_template=<id>&start_utc=<ISO>&end_utc=<ISO>`
 
-**Purpose:** The read endpoint the booking UI calls. Given a template and a date window, it
+**Purpose:** The read endpoint the booking UI calls. Given a template and a UTC window, it
 returns concrete open start/end times, already accounting for working hours, buffers,
 existing bookings, external calendar busy, and leave. `DIRECT` templates require a
 `target_host`, and slots are returned for that host.
+
+The bounds are **instants, not dates** — resolve the user's chosen day in the timezone they are
+viewing, then send instants. Each slot comes back in both UTC (`start`/`end`, what you book with)
+and the response's display zone (`start_local`/`end_local`); pass `?timezone=` to choose that zone.
 
 **Real-life examples:**
 

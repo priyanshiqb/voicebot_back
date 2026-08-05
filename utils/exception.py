@@ -1,5 +1,6 @@
 # utils/exceptions.py
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.views import exception_handler
 from rest_framework.response import Response
 from rest_framework import status
@@ -9,6 +10,7 @@ logger = logging.getLogger("django")  # or your custom logger
 
 
 from rest_framework.exceptions import APIException
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 
 class OnboardingPendingException(APIException):
@@ -47,6 +49,17 @@ def custom_exception_handler(exc, context):
             },
             "request_id": request_id
         }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Django's ValidationError is not a DRF exception, so DRF's handler ignores it
+    # and it would fall through to the 500 branch below. Models raise it from
+    # `full_clean()` and from guarded `soft_delete()` overrides — those are
+    # deliberate, user-facing refusals with a written explanation, and returning
+    # "Something went wrong" throws that explanation away and reads as a server
+    # fault. Translate it to the DRF equivalent so it surfaces as a 400.
+    if isinstance(exc, DjangoValidationError):
+        exc = DRFValidationError(
+            exc.message_dict if hasattr(exc, "message_dict") else exc.messages
+        )
 
     response = exception_handler(exc, context)
     if response is not None:

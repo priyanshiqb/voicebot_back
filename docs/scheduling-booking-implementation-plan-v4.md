@@ -6,6 +6,15 @@
 > booking `REQUIRES_RESCHEDULE`. This document is kept as the historical design
 > record; see [`implementation-plan-scratch/remove-round-robin-plan.md`](implementation-plan-scratch/remove-round-robin-plan.md).
 
+> ⚠️ **Superseded in part (2026-08-05): availability is materialized, and the slots
+> endpoint takes UTC instants.** Working hours are no longer walked from
+> `AvailabilityRule` at request time — they are pre-converted into absolute UTC
+> `AvailabilityWindow` rows, which is what made overnight shifts representable.
+> `GET /available-slots/` now takes `start_utc`/`end_utc` instead of
+> `date_from`/`date_to`, so the §7.1 signature below is out of date. Current
+> behaviour: [`flows/booking-flow-internals.md`](flows/booking-flow-internals.md)
+> and [`apiDocs/core/availability_slots.md`](apiDocs/core/availability_slots.md).
+
 > **Status: ✅ IMPLEMENTED** (Phases 1–4 + webhook incremental sync + reassignment re-sync).
 > Code under `core/` (models, services, serializers, views, urls, admin, tasks); migrations `0020`–`0026`; 79 tests in `core/tests/scheduling/` (Postgres). To deploy, follow [`scheduling-deployment-checklist.md`](scheduling-deployment-checklist.md).
 > **Decision resolved:** COLLECTIVE = **one `Booking` per host** (shared `group_id`, all-or-nothing), per the open question in §20.

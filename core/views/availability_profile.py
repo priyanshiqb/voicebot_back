@@ -23,14 +23,6 @@ class AvailabilityProfileViewSet(TenantBaseViewSet):
     select_related_fields = ["timezone", "user"]
     prefetch_related_fields = ["rules"]
 
-    def perform_destroy(self, instance):
-        """Soft-delete the profile, then drop its materialized windows.
-
-        Windows are derived rows, so they are hard-deleted rather than soft-
-        deleted. Skipping this would leave the host bookable from a deleted
-        profile until the next beat run.
-        """
-        from core.services import availability_materializer as materializer
-
-        super().perform_destroy(instance)
-        materializer.purge_profile(instance)
+    # No perform_destroy override: AvailabilityProfile.soft_delete() purges the
+    # profile's materialized windows itself, so bulk_delete — which calls
+    # soft_delete directly and never reaches this viewset method — is covered too.

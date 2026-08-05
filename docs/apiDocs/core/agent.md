@@ -99,33 +99,80 @@ Manage configured Voicebot Agents under the active tenant context.
     }
   }
   ```
-- **Field Validations**:
-  - `bot_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only. Must be unique per tenant for active agents.
-  - `persona_name`: Required, 2-100 characters. Letters, numbers, spaces, hyphens, and underscores only.
-  - `languages`: Required, non-empty list of language strings.
-  - `tone`: Required. Tone of the agent interaction. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`.
-  - `agent_template`: Optional, valid UUID of an active Agent Template.
-  - `voice_name`: Optional string.
-  - `timezone`: Optional UUID of a `Timezone`, or `null`. **The clock this agent speaks in** — times it quotes to a caller, and times it hears back, are in this zone. Everything stored and everything crossing the API stays UTC. Blank falls back to the tenant's base timezone, then UTC. See [06-ai-agent-booking.md](../../flows/06-ai-agent-booking.md#timezones--two-clocks-never-mixed).
-  - `knowledge_bases`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
-  - `add_knowledge_bases`: Optional list of UUID strings. Used to incrementally add knowledge bases. Each referenced KB must belong to the active tenant's context.
-  - `remove_knowledge_bases`: Optional list of UUID strings. Used to incrementally remove knowledge bases.
-  - `probing_questions`: Read-only field. Ignored on write operations. If passed in request body, a validation error is raised.
-  - `add_probing_questions`: Optional list of UUID strings. Used to incrementally add probing questions. Each referenced question must belong to the active tenant's context or be a global default probing question (`is_default = true`).
-  - `remove_probing_questions`: Optional list of UUID strings. Used to incrementally remove probing questions.
-  - `event_templates`: Read-only field. The **bookable meeting types this agent may schedule** (returned as `{id, name}` refs). Ignored on write; passing it in the body raises a validation error. Drives the AI-agent booking guardrail — an agent can only book templates in this set. See [AI Agent Booking flow](../../flows/06-ai-agent-booking.md).
-  - `add_event_templates`: Optional list of UUID strings. Incrementally links event templates. Each must belong to the active tenant's context.
-  - `remove_event_templates`: Optional list of UUID strings. Incrementally unlinks event templates.
-  - `transfer_destinations`: Optional dictionary/JSON object mapping labels to destination numbers/URIs.
-- **Success Response (201 Created)**:
-  *(Returns full detail representation, with resolved hybrid fields and audit properties)*
+### Request fields
+
+`*` marks required.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `bot_name` * | string | Internal identifier for this bot, shown in listings and campaign pickers. | 2–100 chars. Letters, numbers, spaces, hyphens, underscores only. **Unique per tenant** among non-deleted agents. |
+| `persona_name` * | string | The name the bot uses for itself on a call ("Hi, this is *Riya*…"). | 2–100 chars, same character set as `bot_name`. Not required to be unique. |
+| `languages` * | string array | Locale codes the agent can converse in, e.g. `["en-IN"]`. | Non-empty list; every entry a non-empty string. |
+| `tone` * | enum | How the agent phrases itself. | One of `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`. |
+| `agent_template` | UUID \| null | Template used to seed the agent's prompt/config. | Must be an active Agent Template. |
+| `voice_name` | string \| null | TTS voice identifier, e.g. `en-IN-Wavenet-B`. | Max 100 chars. Not validated against a provider catalogue. |
+| `timezone` | UUID \| null | **The clock this agent speaks in.** Times it quotes to a caller and times it hears back are in this zone. | Must be an existing `Timezone` id. `null` falls back to the tenant's base timezone, then UTC. See below. |
+| `transfer_destinations` | object \| null | Label → destination map for call transfer, e.g. `{"support_desk": "+1234567890"}`. | Any JSON object. Not yet acted on by the runtime. |
+| `add_knowledge_bases` | UUID array | Knowledge bases to **link**. | Each must belong to your tenant. |
+| `remove_knowledge_bases` | UUID array | Knowledge bases to **unlink**. | — |
+| `add_probing_questions` | UUID array | Probing questions to **link**. | Each must belong to your tenant **or** be a global default (`is_default: true`). |
+| `remove_probing_questions` | UUID array | Probing questions to **unlink**. | — |
+| `add_event_templates` | UUID array | Meeting types this agent may book. | Each must belong to your tenant. |
+| `remove_event_templates` | UUID array | Meeting types to **unlink**. | — |
+
+#### Read-only relationship fields
+
+`knowledge_bases`, `probing_questions`, and `event_templates` are returned on read as `{id, name}`
+refs but are **rejected on write** — sending any of them raises a `400` telling you to use the
+matching `add_*` / `remove_*` list. The paired lists exist so two clients editing different
+knowledge bases don't clobber each other the way a whole-list replacement would.
+
+`event_templates` is the **AI booking guardrail**: an agent can only schedule meeting types in this
+set, and any other template id is refused before the engine runs. See the
+[AI Agent Booking flow](../../flows/06-ai-agent-booking.md).
+
+#### `timezone` — the clock the agent speaks in
+
+Everything stored and everything crossing this API stays **UTC**. This field only controls the
+zone used when the agent talks to a human:
+
+| | |
+|---|---|
+| Times the agent **says** on a call | rendered in this zone |
+| A date the caller gives ("Tuesday") | interpreted in this zone |
+| A time the caller gives with no offset | interpreted in this zone |
+| `start` / `end` / `hold_expires_at` in tool results | always UTC |
+| Anything written to the database | always UTC |
+
+Set it to the zone your callers are in, not the zone your hosts are in — the caller is the one
+talking to the agent. Leaving it `null` is safe, and falls back to the tenant's base timezone.
+
+Full contract: [Timezones — two clocks, never mixed](../../flows/06-ai-agent-booking.md#timezones--two-clocks-never-mixed).
+
+### Responses
+
+| Status | When | `message` |
+|---|---|---|
+| **201** | Created. Body is the full detail representation, with `timezone`, `knowledge_bases`, `probing_questions` and `event_templates` resolved to `{id, …}` refs. | `Created successfully` |
+| **400** | `bot_name` already used by an active agent in this tenant. | `Agent with this name already exists.` |
+| **400** | A read-only relationship field was sent. | `This field is read-only. Use add_knowledge_bases/remove_knowledge_bases instead.` |
+| **400** | A linked knowledge base / question / template belongs to another tenant. | the offending id and reason |
+| **400** | `timezone` id unknown. | `Invalid pk "…" - object does not exist.` |
+| **400** | Field-level validation (length, charset, empty `languages`, bad `tone`). | the field's message |
+| **400** | Caller's account has no tenant mapping. | `User is not associated with an active tenant.` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
 
 ---
 
 ### 3. Retrieve Agent Details
 - **Path**: `GET /api/v1/core/agents/{id}/`
-- **Success Response (200 OK)**:
-  *(Returns full detail representation)*
+- **Success Response (200 OK)**: full detail representation.
+
+| Status | When |
+|---|---|
+| **200** | Found. |
+| **403** | Caller's account has no tenant mapping. |
+| **404** | No such agent **in your tenant** — indistinguishable from an id that does not exist anywhere. |
 
 ---
 
@@ -135,11 +182,23 @@ Manage configured Voicebot Agents under the active tenant context.
   ```json
   {
     "status": true,
-    "message": "success",
+    "message": "Deleted successfully",
     "data": null,
     "errors": null
   }
   ```
+
+Soft-delete only: the row is retained and its `bot_name` is suffixed with a deletion timestamp so
+the name becomes reusable immediately.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Deleted. | `Deleted successfully` |
+| **400** | **A live campaign still uses this agent.** Nothing is deleted. | `This bot is used by N campaign(s) that are still running. Cancel them before deleting the bot.` |
+| **404** | No such agent in your tenant. | — |
+
+> The campaign guard exists because agents are soft-deleted, so the database's `PROTECT` foreign key
+> never fires — a running campaign would otherwise be left pointing at a deleted bot mid-run.
 
 ---
 

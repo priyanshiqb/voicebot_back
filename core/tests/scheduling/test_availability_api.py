@@ -198,6 +198,24 @@ class AvailabilityProfileWritePathTests(APITestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(AvailabilityWindow.objects.filter(profile=profile).count(), 0)
 
+    def test_bulk_delete_also_purges_windows(self):
+        """bulk_delete calls soft_delete() directly and never reaches the viewset's
+        destroy path — so the purge has to live on the model, or bulk-deleted
+        hosts stay bookable until the next daily run."""
+        host = f.make_user(self.tenant)
+        self._create(host, [{"weekday": d, "start_time": "09:00:00", "end_time": "17:00:00"} for d in range(7)])
+        profile = AvailabilityProfile.objects.get(user=host)
+        self.assertTrue(AvailabilityWindow.objects.filter(profile=profile).exists())
+
+        response = self.client.post(
+            f"{PROFILES_URL}bulk_delete/", {"ids": [str(profile.id)]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        profile.refresh_from_db()
+        self.assertTrue(profile.is_deleted)
+        self.assertEqual(AvailabilityWindow.objects.filter(profile=profile).count(), 0)
+
 
 @REQUIRES_PG
 class OvernightBookingOverHttpTests(APITestCase):

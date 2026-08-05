@@ -41,5 +41,22 @@ class AvailabilityProfile(TenantBaseModel):
             ),
         ]
 
+    def soft_delete(self, user=None):
+        """Soft-delete, and drop the availability this profile had materialized.
+
+        AvailabilityWindow rows are derived data keyed on the profile. Leaving
+        them behind keeps the host bookable from a deleted profile until the
+        daily horizon task next runs — up to 24 hours of slots that should not
+        exist.
+
+        This lives on the model rather than in the viewset so that every path
+        gets it: the REST delete, `bulk_delete` (which calls `soft_delete`
+        directly and would otherwise skip the purge), and a shell session alike.
+        """
+        super().soft_delete(user=user)
+        from core.services import availability_materializer as materializer
+
+        materializer.purge_profile(self)
+
     def __str__(self):
         return f"{self.name} ({self.user_id})"
