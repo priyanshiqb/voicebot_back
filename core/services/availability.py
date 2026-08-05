@@ -23,6 +23,8 @@ from core.models.user_event_skill import UserEventSkill
 
 logger = logging.getLogger(__name__)
 
+UTC = ZoneInfo("UTC")
+
 
 @dataclass(frozen=True)
 class Slot:
@@ -82,7 +84,7 @@ def _load_profiles(tenant, host_ids):
 
 def _within_working_hours(profile, rules, start_utc, end_utc):
     """True if [start, end] fits inside a single working block on its local day."""
-    tz = ZoneInfo(profile.timezone.timezone)
+    tz = profile.timezone.zone
     local_start = start_utc.astimezone(tz)
     local_end = end_utc.astimezone(tz)
     if local_start.date() != local_end.date():
@@ -270,15 +272,15 @@ def get_available_slots(
     profiles = _load_profiles(tenant, host_ids)
 
     # Generous UTC window covering the local date range (+/- 1 day for tz skew).
-    window_start = datetime.combine(date_from, time.min, tzinfo=ZoneInfo("UTC")) - timedelta(days=1)
-    window_end = datetime.combine(date_to, time.max, tzinfo=ZoneInfo("UTC")) + timedelta(days=1)
+    window_start = datetime.combine(date_from, time.min, tzinfo=UTC) - timedelta(days=1)
+    window_end = datetime.combine(date_to, time.max, tzinfo=UTC) + timedelta(days=1)
 
     slot_map = {}  # start_utc -> set(host_id)
     considered_hosts = [h for h in host_ids if h in profiles]
 
     for host_id in considered_hosts:
         profile, rules = profiles[host_id]
-        tz = ZoneInfo(profile.timezone.timezone)
+        tz = profile.timezone.zone
         busy = (
             _busy_intervals(tenant, host_id, window_start, window_end)
             + _exception_intervals(tenant, host_id, window_start, window_end)
@@ -293,8 +295,8 @@ def get_available_slots(
                 day_end_local = datetime.combine(day, rule.end_time, tzinfo=tz)
                 cursor = datetime.combine(day, rule.start_time, tzinfo=tz)
                 while cursor + duration <= day_end_local:
-                    start_utc = cursor.astimezone(ZoneInfo("UTC"))
-                    end_utc = (cursor + duration).astimezone(ZoneInfo("UTC"))
+                    start_utc = cursor.astimezone(UTC)
+                    end_utc = (cursor + duration).astimezone(UTC)
                     if min_start <= start_utc <= horizon:
                         eff_start = start_utc - buf_before
                         eff_end = end_utc + buf_after

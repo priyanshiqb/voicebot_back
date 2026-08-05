@@ -193,15 +193,30 @@ class CombineLocalTests(TestCase):
         got = combine_local(date(2027, 1, 14), time(20, 0), "America/Los_Angeles")
         self.assertEqual(got, datetime(2027, 1, 15, 4, 0, tzinfo=UTC))
 
-    def test_dst_spring_forward_resolves_rather_than_raising(self):
+    def test_dst_spring_forward_snaps_to_transition_instant(self):
         """
-        02:30 does not exist in New York on 2027-03-14. ZoneInfo resolves it instead of
-        raising; a campaign is not worth failing over a one-hour-a-year edge, and the
-        stored UTC instant records which side was picked.
+        02:30 does not exist in New York on 2027-03-14 — the clock jumps 02:00 -> 03:00.
+
+        It resolves rather than raising (a campaign is not worth failing over a
+        one-hour-a-year edge), and it resolves to the TRANSITION INSTANT: 03:00 local
+        = 07:00Z, the first moment that exists.
+
+        This is a deliberate change from the previous local implementation, which used
+        ZoneInfo's bare `fold=0` and landed at 03:30 — a shift by the gap WIDTH rather
+        than to the gap's END. Conversion now goes through `Timezone.to_utc`, the single
+        authority for the codebase, so campaigns and the scheduling engine share one
+        policy. The transition instant is also nearer the scheduler's intent.
         """
         got = combine_local(date(2027, 3, 14), time(2, 30), "America/New_York")
-        self.assertIsNotNone(got)
-        self.assertEqual(got.tzinfo, UTC)
+        self.assertEqual(got, datetime(2027, 3, 14, 7, 0, tzinfo=UTC))
+        self.assertEqual(
+            got.astimezone(ZoneInfo("America/New_York")).strftime("%H:%M"), "03:00"
+        )
+
+    def test_dst_fall_back_picks_first_occurrence(self):
+        """01:30 happens twice on 2027-11-07; the earlier (still-DST) one is chosen."""
+        got = combine_local(date(2027, 11, 7), time(1, 30), "America/New_York")
+        self.assertEqual(got, datetime(2027, 11, 7, 5, 30, tzinfo=UTC))
 
 
 class CampaignScheduleTests(TestCase):

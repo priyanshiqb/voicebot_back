@@ -16,6 +16,8 @@ Mermaid diagram plus **step-by-step actions with the API endpoint**, the possibl
 | 3 | Emergency leave → reschedule → public rebooking | [03-leave-and-reschedule.md](03-leave-and-reschedule.md) | Admin + Customer |
 | 4 | Google Calendar sync (OAuth, free/busy, push, webhooks) | [04-google-calendar-sync.md](04-google-calendar-sync.md) | Host + System |
 | 5 | Notifications & push (email, `.ics`, reminders, FCM) | [05-notifications-and-push.md](05-notifications-and-push.md) | System |
+| 6 | AI agent booking (voicebot tool surface) | [06-ai-agent-booking.md](06-ai-agent-booking.md) | AI Agent |
+| — | **Implementation reference** — code-level internals, invariants, concurrency, known gaps | [booking-flow-internals.md](booking-flow-internals.md) | Engineers |
 
 ## System map
 

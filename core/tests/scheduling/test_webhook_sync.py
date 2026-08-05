@@ -140,6 +140,9 @@ class WatchLifecycleTests(TestCase):
         self.host = f.make_host(self.tenant, self.template)
         self.integration = make_integration(self.tenant, self.host)
 
+    # Pinned, not ambient: this asserts behaviour when no webhook URL is configured,
+    # so it must not depend on whether the developer's .env happens to set one.
+    @override_settings(GOOGLE_CALENDAR_WEBHOOK_URL="")
     @patch("core.services.calendars.get_provider_for")
     def test_setup_watch_noop_without_config(self, mock_provider):
         self.assertFalse(calendar_sync.setup_watch(self.integration))

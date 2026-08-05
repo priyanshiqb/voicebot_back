@@ -38,5 +38,10 @@ dependencies = [
     "firebase-admin>=7.5.0",
     "phonenumbers>=8.13",
     "charset-normalizer>=3.4",
+    # Explicit, not transitive: zoneinfo falls back to the system tz database, which
+    # slim container images omit. Without this ZoneInfo() raises ZoneInfoNotFoundError
+    # and every availability lookup fails. Bumping it changes DST data — re-run
+    # `manage.py audit_timezone_offsets` after any lockfile refresh.
+    "tzdata>=2026.3",
 ]
 

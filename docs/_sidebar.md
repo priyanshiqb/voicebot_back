@@ -41,6 +41,7 @@
 * **🔀 Scheduling Flows**
   * [Overview & Endpoint Map](flows/README.md)
   * [Complete API Walkthrough (V4)](flows/booking-v4.md)
+  * [Implementation Reference (internals)](flows/booking-flow-internals.md)
   * [1. Tenant Setup](flows/01-setup.md)
   * [2. Booking Lifecycle](flows/02-booking-lifecycle.md)
   * [3. Leave & Reschedule](flows/03-leave-and-reschedule.md)

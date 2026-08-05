@@ -1,4 +1,3 @@
-from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -27,12 +26,15 @@ def resolve_tenant_timezone(tenant):
     unseeded database (onboard.models.timezone.get_default_timezone), so this cannot
     assume the relation is populated.
     """
+    from onboard.models.timezone import validate_iana_timezone
+
     name = getattr(getattr(tenant, "timezone", None), "timezone", None)
     if not name:
         return DEFAULT_SCHEDULE_TIMEZONE
     try:
-        ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
+        # Shared definition of "valid IANA zone" — see onboard.models.timezone.
+        validate_iana_timezone(name)
+    except ValidationError:
         return DEFAULT_SCHEDULE_TIMEZONE
     return name
 
@@ -42,14 +44,32 @@ def combine_local(start_date, start_time, tz_name):
     Fold a date + time pair into an aware UTC instant.
 
     Local wall-clock is the only correct frame here: a campaign scheduled for 09:00 must
-    fire at 09:00 where the tenant is, not 09:00 UTC. Ambiguous and non-existent times
-    (DST transitions) resolve through ZoneInfo's default `fold=0` rather than raising —
-    a campaign is not worth failing over a one-hour-a-year edge, and the stored UTC
-    instant records exactly which side was chosen.
+    fire at 09:00 where the tenant is, not 09:00 UTC.
+
+    DST edges resolve rather than raise — a campaign is not worth failing over a
+    one-hour-a-year edge — via the shared policy in `Timezone.to_utc`, which is the
+    single conversion authority for the codebase:
+
+      * AMBIGUOUS (fall back): `fold=0`, the first occurrence. Unchanged from the
+        previous local implementation.
+      * NON-EXISTENT (spring forward): the transition instant, so 02:30 on a
+        spring-forward day fires at 03:00. The previous implementation shifted by
+        the gap WIDTH and fired at 03:30; the transition instant is nearer the
+        scheduler's intent, and one policy across the codebase is worth more than
+        preserving a half-hour difference in an edge that occurs once a year.
+
+    The stored UTC instant records exactly which side was chosen either way.
     """
-    tz = ZoneInfo(tz_name)
-    local = datetime.combine(start_date, start_time, tzinfo=tz)
-    return local.astimezone(ZoneInfo("UTC"))
+    from onboard.models.timezone import Timezone
+
+    # Unsaved shim when the name is not a seeded row: `zone` resolves from the
+    # string alone, so conversion never depends on the seed being present.
+    tz_obj = (
+        Timezone.objects.filter(timezone=tz_name).first()
+        or Timezone(timezone=tz_name)
+    )
+    utc, _flag = tz_obj.to_utc(start_date, start_time)
+    return utc
 
 
 class Campaign(TenantBaseModel):
