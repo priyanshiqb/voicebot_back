@@ -53,11 +53,19 @@ Body highlights: `name`, `duration_minutes`, `buffer_before_minutes` /
 **Outcomes**
 - `201` → profile + weekly rules created (DST-correct via the timezone). Host is now
   bookable. **Next:** the event type is live → **Flow 2**.
-- `400` overlapping rules / end before start / user already has a profile → fix.
+- `400` overlapping rules / user already has a profile → fix.
 
 **Options**
 - Multiple rules per weekday = split shifts (e.g. 09:00–12:00 and 14:00–17:00).
+- **Overnight shifts:** `end_time <= start_time` means the block ends the next day, so
+  `{weekday: 0, start_time: "22:00:00", end_time: "06:00:00"}` is Monday night into Tuesday
+  morning. `00:00 → 00:00` is a full 24 hours; seven of those give true 24/7.
 - Update rules any time by `PUT/PATCH /availability-profiles/{id}/` (rules are replaced).
+
+> Rules are stored as wall-clock times and converted to absolute UTC intervals by a background
+> task after the write commits, so slots can lag the API response by the length of the Celery
+> queue. A profile created outside the API produces no slots until
+> `manage.py materialize_availability` runs.
 
 ## Step 4 — (Optional) Connect an external calendar
 `GET /calendar-integrations/connect/` → see **Flow 4**.

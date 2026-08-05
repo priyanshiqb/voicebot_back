@@ -1,7 +1,7 @@
 """Shared fixtures/helpers for scheduling tests."""
 
 import secrets
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
@@ -73,6 +73,32 @@ def make_template(tenant, **kwargs):
     return EventTemplate.objects.create(tenant=tenant, **defaults)
 
 
+def materialize(profile, date_from=None, date_to=None):
+    """Rebuild a profile's UTC availability windows.
+
+    The engine reads AvailabilityWindow, never AvailabilityRule, so a profile
+    built directly through the ORM is INVISIBLE to it until this runs.
+
+    With no explicit range this covers both time anchors the suite uses: real
+    ``now`` (tests calling ``timezone.now()``) and the fixed ``NOW`` in 2027.
+    One rule matches per local date, so a 7-rule profile costs one row per day,
+    not seven.
+    """
+    from django.utils import timezone as dj_timezone
+
+    from core.services import availability_materializer as materializer
+
+    if date_from and date_to:
+        return materializer.materialize_profile(profile, date_from, date_to)
+
+    written = 0
+    for anchor in {dj_timezone.now().date(), NOW.date()}:
+        written += materializer.materialize_profile(
+            profile, anchor - timedelta(days=2), anchor + timedelta(days=45)
+        )
+    return written
+
+
 def make_host(
     tenant,
     template,
@@ -80,10 +106,13 @@ def make_host(
     email=None,
     weekdays=range(7),
     start=time(0, 0),
-    end=time(23, 59),
+    end=time(0, 0),
 ):
-    """A user skilled for `template` with an availability profile. Defaults to
-    24/7 availability so booking times are independent of wall-clock time."""
+    """A user skilled for `template` with a materialized availability profile.
+
+    Defaults to true 24/7 (``00:00 -> 00:00`` is a full day, and seven of them
+    are contiguous) so booking times are independent of wall-clock time.
+    """
     tz = tz or make_timezone()
     user = make_user(tenant, email=email)
     UserEventSkill.objects.create(tenant=tenant, user=user, event_template=template)
@@ -96,6 +125,7 @@ def make_host(
             start_time=start,
             end_time=end,
         )
+    materialize(profile)
     return user
 
 

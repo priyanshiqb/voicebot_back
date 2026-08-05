@@ -3,8 +3,12 @@ Availability engine.
 
 Computes bookable slots and free hosts for an EventTemplate. All queries are
 explicitly tenant-scoped (this code runs outside the DRF request layer, which
-provides no automatic tenant filtering). Wall-clock working hours are resolved
-through the profile's IANA timezone with ``zoneinfo`` so results are DST-correct.
+provides no automatic tenant filtering).
+
+Every interval this module compares is an absolute UTC instant. Working hours
+arrive pre-converted as AvailabilityWindow rows — the wall-clock -> UTC step,
+including DST resolution and the overnight wrap, happens once at materialization
+time in availability_materializer, not per request in here.
 """
 
 import logging
@@ -18,6 +22,7 @@ from django.utils import timezone
 
 from core.models.availability_exception import AvailabilityException
 from core.models.availability_profile import AvailabilityProfile
+from core.models.availability_window import AvailabilityWindow
 from core.models.booking import ACTIVE_BOOKING_STATUSES, Booking
 from core.models.user_event_skill import UserEventSkill
 from core.services.exceptions import ExternalCalendarUnavailable
@@ -87,19 +92,81 @@ def _load_profiles(tenant, host_ids):
     return {p.user_id: (p, list(p.rules.all())) for p in profiles}
 
 
-def _within_working_hours(profile, rules, start_utc, end_utc):
-    """True if [start, end] fits inside a single working block on its local day."""
-    tz = profile.timezone.zone
-    local_start = start_utc.astimezone(tz)
-    local_end = end_utc.astimezone(tz)
-    if local_start.date() != local_end.date():
-        return False  # Phase 1: blocks never cross local midnight
-    weekday = local_start.weekday()
-    st, et = local_start.time(), local_end.time()
-    for rule in rules:
-        if rule.weekday == weekday and rule.start_time <= st and et <= rule.end_time:
-            return True
-    return False
+def _load_windows(tenant, host_ids, range_start, range_end):
+    """``{host_id: [(start_utc, end_utc), ...]}`` overlapping the range, ascending.
+
+    Pure interval overlap. A window is anchored on the local date its block
+    STARTS, so an overnight block spills into the next day — but because this
+    filter asks "does the interval intersect the range" rather than "what date is
+    it", that block is found with no date fudging.
+    """
+    rows = (
+        AvailabilityWindow.objects.filter(
+            tenant=tenant,
+            user_id__in=host_ids,
+            start_utc__lt=range_end,
+            end_utc__gt=range_start,
+        )
+        .order_by("user_id", "start_utc")
+        .values_list("user_id", "start_utc", "end_utc")
+    )
+    by_host = {}
+    for user_id, start, end in rows:
+        by_host.setdefault(user_id, []).append((start, end))
+    return by_host
+
+
+def _merge(intervals):
+    """Coalesce touching/overlapping intervals (input must be sorted by start).
+
+    Needed so a booking may straddle two adjacent blocks: consecutive 24h days,
+    or a schedule an author chose to split (Mon 22:00-23:59 + Tue 00:00-06:00)
+    rather than express as one wrapping rule.
+    """
+    merged = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _warn_if_unmaterialized(tenant, host_id, rules, now=None):
+    """Log ERROR if a host has rules but no future windows AT ALL.
+
+    A host with rules but no windows *in the queried range* is completely normal
+    — they just do not work then. The real failure is a host with rules and no
+    materialized future whatsoever, which means the beat task died or the horizon
+    ran out; that is what this checks, with one EXISTS query, and only on the
+    already-empty path.
+
+    There is deliberately no rule-walking fallback: a second code path here would
+    hide exactly the failure this logs. Alert on this line.
+    """
+    if not rules:
+        return
+    now = now or timezone.now()
+    if AvailabilityWindow.objects.filter(
+        tenant=tenant, user_id=host_id, end_utc__gt=now
+    ).exists():
+        return
+    logger.error(
+        "host %s has %d availability rules but no materialized windows after %s "
+        "— materialization is stale or failed",
+        host_id,
+        len(rules),
+        now,
+    )
+
+
+def _within_working_windows(windows, start_utc, end_utc):
+    """True if [start, end] fits inside one merged working window.
+
+    No local-date logic and no same-day restriction: a booking that straddles
+    midnight is now ordinary.
+    """
+    return any(s <= start_utc and end_utc <= e for s, e in _merge(windows))
 
 
 def _busy_intervals(tenant, host_id, window_start, window_end, exclude_booking_id=None):
@@ -256,16 +323,20 @@ def eligible_free_hosts(
 
     host_ids = _resolve_host_ids(tenant, event_template, target_host_id)
     profiles = _load_profiles(tenant, host_ids)
+    windows = _load_windows(tenant, host_ids, start_utc, end_utc)
 
     free = []
     for host_id in host_ids:
         entry = profiles.get(host_id)
         if not entry:
             continue
-        profile, rules = entry
+        _profile, rules = entry
+        host_windows = windows.get(host_id, [])
+        if not host_windows:
+            _warn_if_unmaterialized(tenant, host_id, rules)
         # Working hours are checked on the RAW times, matching slot generation:
         # buffers pad the surrounding calendar, they do not extend the shift.
-        if not _within_working_hours(profile, rules, start_utc, end_utc):
+        if not _within_working_windows(host_windows, start_utc, end_utc):
             continue
         # Everything that makes a host BUSY is checked buffer-inclusive, which is
         # what get_available_slots does. These used to disagree: leave and external
@@ -317,6 +388,7 @@ def get_available_slots(
     # Generous UTC window covering the local date range (+/- 1 day for tz skew).
     window_start = datetime.combine(date_from, time.min, tzinfo=UTC) - timedelta(days=1)
     window_end = datetime.combine(date_to, time.max, tzinfo=UTC) + timedelta(days=1)
+    windows = _load_windows(tenant, host_ids, window_start, window_end)
 
     slot_map = {}  # start_utc -> set(host_id)
     considered_hosts = [h for h in host_ids if h in profiles]
@@ -327,7 +399,12 @@ def get_available_slots(
 
     for host_id in considered_hosts:
         profile, rules = profiles[host_id]
+        host_windows = windows.get(host_id, [])
+        if not host_windows:
+            _warn_if_unmaterialized(tenant, host_id, rules, now=now)
+            continue
         tz = profile.timezone.zone
+
         external, degraded = _external_busy(tenant, host_id, window_start, window_end)
         if degraded:
             unverified_hosts.add(host_id)
@@ -337,23 +414,25 @@ def get_available_slots(
             + external
         )
 
-        day = date_from
-        while day <= date_to:
-            for rule in rules:
-                if rule.weekday != day.weekday():
-                    continue
-                day_end_local = datetime.combine(day, rule.end_time, tzinfo=tz)
-                cursor = datetime.combine(day, rule.start_time, tzinfo=tz)
-                while cursor + duration <= day_end_local:
-                    start_utc = cursor.astimezone(UTC)
-                    end_utc = (cursor + duration).astimezone(UTC)
-                    if min_start <= start_utc <= horizon:
-                        eff_start = start_utc - buf_before
-                        eff_end = end_utc + buf_after
-                        if not _overlaps(busy, eff_start, eff_end):
-                            slot_map.setdefault(start_utc, set()).add(host_id)
-                    cursor += step
-            day += timedelta(days=1)
+        # Raw windows, not merged, deliberately: the cursor restarts at each
+        # window's own start, which is the same instant the old per-day rule loop
+        # started from — so slot alignment is preserved exactly. Merging here
+        # would let a granularity that does not divide the day (e.g. 25 min)
+        # drift across day boundaries and silently move every advertised time.
+        for w_start, w_end in host_windows:
+            cursor = w_start
+            while cursor + duration <= w_end:
+                start_utc, end_utc = cursor, cursor + duration
+                # Windows are loaded a day either side to catch overnight blocks
+                # anchored outside the range, so the requested range is enforced
+                # here instead — on the slot's LOCAL date, which is what
+                # date_from/date_to mean to the caller.
+                if date_from <= start_utc.astimezone(tz).date() <= date_to and (
+                    min_start <= start_utc <= horizon
+                ):
+                    if not _overlaps(busy, start_utc - buf_before, end_utc + buf_after):
+                        slot_map.setdefault(start_utc, set()).add(host_id)
+                cursor += step
 
     is_collective = (
         event_template.assignment_strategy == event_template.AssignmentStrategy.COLLECTIVE

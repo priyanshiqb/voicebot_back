@@ -1,11 +1,24 @@
 # Overnight availability + UTC materialization — implementation plan
 
-**Status:** 📋 proposed — not yet implemented. The DST algorithm is **verified** (4,415,040
-generated windows across 6 timezones × 3 years). Everything else is design.
+**Status:** ✅ **implemented and merged.** 742 tests pass on Postgres (43 new:
+`test_overnight.py` 17, `test_dst.py` 12, `test_materializer.py` 14). The DST algorithm was
+verified ahead of the build against 4,415,040 generated windows across 6 timezones × 3 years, and
+ships inside `Timezone.to_utc()`.
 
-**Prerequisite:** [timezone-conversion-authority-plan.md](timezone-conversion-authority-plan.md)
-must land first — it provides `Timezone.to_utc()`, which this plan's materializer calls instead
-of doing its own `zoneinfo` work.
+**Prerequisite:** [timezone-conversion-authority-plan.md](timezone-conversion-authority-plan.md) —
+landed first (commit `891d6e7`), providing `Timezone.to_utc()`, which the materializer calls
+instead of doing its own `zoneinfo` work.
+
+### What changed from the plan during implementation
+
+| Plan said | Shipped | Why |
+|---|---|---|
+| §6.4 log ERROR when a host has rules but no windows **in the queried range** | log ERROR only when a host has rules and **no future windows at all** (one extra `EXISTS`, only on the already-empty path) | The plan's version is a false-positive machine. `eligible_free_hosts` is called with a 30-minute range, so every out-of-hours booking attempt would have fired it; and a host who simply does not work on the queried date would fire it in `get_available_slots` too. A canary that cries wolf daily is worse than none. |
+| §6.3 slot walk had no date filter | slots are clipped to `date_from..date_to` on the slot's **local** date | Windows are loaded ±1 day to catch overnight blocks anchored outside the range. Without the filter the engine returns slots the caller did not ask for, silently widening every response. |
+| §7.1 factory defaults to `00:00 → 00:00` | done, plus a `f.materialize()` helper | Rules written through the ORM do not materialize themselves, so every scheduling test needed the extra step. Making it a named helper keeps that visible rather than buried in `make_host`. |
+
+The engine rewrite passed all 161 pre-existing scheduling tests unchanged on the first run, which
+is the evidence D8 asked for and did not have: slot alignment is preserved.
 
 Two requirements drive this change:
 

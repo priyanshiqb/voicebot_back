@@ -11,16 +11,38 @@ from user.serializers.custom_user import UserRefSerializer
 from user.models import CustomUser
 
 
+WEEK_SECONDS = 7 * 24 * 3600
+DAY_SECONDS = 24 * 3600
+
+
+def _seconds(t):
+    return t.hour * 3600 + t.minute * 60 + t.second
+
+
+def _placed(rule):
+    """
+    ``(offset, end)`` on a 0..WEEK_SECONDS timeline.
+
+    A wrapping rule simply extends past its weekday's end; ``00:00 -> 00:00``
+    becomes a full 24 hours, which is how seven such rules give true 24/7.
+    """
+    start = rule["weekday"] * DAY_SECONDS + _seconds(rule["start_time"])
+    length = _seconds(rule["end_time"]) - _seconds(rule["start_time"])
+    if length <= 0:
+        length += DAY_SECONDS
+    return start, start + length
+
+
 class AvailabilityRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = AvailabilityRule
         fields = ("id", "weekday", "start_time", "end_time")
         read_only_fields = ("id",)
 
-    def validate(self, attrs):
-        if attrs["end_time"] <= attrs["start_time"]:
-            raise serializers.ValidationError("end_time must be after start_time.")
-        return attrs
+    # No per-rule end > start check: that is exactly the rule that forbids an
+    # overnight block. `end_time <= start_time` now means "ends the next day",
+    # and coherence is enforced across the whole week by
+    # AvailabilityProfileSerializer.validate_rules.
 
 
 class AvailabilityProfileRefSerializer(serializers.ModelSerializer):
@@ -61,18 +83,32 @@ class AvailabilityProfileSerializer(TenantBaseModelSerializer):
         read_only_fields = TenantBaseModelSerializer.Meta.read_only_fields
 
     def validate_rules(self, value):
-        by_day = {}
-        for rule in value:
-            by_day.setdefault(rule["weekday"], []).append(
-                (rule["start_time"], rule["end_time"])
+        """
+        Reject overlapping blocks on a CIRCULAR week timeline.
+
+        Per-weekday sorting cannot see a Monday-overnight block colliding with
+        Tuesday morning, nor Sunday night colliding with Monday. Placing every
+        rule on a 604 800-second timeline and comparing each pair against its
+        neighbours a week either side catches all three cases identically.
+        """
+        placed = [_placed(rule) for rule in value]
+
+        # Cheap over-specification guard before the O(n^2) pass (e.g. eight 24h
+        # rules): more than a week of coverage must contain an overlap.
+        if sum(end - start for start, end in placed) > WEEK_SECONDS:
+            raise serializers.ValidationError(
+                "These rules cover more than a full week, so they must overlap."
             )
-        for weekday, intervals in by_day.items():
-            intervals.sort()
-            for i in range(1, len(intervals)):
-                if intervals[i][0] < intervals[i - 1][1]:
-                    raise serializers.ValidationError(
-                        f"Overlapping availability rules on weekday {weekday}."
-                    )
+
+        for i, a in enumerate(placed):
+            for j, b in enumerate(placed[i + 1:], start=i + 1):
+                for shift in (-WEEK_SECONDS, 0, WEEK_SECONDS):
+                    if a[0] < b[1] + shift and b[0] + shift < a[1]:
+                        raise serializers.ValidationError(
+                            "Overlapping availability rules: weekday "
+                            f"{value[i]['weekday']} conflicts with weekday "
+                            f"{value[j]['weekday']}."
+                        )
         return value
 
     def validate(self, attrs):
@@ -109,21 +145,48 @@ class AvailabilityProfileSerializer(TenantBaseModelSerializer):
         for rule in rules:
             AvailabilityRule.objects.create(tenant=profile.tenant, profile=profile, **rule)
 
+    def _remat(self, profile):
+        """Queue a rebuild of this profile's materialized UTC windows.
+
+        Post-commit, because the task re-reads the profile in its own connection
+        and would otherwise see the pre-write state (or nothing at all).
+        """
+        from core.services import deferred
+        from core.tasks import materialize_profile_task
+
+        transaction.on_commit(
+            deferred.safe(
+                lambda: materialize_profile_task.delay(str(profile.id)),
+                label=f"materialize profile {profile.id}",
+            )
+        )
+
     @transaction.atomic
     def create(self, validated_data):
         rules = validated_data.pop("rules", [])
         profile = super().create(validated_data)
         self._sync_rules(profile, rules)
+        self._remat(profile)
         return profile
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        tz_before = instance.timezone_id
         rules = validated_data.pop("rules", None)
         profile = super().update(instance, validated_data)
         if rules is not None:
             for existing in list(profile.rules.all()):
                 existing.delete()
             self._sync_rules(profile, rules)
+        # A timezone change re-anchors every window even when no rule changed, and
+        # deactivating a profile must purge them (materialize_profile handles the
+        # purge branch itself).
+        if (
+            rules is not None
+            or profile.timezone_id != tz_before
+            or "is_active" in validated_data
+        ):
+            self._remat(profile)
         return profile
 
 

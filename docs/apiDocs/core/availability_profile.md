@@ -103,26 +103,54 @@ shifts. Slot generation resolves these wall-clock times through the profile time
     "name": "Default",
     "rules": [
       { "weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00" },
-      { "weekday": 1, "start_time": "09:00:00", "end_time": "17:00:00" }
+      { "weekday": 1, "start_time": "22:00:00", "end_time": "06:00:00" }
     ]
   }
   ```
+  The second rule is an **overnight shift**: Tuesday 22:00 through Wednesday 06:00.
 - **Field Validations**:
   - `user`: Required. Must belong to the caller's tenant. One active profile per user.
-  - `timezone`: Required. FK to a `Timezone` id (IANA zone).
+  - `timezone`: Required. FK to a `Timezone` id (IANA zone). All rule times are wall-clock in this zone.
   - `name`: Optional (default "Default").
-  - `rules`: Optional list. Each rule: `weekday` 0-6 (0 = Monday), `start_time` and `end_time` (`HH:MM:SS`), `end_time` > `start_time`. Rules on the same weekday must not overlap.
-  - `is_active`: Optional (default `true`). Writable on create/update.
+  - `rules`: Optional list. Each rule: `weekday` 0-6 (0 = Monday, the day the block **starts**),
+    `start_time` and `end_time` (`HH:MM:SS`).
+  - `is_active`: Optional (default `true`). Writable on create/update. Setting it `false` removes
+    the host from availability entirely.
 - **Success Response (201 Created)**: Full profile object (see Retrieve), `message: "Created successfully"`.
+
+#### Overnight and full-day blocks
+
+`end_time <= start_time` means the block **ends on the next day**:
+
+| Rule | Means |
+|---|---|
+| `{"weekday": 0, "start_time": "09:00:00", "end_time": "17:00:00"}` | Monday 09:00–17:00 |
+| `{"weekday": 0, "start_time": "22:00:00", "end_time": "06:00:00"}` | Monday 22:00 → **Tuesday** 06:00 |
+| `{"weekday": 0, "start_time": "00:00:00", "end_time": "00:00:00"}` | all of Monday, exactly 24 h |
+
+Seven `00:00 → 00:00` rules give true 24/7 with no gaps. A zero-length block cannot be expressed —
+that is what `00:00 → 00:00` is reserved for.
+
+Bookings may straddle midnight inside an overnight block. Note that a slot starting after midnight
+belongs to the **next** local date for `available-slots` queries: the 02:00 tail of a Monday-night
+shift is returned when you ask for Tuesday, not Monday.
+
+#### Overlap validation
+
+Rules are checked on a **circular week**, so a wrap that collides with the following morning — or
+with Monday, if it starts on Sunday night — is rejected just like a same-day overlap.
+
 - **Error Response (400 Bad Request)**:
   ```json
   {
     "status": false,
-    "message": "Overlapping availability rules on weekday 0.",
+    "message": "Overlapping availability rules: weekday 0 conflicts with weekday 1.",
     "data": null,
-    "errors": { "rules": ["Overlapping availability rules on weekday 0."] }
+    "errors": { "rules": ["Overlapping availability rules: weekday 0 conflicts with weekday 1."] }
   }
   ```
+  Rules totalling more than one week return
+  `"These rules cover more than a full week, so they must overlap."`
 
 ---
 
@@ -130,6 +158,12 @@ shifts. Slot generation resolves these wall-clock times through the profile time
 - **Path**: `PUT` / `PATCH /api/v1/core/availability-profiles/{id}/`
 - Sending `rules` **replaces** the profile's existing rules. Omitting `rules` leaves them unchanged.
 - **Success Response (200 OK)**: Updated profile, `message: "Updated successfully"`.
+
+> **Availability is rebuilt asynchronously.** Rules are stored as wall-clock times but the booking
+> engine reads absolute UTC intervals materialized from them. Any write that changes `rules`,
+> `timezone`, or `is_active` queues that rebuild after the transaction commits, so slots may lag a
+> write by the length of the Celery queue. Profiles created outside the API (fixtures, shell, ORM)
+> are **not** materialized and produce no slots until `manage.py materialize_availability` runs.
 
 ---
 

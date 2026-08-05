@@ -48,8 +48,35 @@ permission to create extensions (superuser, or granted). One-time per database.
 uv run python manage.py migrate
 ```
 
-Applies `core` migrations `0020`–`0026`. All additive (new tables/fields); no
-backfill. Reversible.
+All additive (new tables/fields); no backfill. Reversible.
+
+`0040_availability_window` adds `core_availability_windows` and **drops** the
+`availability_rule_end_after_start` check constraint — `end_time <= start_time` is now how an
+overnight block is expressed, so the constraint would forbid the feature. Rolling this migration
+back on a database that already contains overnight rules will fail to re-add the constraint; drop
+or fix those rows first.
+
+### 2.1 Materialize availability (required, once, after migrating)
+
+The booking engine reads **materialized UTC windows**, not the wall-clock rules. Rules that already
+exist in the database have no windows, so **every host produces zero slots until this runs**:
+
+```bash
+uv run python manage.py materialize_availability
+```
+
+Idempotent — safe to re-run at any time. Useful flags: `--tenant=<uuid>`, `--profile=<uuid>`,
+`--days=N`, `--purge-past`, `--dry-run`.
+
+Verify before declaring the deploy done:
+
+```bash
+uv run python manage.py shell -c "from core.models.availability_window import AvailabilityWindow; print(AvailabilityWindow.objects.count())"
+```
+
+Zero, with availability profiles present, means the engine is blind. Also re-run this command after
+any `tzdata` upgrade: new timezone data can move a transition, which changes every window spanning
+it. Pair it with `manage.py audit_timezone_offsets` to catch a standard-offset change.
 
 ---
 
@@ -156,6 +183,20 @@ Beat schedule (defined in `CELERY_BEAT_SCHEDULE`, no `django-celery-beat` needed
 | `refresh_calendar_tokens` | 15 min | Refresh Google access tokens near expiry | Calendar calls 401 about an hour after each connect; availability fails open, so the host silently stops being calendar-aware |
 | `cleanup_expired_contact_imports` | 10 min | Sweep expired import sessions | Sessions never expire; a tenant that abandons `CONTACT_IMPORT_MAX_OPEN_SESSIONS` imports cannot start another until one is discarded by hand |
 | `renew_calendar_watches` | hourly | Renew Google watch channels before they expire | Channels lapse (~7 days) and the read path falls back to on-demand free/busy |
+| `materialize_availability_horizon` | daily | Roll every profile's UTC window horizon forward; purge windows that ended >1 day ago | **Availability silently narrows.** Existing windows keep working, so nothing errors — the bookable range just shrinks by a day each day until it reaches today and every host goes dark. See §5.1 |
+| `start_due_campaigns` | 1 min | Start campaigns whose scheduled time has arrived | Campaigns never leave `SCHEDULED` |
+
+### 5.1 Alerting
+
+Two log lines are worth paging on:
+
+| Logger | Message | Means |
+|---|---|---|
+| `core.services.availability` | `materialization is stale or failed` | A host has availability rules but no future windows. The daily beat task is dead or `materialize_availability` was never run. Recovery: run it. |
+| `core.tasks.failures` | any ERROR | A Celery task exhausted its retries. Carries `task_name`, `task_id`, `retries`. |
+
+The first is deliberately narrow: it fires only when a host has **no future windows at all**, not
+merely none on the queried date, so a host who does not work Wednesdays stays silent.
 
 ---
 

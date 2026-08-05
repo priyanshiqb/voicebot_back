@@ -40,6 +40,9 @@ class AvailabilityEngineTests(TestCase):
                 start_time=time(9, 0),
                 end_time=time(17, 0),
             )
+        # Explicit range: this test straddles a DST transition seven months wide,
+        # far outside the factory's default anchors.
+        f.materialize(profile, date(2027, 1, 1), date(2027, 7, 31))
         now = at(0, 0, day=1, month=1)  # 2027-01-01
 
         winter_slots = availability.get_available_slots(

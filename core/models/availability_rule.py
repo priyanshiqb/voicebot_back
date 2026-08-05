@@ -9,7 +9,12 @@ class AvailabilityRule(TenantBaseModelCore):
     weekday are allowed (split shifts). Tier 1 Core.
 
     ``start_time`` / ``end_time`` are naive wall-clock times interpreted in the
-    parent profile's timezone.
+    parent profile's timezone. When ``end_time <= start_time`` the block ends on
+    the NEXT day: 22:00 -> 06:00 is an overnight shift, and 00:00 -> 00:00 is a
+    full 24 hours. A zero-length block is therefore not expressible, by design.
+
+    These wall-clock values are authoring input only — the engine reads the
+    materialized UTC intervals in AvailabilityWindow.
     """
 
     class Weekday(models.IntegerChoices):
@@ -35,7 +40,10 @@ class AvailabilityRule(TenantBaseModelCore):
         help_text="Local wall-clock start of the working block.",
     )
     end_time = models.TimeField(
-        help_text="Local wall-clock end of the working block (must be after start).",
+        help_text=(
+            "Local wall-clock end of the working block. If <= start_time the block "
+            "ends on the following day (overnight shift)."
+        ),
     )
 
     class Meta:
@@ -43,12 +51,15 @@ class AvailabilityRule(TenantBaseModelCore):
         verbose_name = "Availability Rule"
         verbose_name_plural = "Availability Rules"
         ordering = ["weekday", "start_time"]
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(end_time__gt=models.F("start_time")),
-                name="availability_rule_end_after_start",
-            ),
-        ]
+        # No end > start constraint: an overnight block legitimately has end < start.
+        # Coherence is enforced by the circular-week overlap validator in
+        # AvailabilityProfileSerializer.validate_rules.
+
+    @property
+    def wraps_midnight(self):
+        """True when this block ends on the day after ``weekday``."""
+        return self.end_time <= self.start_time
 
     def __str__(self):
-        return f"{self.get_weekday_display()} {self.start_time}-{self.end_time}"
+        suffix = " (+1d)" if self.wraps_midnight else ""
+        return f"{self.get_weekday_display()} {self.start_time}-{self.end_time}{suffix}"

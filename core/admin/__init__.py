@@ -13,7 +13,10 @@ from core.admin.agent_call_log_admin import AgentCallLogAdmin
 # Scheduling & Booking (Phase 1)
 from core.admin.event_template_admin import EventTemplateAdmin
 from core.admin.user_event_skill_admin import UserEventSkillAdmin
-from core.admin.availability_profile_admin import AvailabilityProfileAdmin
+from core.admin.availability_profile_admin import (
+    AvailabilityProfileAdmin,
+    AvailabilityWindowAdmin,
+)
 from core.admin.availability_exception_admin import AvailabilityExceptionAdmin
 from core.admin.booking_admin import BookingAdmin
 from core.admin.notification_log_admin import NotificationLogAdmin
@@ -49,6 +52,7 @@ __all__ = [
     "EventTemplateAdmin",
     "UserEventSkillAdmin",
     "AvailabilityProfileAdmin",
+    "AvailabilityWindowAdmin",
     "AvailabilityExceptionAdmin",
     "BookingAdmin",
     "NotificationLogAdmin",

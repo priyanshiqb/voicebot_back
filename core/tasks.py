@@ -153,6 +153,60 @@ def cleanup_expired_holds():
     return booking_service.release_expired_holds()
 
 
+@shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=30)
+def materialize_profile_task(self, profile_id):
+    """Rebuild one profile's materialized UTC availability windows.
+
+    Queued from the profile write path. Retried, because a failure here silently
+    narrows the host's availability to whatever the last successful run produced.
+    """
+    from core.models.availability_profile import AvailabilityProfile
+    from core.services import availability_materializer as materializer
+
+    profile = (
+        AvailabilityProfile.all_objects.filter(pk=profile_id)
+        .select_related("timezone", "tenant")
+        .prefetch_related("rules")
+        .first()
+    )
+    if profile is None:
+        logger.warning("materialize_profile_task: profile %s not found", profile_id)
+        return 0
+    try:
+        return materializer.materialize_profile_from_today(profile)
+    except Exception as exc:  # noqa: BLE001
+        raise self.retry(exc=exc)
+
+
+@shared_task(base=ReportedTask)
+def materialize_availability_horizon():
+    """Beat task: roll every active profile's window horizon forward, purge the past.
+
+    Idempotent. Purge first: windows that ended over a day ago can never be read
+    (every engine query is bounded below by ``now``) and are what makes the table
+    grow without bound.
+    """
+    from tenant.models.Tenant import Tenant
+    from core.services import availability_materializer as materializer
+
+    purged = materializer.purge_past_windows()
+    profiles = windows = 0
+    for tenant in Tenant.objects.filter(is_deleted=False).iterator(chunk_size=100):
+        try:
+            seen, written = materializer.materialize_tenant(tenant)
+        except Exception:  # noqa: BLE001
+            # Per tenant, so one broken tenant does not stop the horizon rolling
+            # forward for every other one.
+            logger.exception("availability materialization failed for tenant %s", tenant.id)
+            continue
+        profiles += seen
+        windows += written
+    logger.info(
+        "availability horizon: purged=%s profiles=%s windows=%s", purged, profiles, windows
+    )
+    return windows
+
+
 def _connected_integration(booking):
     from core.models.calendar_integration import CalendarIntegration
 

@@ -17,6 +17,7 @@ from core.models.event_template import EventTemplate
 from core.models.user_event_skill import UserEventSkill
 from core.models.availability_profile import AvailabilityProfile
 from core.models.availability_rule import AvailabilityRule
+from core.models.availability_window import AvailabilityWindow
 from core.models.availability_exception import AvailabilityException
 from core.models.booking import Booking
 from core.models.booking_participant import BookingParticipant
@@ -56,6 +57,7 @@ __all__ = [
     "UserEventSkill",
     "AvailabilityProfile",
     "AvailabilityRule",
+    "AvailabilityWindow",
     "AvailabilityException",
     "Booking",
     "BookingParticipant",

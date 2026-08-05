@@ -113,26 +113,74 @@ which host may take which event type. Unique on `(user, event_template, tenant)`
 `user`, `timezone` (FK to an IANA zone), `name`. Unique per `(user, tenant)` while active —
 **one profile per user**.
 
-[availability_rule.py](../../core/models/availability_rule.py) (Tier 1) holds the actual hours:
+[availability_rule.py](../../core/models/availability_rule.py) (Tier 1) holds the **authoring** form
+of the hours:
 
-- `weekday` — `0=Monday … 6=Sunday`, matching Python's `weekday()`
+- `weekday` — `0=Monday … 6=Sunday`, matching Python's `weekday()`. The day the block **starts** on.
 - `start_time` / `end_time` — `TimeField`, **naive wall-clock in the parent profile's timezone**, not UTC
-- DB check constraint `end_time > start_time` ([availability_rule.py:47-50](../../core/models/availability_rule.py#L47-L50))
+- `end_time <= start_time` means the block **ends on the next day**: `22:00 → 06:00` is an overnight
+  shift and `00:00 → 00:00` is a full 24 hours. There is deliberately **no** `end > start` check
+  constraint — that is exactly the rule that forbade overnight.
+- A zero-length block is therefore not expressible, by design.
 - Multiple rows per weekday allowed → split shifts
 
-Serializer enforces per-rule ordering and rejects same-weekday overlaps
-([availability_profile.py:63-76](../../core/serializers/availability_profile.py#L63-L76)). Sending `rules`
-on `PUT`/`PATCH` **replaces** the whole set; omitting the key leaves it untouched
-([availability_profile.py:119-127](../../core/serializers/availability_profile.py#L119-L127)).
+Coherence is enforced across the **whole week** rather than per weekday: `validate_rules` places
+every rule on a circular 604 800-second timeline and compares each pair against its neighbours a
+week either side ([availability_profile.py](../../core/serializers/availability_profile.py)).
+Per-weekday sorting structurally cannot see `Mon 22:00→06:00` colliding with `Tue 02:00→09:00`, nor
+Sunday night colliding with Monday morning.
 
-### 2.4 `AvailabilityException` (Tier 2)
+Sending `rules` on `PUT`/`PATCH` **replaces** the whole set; omitting the key leaves it untouched.
+Any write that changes rules, the timezone, or `is_active` queues a rebuild of the materialized
+windows (§2.4).
+
+### 2.4 `AvailabilityWindow` (Tier 1) — the operational form
+
+[core/models/availability_window.py](../../core/models/availability_window.py). One materialized,
+**absolute UTC** interval per rule per local date. **This is the only availability the engine
+reads** — it never walks `AvailabilityRule`.
+
+| Field | Meaning |
+|---|---|
+| `profile` / `rule` | provenance; both `CASCADE` |
+| `user` | denormalized from `profile.user` so the engine filters without a join |
+| `local_date` | the local date the block **starts** on — regeneration key, and what makes a materialization bug diagnosable |
+| `start_utc` / `end_utc` | absolute instants; `end_utc > start_utc` is a check constraint |
+| `dst_flag` | `"" \| "nonexistent" \| "ambiguous"` — diagnostic; answers "why was this shift an hour short in March?" |
+
+Unique on `(rule, local_date)`. Rows are **pure derived data**: hard-deleted and regenerated, never
+soft-deleted. Rebuild with `manage.py materialize_availability`.
+
+Why the split exists: a recurring weekly rule cannot itself be stored in UTC and stay DST-correct.
+"09:00 Monday in Europe/London" is `09:00Z` in winter and `08:00Z` in summer — one stored UTC time
+is wrong for half the year, whichever half you pick. So authoring stays wall-clock, conversion
+happens **once** at materialization time, and every comparison the engine performs is UTC-to-UTC.
+
+The conversion itself lives on `onboard.Timezone.to_utc()`
+([timezone.py](../../onboard/models/timezone.py)) — no scheduling code constructs `ZoneInfo`
+directly. DST policy, applied in
+[availability_materializer.py](../../core/services/availability_materializer.py):
+
+| Case | Policy |
+|---|---|
+| Transition falls *inside* the block, both boundaries clear | nothing to do — it falls out of the UTC arithmetic (a `22:00→06:00` rule is 7 h in spring, 9 h in autumn) |
+| **Nonexistent** boundary (spring-forward gap) | snap to the **exact transition instant**, flag `nonexistent` |
+| **Ambiguous** boundary (fall-back repeat) | `fold=0` for a start, `fold=1` for an end, so the block covers real elapsed time |
+| Block **wholly** inside the gap | emit **no window** for that date, INFO log — it genuinely does not occur |
+
+Regeneration is driven by: a profile write (post-commit task), the daily
+`materialize_availability_horizon` beat task, or the management command. Horizon is
+`AVAILABILITY_MATERIALIZE_DAYS` (default 90), raised to cover any `EventTemplate.max_horizon_days`
+the tenant advertises and hard-capped at `MAX_HORIZON_DAYS` (365).
+
+### 2.5 `AvailabilityException` (Tier 2)
 
 [core/models/availability_exception.py](../../core/models/availability_exception.py) — leave/time-off.
 Note the contrast with `AvailabilityRule`: same field names, different type. Here
 `start_time`/`end_time` are **`DateTimeField`s, absolute UTC windows**. Types:
 `VACATION | SICK | EMERGENCY | HOLIDAY | OTHER`.
 
-### 2.5 `Booking` (Tier 2)
+### 2.6 `Booking` (Tier 2)
 
 [core/models/booking.py](../../core/models/booking.py) — one real appointment occurrence.
 
@@ -169,27 +217,27 @@ Other fields: `status`, `source` (`CUSTOMER | INTERNAL | PUBLIC_LINK | AI`), `ho
 `reschedule_token` + expiry, `external_event_id` / `external_provider` (calendar mirror idempotency
 key), `group_id` (ties COLLECTIVE rows together), `cancellation_reason`.
 
-### 2.6 `BookingParticipant` (Tier 1)
+### 2.7 `BookingParticipant` (Tier 1)
 
 [core/models/booking_participant.py](../../core/models/booking_participant.py) — `HOST | ATTENDEE | GUEST`,
 with `response_status` for RSVP. `contact` is resolved from `phone_number` by a `pre_save` signal
 ([signals.py:54-65](../../core/signals.py#L54-L65)) and is `SET_NULL` so deleting a contact never
 destroys booking history.
 
-### 2.7 `BookingEvent` (Tier 1)
+### 2.8 `BookingEvent` (Tier 1)
 
 [core/models/booking_event.py](../../core/models/booking_event.py) — append-only audit log. Rows are
 never updated or deleted. Because the project has no history/versioning layer, **this is the
 only trail** for support and debugging. Written exclusively via
 [`events.log_event()`](../../core/services/events.py).
 
-### 2.8 `NotificationLog` (Tier 1)
+### 2.9 `NotificationLog` (Tier 1)
 
 [core/models/notification_log.py](../../core/models/notification_log.py) — the idempotency ledger.
 `UniqueConstraint(tenant, dedup_key)` guarantees a given logical notification is enqueued at
 most once, across Celery retries and duplicate service calls.
 
-### 2.9 `CalendarIntegration` + `ExternalBusyBlock`
+### 2.10 `CalendarIntegration` + `ExternalBusyBlock`
 
 [calendar_integration.py](../../core/models/calendar_integration.py) (Tier 2) — OAuth connection.
 Tokens stored Fernet-encrypted via `set_tokens()` / `get_access_token()`, never serialized.
@@ -214,7 +262,8 @@ These are the properties the code is built to preserve. Each is enforced somewhe
 | 5 | External side effects never fire on a rolled-back transaction | `transaction.on_commit` throughout `bookings.py` |
 | 6 | A logical notification is sent at most once | `NotificationLog.dedup_key` unique per tenant |
 | 7 | Bookings mutate only through the service layer | Read-only serializer + no PUT/PATCH |
-| 8 | Wall-clock hours resolve DST-correctly | `zoneinfo` + profile timezone in [availability.py:281](../../core/services/availability.py#L281) |
+| 8 | Wall-clock hours resolve DST-correctly | `Timezone.to_utc()` ([timezone.py](../../onboard/models/timezone.py)), applied once at materialization |
+| 9 | Every interval the engine compares is an absolute UTC instant | `AvailabilityWindow.start_utc`/`end_utc`; the engine never reads a `TimeField` |
 
 ---
 
@@ -228,11 +277,15 @@ Before any booking can succeed, four things must exist for the tenant:
    service ([bookings.py:182-185](../../core/services/bookings.py#L182-L185)) reject the booking.
 3. **`AvailabilityProfile` + at least one `AvailabilityRule`** for that user — `_load_profiles`
    returns nothing for a host without a profile, and `eligible_free_hosts` then skips them
-   silently ([availability.py:228-230](../../core/services/availability.py#L228-L230)).
-4. *(Optional)* **`CalendarIntegration`** — enables external free/busy and event mirroring.
+   silently.
+4. **Materialized `AvailabilityWindow` rows** covering the requested dates. Writing rules through
+   the API queues this automatically; rules inserted through the ORM, a fixture, or a shell do
+   **not** materialize themselves and the host stays invisible until
+   `manage.py materialize_availability` runs.
+5. *(Optional)* **`CalendarIntegration`** — enables external free/busy and event mirroring.
 
 A host missing #3 produces **zero slots and no error message** — the most common
-"why is nothing showing up" cause.
+"why is nothing showing up" cause. Missing #4 produces zero slots *and* an ERROR log (§20.1).
 
 ---
 
@@ -282,11 +335,22 @@ in JSON strings and downstream maps are keyed by UUID.
 
 **3. Load profiles** — [`_load_profiles`](../../core/services/availability.py#L71), one query with
 `select_related("timezone").prefetch_related("rules")`. Returns `{host_id: (profile, [rules])}`.
-Hosts with no profile are absent from the map and get skipped.
+Hosts with no profile are absent from the map and get skipped. The `rules` are used only to detect
+stale materialization (step 4a) — the engine does **not** generate slots from them.
 
 **4. Build a generous UTC window** — `date_from 00:00 UTC − 1 day` to `date_to 23:59:59.999999 UTC + 1 day`.
-The ±1 day absorbs timezone skew between the requested local dates and UTC
-([availability.py:272-274](../../core/services/availability.py#L272-L274)).
+The ±1 day absorbs timezone skew and picks up an overnight window anchored the day before the range.
+
+**4a. Load materialized windows** — [`_load_windows`](../../core/services/availability.py), one
+query for all hosts, returning `{host_id: [(start_utc, end_utc), …]}` ordered by start. The filter is
+pure interval overlap (`start_utc < range_end AND end_utc > range_start`), never a date match, which
+is why an overnight window anchored on the previous local date is found with no date fudging.
+
+A host with rules but **no future windows at all** logs ERROR
+(`materialization is stale or failed`) and yields no slots. There is deliberately no rule-walking
+fallback — a second code path would hide exactly that failure. Note the check is "no future windows
+anywhere", not "none in this range": a host who simply does not work on the queried date is normal
+and must stay silent, or the alert is worthless.
 
 **5. Per host, fetch busy intervals once** — no N+1. Three sources concatenated:
 
@@ -296,28 +360,33 @@ The ±1 day absorbs timezone skew between the requested local dates and UTC
 | Leave | [`_exception_intervals`](../../core/services/availability.py#L113) | `AvailabilityException` overlap |
 | External calendar | [`_external_busy_intervals`](../../core/services/availability.py#L125) | see §5.4 |
 
-**6. Walk the local calendar**
+**6. Walk the windows**
 
 ```python
-day = date_from
-while day <= date_to:
-    for rule in rules:
-        if rule.weekday != day.weekday(): continue
-        day_end_local = datetime.combine(day, rule.end_time, tzinfo=tz)
-        cursor        = datetime.combine(day, rule.start_time, tzinfo=tz)
-        while cursor + duration <= day_end_local:
-            start_utc = cursor.astimezone(UTC)
-            end_utc   = (cursor + duration).astimezone(UTC)
-            if min_start <= start_utc <= horizon:
-                if not _overlaps(busy, start_utc - buf_before, end_utc + buf_after):
-                    slot_map.setdefault(start_utc, set()).add(host_id)
-            cursor += step
-    day += timedelta(days=1)
+for w_start, w_end in host_windows:
+    cursor = w_start
+    while cursor + duration <= w_end:
+        start_utc, end_utc = cursor, cursor + duration
+        if date_from <= start_utc.astimezone(tz).date() <= date_to and (
+            min_start <= start_utc <= horizon
+        ):
+            if not _overlaps(busy, start_utc - buf_before, end_utc + buf_after):
+                slot_map.setdefault(start_utc, set()).add(host_id)
+        cursor += step
 ```
 
-Combining a local `date` with a wall-clock `time` under `tzinfo=ZoneInfo(...)` **before** converting
-to UTC is what makes this DST-correct: the same `09:00` rule maps to a different UTC instant either
-side of a transition.
+Pure UTC arithmetic — DST was already resolved when the window was materialized.
+
+Two details that look incidental but are not:
+
+- **Raw windows, not merged.** The cursor restarts at each window's own start, which is the same
+  instant the old per-day rule loop started from, so slot alignment is preserved exactly. Merging
+  here would let a granularity that does not divide the day (e.g. 25 min) drift across day
+  boundaries and silently move every advertised time.
+- **The local-date filter.** Windows are loaded a day either side, so the requested range is
+  enforced on the slot's **local** date — which is what `date_from`/`date_to` mean to the caller.
+  A consequence worth knowing: the 02:00 tail of a Monday-night shift is offered when **Tuesday**
+  is requested, not Monday.
 
 **7. Collapse to slots** — `slot_map` is `start_utc → set(host_id)`.
 
@@ -858,15 +927,23 @@ load-bearing: if they disagreed, a create would land in a tenant the caller cann
 | `incremental_calendar_sync` | Google webhook | 3 × 30s |
 | `establish_calendar_watch` | after OAuth connect | none (warns) |
 | `send_push_to_admins_task` | reschedule engine | none |
+| `materialize_profile_task` | on_commit from an availability-profile write | 3 × 30s |
 
-Beat schedule ([config/settings/base.py:486-513](../../config/settings/base.py#L486-L513)):
+Every task uses `base=ReportedTask`, whose `on_failure` emits one structured ERROR to the
+`core.tasks.failures` logger after retries are exhausted. That logger is the alerting hook for
+permanent async failure.
 
-| Task | Interval |
-|---|---|
-| `cleanup_expired_holds` | 60 s |
-| `send_due_reminders` | 300 s |
-| `refresh_calendar_tokens` | 900 s |
-| `renew_calendar_watches` | 3600 s |
+Beat schedule ([config/settings/base.py](../../config/settings/base.py)):
+
+| Task | Interval | Notes |
+|---|---|---|
+| `cleanup_expired_holds` | 60 s | ≤500 holds per run, isolated per hold |
+| `send_due_reminders` | 300 s | streamed with `.iterator()`, isolated per booking |
+| `refresh_calendar_tokens` | 900 s | |
+| `renew_calendar_watches` | 3600 s | |
+| `materialize_availability_horizon` | 86400 s | rolls the window horizon forward, purges windows that ended >1 day ago. **Not optional** — see §20.1 |
+| `start_due_campaigns` | 60 s | |
+| `cleanup_expired_contact_imports` | 600 s | |
 
 ---
 
@@ -922,6 +999,7 @@ The public reschedule view maps the same set plus `InvalidRescheduleToken` → 4
 
 | Setting | Default | Effect |
 |---|---|---|
+| `AVAILABILITY_MATERIALIZE_DAYS` | 90 | Days of UTC windows kept ahead of today. Raised automatically to cover any `EventTemplate.max_horizon_days` the tenant advertises, hard-capped at 365 |
 | `BOOKING_HOLD_TTL_SECONDS` | 300 | Hold lifetime |
 | `BOOKING_REMINDER_OFFSETS_MINUTES` | `[1440, 60]` | Reminder trigger points |
 | `BOOKING_RESCHEDULE_TOKEN_TTL_HOURS` | 72 | Public reschedule link lifetime |
@@ -938,78 +1016,57 @@ The public reschedule view maps the same set plus `InvalidRescheduleToken` → 4
 Observations from reading the current code. None are speculative — each names the line that
 produces the behaviour.
 
-### 20.1 Overnight / cross-midnight shifts are not representable
+### 20.1 Stale materialized windows narrow availability silently
 
-`AvailabilityRule` cannot express `22:00 → 06:00`: the serializer rejects it
-([availability_profile.py:21-22](../../core/serializers/availability_profile.py#L21-L22)), the DB check
-constraint rejects it ([availability_rule.py:47-50](../../core/models/availability_rule.py#L47-L50)), and
-`_within_working_hours` explicitly bails when a booking spans two local dates —
-`# Phase 1: blocks never cross local midnight` ([availability.py:88-89](../../core/services/availability.py#L88-L89)).
+The cost of moving availability into `AvailabilityWindow` (§2.4): it is now **eventually consistent
+with a horizon**. A rule edit is correct immediately via the post-commit rebuild, but if
+`materialize_availability_horizon` stops running, availability quietly shrinks as the existing
+horizon is consumed — no error, just fewer slots each day.
 
-Splitting into `Mon 22:00–23:59:59` + `Tue 00:00–06:00` passes validation, but two things still leak:
-`TimeField` maxes at `23:59:59`, so the slot ending exactly at midnight is unreachable
-(`cursor + duration <= day_end_local`, [availability.py:295](../../core/services/availability.py#L295)); and
-no slot may straddle midnight at all.
+The mitigation is a canary, not a guarantee: `get_available_slots` and `eligible_free_hosts` log
+ERROR `materialization is stale or failed` when a host has rules and no future windows at all.
+**Alert on that line.** Recovery is `manage.py materialize_availability`.
 
-### 20.2 `is_active` is inconsistently honoured
-
-The default manager filters `is_deleted`, not `is_active`. Consequences:
-
-- `_load_profiles` ([availability.py:71-80](../../core/services/availability.py#L71-L80)) ignores
-  `AvailabilityProfile.is_active` — deactivating a profile does **not** stop slot generation.
-- `BookingCreateSerializer` uses `EventTemplate.objects.all()` with no `is_active` filter
-  ([booking.py:100](../../core/serializers/booking.py#L100)) — an inactive template is still bookable
-  over REST.
-- The AI bridge *does* filter `is_active=True` ([agent_scheduling.py:46-48](../../core/services/agent_scheduling.py#L46-L48)),
-  so REST and AI disagree about what is bookable.
-
-### 20.3 The original slot is blocked during reschedule
+### 20.2 The original slot is blocked during reschedule
 
 `REQUIRES_RESCHEDULE` is an active status, so a flagged booking keeps occupying the exclusion
 constraint and keeps appearing in `_busy_intervals`. A customer following the reschedule link
 therefore cannot pick the original time — even if the leave that caused it was subsequently
 cancelled. Self-consistent (the engine won't offer it either), but worth knowing.
 
-### 20.4 Buffer handling differs between the two availability entry points
+### 20.3 Notification bodies are UTC-only
 
-`get_available_slots` tests all three busy sources against buffer-inclusive
-`eff_start`/`eff_end` ([availability.py:299-301](../../core/services/availability.py#L299-L301)).
-`eligible_free_hosts` tests leave and external-busy against the **raw** `start_utc`/`end_utc`
-and only bookings against `eff_*` ([availability.py:232-242](../../core/services/availability.py#L232-L242)).
-So a leave that overlaps only a booking's buffer blocks the slot at listing time but passes the
-create-time check.
-
-### 20.5 `NotificationLog` is marked `SENT` at enqueue time
-
-[`_emit`](../../core/services/notifications.py#L103-L105) sets `status=SENT` immediately after
-`.delay()`. If `send_scheduling_email_task` exhausts its 3 retries, the row still reads `SENT`
-and the `error` / `FAILED` fields are never written by any code path.
-
-### 20.6 `.ics` `SEQUENCE` is always 0
-
-[`build_ics`](../../core/services/ics.py#L23-L36) defaults `sequence=0` and no caller overrides it,
-though the docstring states it must increase on each update. Calendar clients may ignore
-updated invites for the same `UID`.
-
-### 20.7 Notification bodies are UTC-only
-
-[`_body`](../../core/services/notifications.py#L52-L58) renders `"%Y-%m-%d %H:%M UTC"`. The customer's
+[`_body`](../../core/services/notifications.py) renders `"%Y-%m-%d %H:%M UTC"`. The customer's
 timezone is available on neither the participant nor the booking, so emails always show UTC even
-though the whole engine is timezone-aware.
+though the whole engine is timezone-aware. The building block now exists —
+`Timezone.offset_label_at()` (§2.4) — but nothing captures the customer's zone to render with.
 
-### 20.8 External-calendar failures silently widen availability
+### 20.4 No invariant-audit command
 
-[`_external_busy_intervals`](../../core/services/availability.py#L171-L173) returns `[]` on any provider
-exception. Deliberate — availability degrades rather than fails — but during a Google outage the
-system will offer slots the host is actually busy for, and the resulting double-booking is
-invisible until the host notices.
+There is no `manage.py audit_bookings` to assert the §3 invariants against live data (orphan
+participants, `effective_*` drift from buffers, `HELD` rows past expiry, windows whose rule no
+longer exists). Every invariant is enforced at write time, so this is monitoring rather than a
+fix — but nothing currently detects a row that got in another way.
 
-### 20.9 Legacy surface awaiting removal
+### 20.5 Legacy surface awaiting removal
 
-- `delete_calendar_event_for_host` ([tasks.py:159-166](../../core/tasks.py#L159-L166)) — retained one
-  release for in-flight broker messages.
+- `delete_calendar_event_for_host` ([tasks.py](../../core/tasks.py)) — retained one release for
+  in-flight broker messages.
 - `BookingEvent.REASSIGNED` and `NotificationLog.REASSIGNED` — no longer written; kept so
   historical rows render.
+
+### 20.6 Recently closed
+
+Listed because earlier revisions of this document described them as open:
+
+| Was | Now |
+|---|---|
+| Overnight shifts not representable | §2.3 wrap semantics + §2.4 materialization |
+| `is_active` inconsistently honoured | materialization skips inactive profiles; `BookingCreateSerializer` filters `is_active=True` |
+| Buffers differed between the two availability entry points | both build one `busy` list and test it against `eff_*` |
+| `NotificationLog` marked `SENT` at enqueue | row stays `PENDING`; the task writes `SENT`/`FAILED` |
+| `.ics` `SEQUENCE` always 0 | derived from the `BookingEvent` revision count |
+| External-calendar failure silently widened availability | browsing flags the slot `external_check_failed`; committing raises `ExternalCalendarUnavailable` |
 
 ---
 

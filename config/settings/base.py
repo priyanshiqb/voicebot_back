@@ -481,9 +481,21 @@ CAMPAIGN_MAX_MEMBERS = env.int("CAMPAIGN_MAX_MEMBERS", default=100_000)
 CAMPAIGN_MATERIALIZE_BATCH_SIZE = env.int("CAMPAIGN_MATERIALIZE_BATCH_SIZE", default=1000)
 CAMPAIGN_MAX_CONCURRENT_RUNNING = env.int("CAMPAIGN_MAX_CONCURRENT_RUNNING", default=5)
 
+# Availability materialization
+# How many days of UTC availability windows to keep materialized ahead of today.
+# A tenant whose event templates advertise a longer booking horizon raises this
+# automatically (see availability_materializer.horizon_days_for), capped at
+# EventTemplate.MAX_HORIZON_DAYS. Beyond the horizon the engine offers no slots,
+# so the daily beat task below is not optional.
+AVAILABILITY_MATERIALIZE_DAYS = env.int("AVAILABILITY_MATERIALIZE_DAYS", default=90)
+
 # Celery Beat schedule for the scheduling module. Run with:
 #   celery -A config beat -l info
 CELERY_BEAT_SCHEDULE = {
+    "scheduling-materialize-availability": {
+        "task": "core.tasks.materialize_availability_horizon",
+        "schedule": 86400.0,  # daily
+    },
     "scheduling-send-due-reminders": {
         "task": "core.tasks.send_due_reminders",
         "schedule": 300.0,  # every 5 minutes
