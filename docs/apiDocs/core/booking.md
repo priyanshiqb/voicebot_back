@@ -43,9 +43,14 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
     "data": [
       {
         "id": "4cc85f64-5717-4562-b3fc-2c963f66af30",
-        "event_template": { "id": "3fa8...", "name": "30-Min Demo" },
+        "event_template": { "id": "3fa8...", "name": "30-Min Demo", "color": "#000000" },
         "title": "30-Min Demo",
-        "primary_host": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "primary_host": {
+          "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+          "email": "host@acme.com",
+          "first_name": "Alex",
+          "last_name": "Host"
+        },
         "start_time": "2026-07-05T14:00:00Z",
         "end_time": "2026-07-05T14:30:00Z",
         "status": "SCHEDULED",
@@ -68,10 +73,15 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
     "message": "Retrieved successfully",
     "data": {
       "id": "4cc85f64-5717-4562-b3fc-2c963f66af30",
-      "tenant": { "id": "7bf2...", "name": "Alpha Corp" },
-      "event_template": { "id": "3fa8...", "name": "30-Min Demo" },
+      "tenant": { "id": "7bf2...", "name": "Alpha Corp", "subdomain": "alpha" },
+      "event_template": { "id": "3fa8...", "name": "30-Min Demo", "color": "#000000" },
       "title": "30-Min Demo",
-      "primary_host": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+      "primary_host": {
+        "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "email": "alex@acme.com",
+        "first_name": "Alex",
+        "last_name": "Host"
+      },
       "start_time": "2026-07-05T14:00:00Z",
       "end_time": "2026-07-05T14:30:00Z",
       "status": "SCHEDULED",
@@ -85,9 +95,18 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
       "cancellation_reason": "",
       "participants": [
         {
-          "id": "p1", "user": "5fa8...", "name": "Alex Host",
-          "email": "alex@acme.com", "phone_number": null,
-          "role": "HOST", "response_status": "NEEDS_ACTION"
+          "id": "p1",
+          "user": {
+            "id": "5fa8...",
+            "email": "alex@acme.com",
+            "first_name": "Alex",
+            "last_name": "Host"
+          },
+          "name": "Alex Host",
+          "email": "alex@acme.com",
+          "phone_number": null,
+          "role": "HOST",
+          "response_status": "NEEDS_ACTION"
         },
         {
           "id": "p2", "user": null, "name": "Jamie Customer",
@@ -95,7 +114,12 @@ disabled. Double-booking is prevented at the database level — a taken slot ret
           "role": "ATTENDEE", "response_status": "NEEDS_ACTION"
         }
       ],
-      "created_by": { "id": "3fa8...", "name": "Emma" },
+      "created_by": {
+        "id": "3fa8...",
+        "email": "emma@acme.com",
+        "first_name": "Emma",
+        "last_name": "Admin"
+      },
       "updated_by": null,
       "deleted_by": null,
       "created_at": "2026-07-01T10:00:00Z",

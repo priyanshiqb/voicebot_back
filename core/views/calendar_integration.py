@@ -195,7 +195,7 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
 
         frontend = getattr(settings, "FRONTEND_PROJECT_URL", "").rstrip("/")
         if frontend:
-            return redirect(f"{frontend}/settings/calendar?connected=1")
+            return redirect(f"{frontend}/integrations")
         return self.success(message="Calendar connected successfully.")
 
     def perform_destroy(self, instance):

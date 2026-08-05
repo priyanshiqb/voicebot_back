@@ -14,10 +14,34 @@ class AgentCallRecordingSerializer(TenantBaseModelCoreSerializer):
         ]
         read_only_fields = TenantBaseModelCoreSerializer.Meta.read_only_fields
 
+    def to_representation(self, instance):
+        from django.conf import settings
+        ret = super().to_representation(instance)
+        if instance.file and instance.file.name:
+            if getattr(settings, 'USE_S3_STORAGE', False):
+                from utils.s3_storage.service import S3StorageService
+                try:
+                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                except Exception:
+                    pass
+        return ret
+
 class AgentCallRecordingRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgentCallRecording
         fields = ["id", "original_name", "extension", "file_size_in_bytes", "file"]
+
+    def to_representation(self, instance):
+        from django.conf import settings
+        ret = super().to_representation(instance)
+        if instance.file and instance.file.name:
+            if getattr(settings, 'USE_S3_STORAGE', False):
+                from utils.s3_storage.service import S3StorageService
+                try:
+                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                except Exception:
+                    pass
+        return ret
 
 class RequestRecordingUploadUrlSerializer(serializers.Serializer):
     filename = serializers.CharField(max_length=255, required=True, help_text="The original filename being uploaded (e.g., 'call_123.mp3').")

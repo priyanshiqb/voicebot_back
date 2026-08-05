@@ -18,6 +18,13 @@ class OnboardConfig(AppConfig):
 
         def rebuild_bloom_filter_async():
             try:
+                from django.apps import apps
+                import time
+                
+                # Wait until Django is fully initialized to avoid database RuntimeWarning
+                while not apps.ready:
+                    time.sleep(0.1)
+
                 from django.contrib.auth import get_user_model
                 from onboard.models import TempUser
                 from utils.bloom_filter import RedisBloomFilter

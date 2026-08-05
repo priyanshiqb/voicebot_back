@@ -13,6 +13,7 @@ from user.serializers.custom_user import UserRefSerializer
 
 
 class BookingParticipantSerializer(serializers.ModelSerializer):
+    user = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
     class Meta:
         model = BookingParticipant
         fields = ("id", "user", "name", "email", "phone_number", "role", "response_status")
@@ -31,7 +32,7 @@ class BookingSerializer(TenantBaseModelSerializer):
     so every field is read-only here."""
 
     participants = BookingParticipantSerializer(many=True, read_only=True)
-    event_template = EventTemplateRefSerializer(read_only=True)
+    event_template = HybridRelatedField(serializer=EventTemplateRefSerializer, read_only=True)
     primary_host = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
 
     class Meta(TenantBaseModelSerializer.Meta):
@@ -65,7 +66,7 @@ class BookingSerializer(TenantBaseModelSerializer):
 
 
 class BookingListSerializer(serializers.ModelSerializer):
-    event_template = EventTemplateRefSerializer(read_only=True)
+    event_template = HybridRelatedField(serializer=EventTemplateRefSerializer, read_only=True)
     primary_host = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
 
     class Meta:

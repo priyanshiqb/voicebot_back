@@ -2,9 +2,14 @@ from rest_framework import serializers
 
 from tenant.common import TenantBaseModelSerializer
 from core.models.availability_exception import AvailabilityException
+from user.models import CustomUser
+from user.serializers.custom_user import UserRefSerializer
+from utils.serializers.hybrid_related_field import HybridRelatedField
 
 
 class AvailabilityExceptionRefSerializer(serializers.ModelSerializer):
+    user = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
+
     class Meta:
         model = AvailabilityException
         fields = ("id", "user", "start_time", "end_time")
@@ -12,6 +17,10 @@ class AvailabilityExceptionRefSerializer(serializers.ModelSerializer):
 
 
 class AvailabilityExceptionSerializer(TenantBaseModelSerializer):
+    user = HybridRelatedField(
+        serializer=UserRefSerializer, queryset=CustomUser.objects.all()
+    )
+
     class Meta(TenantBaseModelSerializer.Meta):
         model = AvailabilityException
         fields = (
@@ -59,6 +68,8 @@ class AvailabilityExceptionSerializer(TenantBaseModelSerializer):
 
 
 class AvailabilityExceptionListSerializer(serializers.ModelSerializer):
+    user = HybridRelatedField(serializer=UserRefSerializer, read_only=True)
+
     class Meta:
         model = AvailabilityException
         fields = (

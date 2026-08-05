@@ -12,6 +12,8 @@ from onboard.models import Timezone, Language
 
 
 class UserRefSerializer(serializers.ModelSerializer):
+    timezone = TimezoneRefSerializer(read_only=True)
+
     class Meta:
         model = CustomUser
         fields = (
@@ -19,6 +21,7 @@ class UserRefSerializer(serializers.ModelSerializer):
             "email",
             "first_name",
             "last_name",
+            "timezone",
         )
         read_only_fields = fields
 
