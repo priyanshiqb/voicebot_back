@@ -9,6 +9,7 @@ True iff it actually enqueued an email this call (used by reminder counting).
 """
 
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -58,7 +59,32 @@ def _body(booking, extra=""):
     return body + extra
 
 
-def _ics_for(booking, method, ics_status):
+# BookingEvent types that represent a revision of the meeting itself (as opposed
+# to a notification or an external sync). Their count drives the iCalendar
+# SEQUENCE, which per RFC 5545 must increase for a client to accept an update to
+# an existing UID. It was hard-coded to 0, so a rescheduled booking could leave
+# the original time sitting in the attendee's calendar.
+_ICS_REVISION_EVENTS = (
+    BookingEvent.EventType.CREATED,
+    BookingEvent.EventType.CONFIRMED,
+    BookingEvent.EventType.RESCHEDULED,
+    BookingEvent.EventType.CANCELED,
+)
+
+
+def _ics_sequence(booking):
+    """Monotonic revision number for this booking's calendar entry.
+
+    Derived from the append-only event log rather than stored: BookingEvent rows
+    are never deleted, so the count only ever grows, which is exactly the
+    guarantee SEQUENCE needs.
+    """
+    return BookingEvent.objects.filter(
+        booking=booking, event_type__in=_ICS_REVISION_EVENTS
+    ).count()
+
+
+def _ics_for(booking, method, ics_status, sequence=None):
     return ics.build_ics(
         uid=str(booking.id),
         start=booking.start_time,
@@ -70,13 +96,32 @@ def _ics_for(booking, method, ics_status):
         attendee_emails=_all_recipients(booking),
         method=method,
         status=ics_status,
+        sequence=_ics_sequence(booking) if sequence is None else sequence,
     )
 
 
+# How long a PENDING row is treated as "still in flight" before another call may
+# re-enqueue it. Without this window, moving the SENT write into the task (so the
+# status tells the truth about delivery) would let the 5-minute reminder beat
+# re-enqueue a row whose task is merely still queued — a duplicate email.
+# Past the window a stuck PENDING becomes re-sendable, which is how a message
+# lost by the broker recovers.
+PENDING_IN_FLIGHT_GRACE = timedelta(minutes=15)
+
+
 def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_content=None):
-    """Enqueue an email once for the given dedup_key. Returns True iff sent this call."""
+    """Enqueue an email once for the given dedup_key. Returns True iff enqueued this call.
+
+    The row is left PENDING here; the task marks it SENT on success or FAILED
+    with the error after retries are exhausted. Marking SENT at enqueue time (as
+    this used to) meant an email that failed every retry still reported success,
+    was never retryable, and left NotificationLog.FAILED as a status no code path
+    could ever write.
+    """
     if not recipients:
         return False
+
+    now = timezone.now()
     log, created = NotificationLog.objects.get_or_create(
         tenant=booking.tenant,
         dedup_key=dedup_key,
@@ -88,10 +133,23 @@ def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_
             "status": NotificationLog.Status.PENDING,
         },
     )
-    if not created and log.status == NotificationLog.Status.SENT:
-        return False
+    if not created:
+        if log.status == NotificationLog.Status.SENT:
+            return False
+        if (
+            log.status == NotificationLog.Status.PENDING
+            and log.updated_at
+            and log.updated_at > now - PENDING_IN_FLIGHT_GRACE
+        ):
+            return False  # a task for this row is still in flight
 
     from core.tasks import send_scheduling_email_task
+
+    # Touch updated_at so the in-flight window above is measured from this
+    # enqueue, not from row creation.
+    log.status = NotificationLog.Status.PENDING
+    log.error = ""
+    log.save(update_fields=["status", "error", "updated_at"])
 
     send_scheduling_email_task.delay(
         subject=subject,
@@ -99,10 +157,8 @@ def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_
         recipient_list=recipients,
         ics_content=ics_content,
         ics_filename="invite.ics",
+        notification_log_id=str(log.id),
     )
-    log.status = NotificationLog.Status.SENT
-    log.sent_at = timezone.now()
-    log.save(update_fields=["status", "sent_at"])
     events.log_event(
         booking,
         BookingEvent.EventType.NOTIFICATION_SENT,
@@ -214,6 +270,9 @@ def _group_emit(group_id, notification_type, subject, method, ics_status):
         attendee_emails=recipients,
         method=method,
         status=ics_status,
+        # One shared UID for the whole meeting, so the sequence must also be
+        # shared: take the highest revision across the group's rows.
+        sequence=max(_ics_sequence(b) for b in bookings),
     )
     return _emit(
         first,

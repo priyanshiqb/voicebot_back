@@ -83,6 +83,7 @@ class AvailabilityViewSet(ResponseMixin, ViewSet):
                     "start": s.start,
                     "end": s.end,
                     "eligible_host_ids": list(s.eligible_host_ids),
+                    "external_check_failed": s.external_check_failed,
                 }
                 for s in slots
             ],

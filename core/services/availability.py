@@ -20,6 +20,7 @@ from core.models.availability_exception import AvailabilityException
 from core.models.availability_profile import AvailabilityProfile
 from core.models.booking import ACTIVE_BOOKING_STATUSES, Booking
 from core.models.user_event_skill import UserEventSkill
+from core.services.exceptions import ExternalCalendarUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ class Slot:
     start: datetime  # UTC-aware
     end: datetime  # UTC-aware
     eligible_host_ids: tuple  # host ids free for this slot
+    # True when at least one eligible host's external calendar could not be read,
+    # so this slot is offered on unverified information. Booking it will be
+    # refused while the provider is still unreachable (see eligible_free_hosts).
+    external_check_failed: bool = False
 
 
 def skilled_host_ids(tenant, event_template):
@@ -124,10 +129,18 @@ def _exception_intervals(tenant, host_id, window_start, window_end):
     return list(qs.values_list("start_time", "end_time"))
 
 
-def _external_busy_intervals(tenant, host_id, window_start, window_end):
-    """External-calendar busy intervals for a host, fetched on demand and cached
-    briefly. Returns [] when the host has no CONNECTED integration or on any
-    provider error (availability degrades gracefully rather than failing)."""
+def _external_busy(tenant, host_id, window_start, window_end):
+    """External-calendar busy intervals for a host: ``(intervals, degraded)``.
+
+    ``degraded`` is True only when the provider could not be reached — NOT when
+    the host simply has no integration. That distinction is the whole point: an
+    empty list from a healthy lookup means "free", while an empty list from a
+    failed one means "unknown", and conflating them is how an outage silently
+    advertises slots the host is actually busy for.
+
+    Callers decide what to do with it: browsing degrades open and flags the slot,
+    committing refuses (see eligible_free_hosts).
+    """
     from core.models.calendar_integration import CalendarIntegration
 
     integration = CalendarIntegration.objects.filter(
@@ -137,7 +150,7 @@ def _external_busy_intervals(tenant, host_id, window_start, window_end):
         sync_status=CalendarIntegration.SyncStatus.CONNECTED,
     ).first()
     if integration is None:
-        return []
+        return [], False
 
     # While a watch channel is live, webhook sync keeps ExternalBusyBlock fresh —
     # read it locally instead of a live free/busy call.
@@ -153,14 +166,14 @@ def _external_busy_intervals(tenant, host_id, window_start, window_end):
             start_time__lt=window_end,
             end_time__gt=window_start,
         ).values_list("start_time", "end_time")
-        return list(rows)
+        return list(rows), False
 
     cache_key = (
         f"freebusy:{integration.id}:{int(window_start.timestamp())}:{int(window_end.timestamp())}"
     )
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return cached, False
 
     try:
         from core.services import calendars
@@ -170,11 +183,30 @@ def _external_busy_intervals(tenant, host_id, window_start, window_end):
             (b.start, b.end)
             for b in provider.get_busy(integration, window_start, window_end)
         ]
-    except Exception as exc:  # noqa: BLE001 — never let calendar issues block booking
-        logger.warning("free/busy fetch failed for integration %s: %s", integration.id, exc)
-        return []
+    except Exception as exc:  # noqa: BLE001 — a provider outage must not raise here
+        # ERROR, not WARNING: this is the state in which the system can advertise
+        # a slot the host is actually busy for, and nothing else surfaces it.
+        logger.error(
+            "free/busy fetch failed for integration %s (%s) — availability for "
+            "host %s is unverified",
+            integration.id,
+            exc,
+            host_id,
+            exc_info=True,
+        )
+        CalendarIntegration.objects.filter(pk=integration.pk).update(
+            last_error=str(exc)[:500]
+        )
+        return [], True
 
     cache.set(cache_key, intervals, getattr(settings, "EXTERNAL_FREEBUSY_CACHE_SECONDS", 60))
+    return intervals, False
+
+
+def _external_busy_intervals(tenant, host_id, window_start, window_end):
+    """Intervals only, discarding the degraded flag. For callers that have already
+    decided degradation is acceptable."""
+    intervals, _degraded = _external_busy(tenant, host_id, window_start, window_end)
     return intervals
 
 
@@ -231,15 +263,26 @@ def eligible_free_hosts(
         if not entry:
             continue
         profile, rules = entry
+        # Working hours are checked on the RAW times, matching slot generation:
+        # buffers pad the surrounding calendar, they do not extend the shift.
         if not _within_working_hours(profile, rules, start_utc, end_utc):
             continue
-        if host_on_leave(tenant, host_id, start_utc, end_utc):
+        # Everything that makes a host BUSY is checked buffer-inclusive, which is
+        # what get_available_slots does. These used to disagree: leave and external
+        # busy were tested against the raw times here, so a leave overlapping only
+        # a booking's buffer hid the slot at listing time and then passed the
+        # create-time check.
+        if host_on_leave(tenant, host_id, eff_start, eff_end):
             continue
-        if _overlaps(
-            _external_busy_intervals(tenant, host_id, start_utc, end_utc),
-            start_utc,
-            end_utc,
-        ):
+        external, degraded = _external_busy(tenant, host_id, eff_start, eff_end)
+        if degraded:
+            # Commit path: refuse rather than book against a calendar we could not
+            # read. An unverified booking double-books the host with an external
+            # meeting, and nothing here can detect that afterwards.
+            raise ExternalCalendarUnavailable(
+                "Could not verify the host's calendar availability. Please try again."
+            )
+        if _overlaps(external, eff_start, eff_end):
             continue
         if host_has_conflict(tenant, host_id, eff_start, eff_end, exclude_booking_id):
             continue
@@ -277,14 +320,21 @@ def get_available_slots(
 
     slot_map = {}  # start_utc -> set(host_id)
     considered_hosts = [h for h in host_ids if h in profiles]
+    # Hosts whose external calendar could not be read. Browsing still offers their
+    # slots — a provider outage should not empty the calendar — but every slot they
+    # appear in is flagged so the caller knows it is unverified.
+    unverified_hosts = set()
 
     for host_id in considered_hosts:
         profile, rules = profiles[host_id]
         tz = profile.timezone.zone
+        external, degraded = _external_busy(tenant, host_id, window_start, window_end)
+        if degraded:
+            unverified_hosts.add(host_id)
         busy = (
             _busy_intervals(tenant, host_id, window_start, window_end)
             + _exception_intervals(tenant, host_id, window_start, window_end)
-            + _external_busy_intervals(tenant, host_id, window_start, window_end)
+            + external
         )
 
         day = date_from
@@ -320,6 +370,7 @@ def get_available_slots(
                 start=start_utc,
                 end=start_utc + duration,
                 eligible_host_ids=tuple(sorted(hosts, key=str)),
+                external_check_failed=bool(hosts & unverified_hosts),
             )
         )
     return slots

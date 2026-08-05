@@ -79,6 +79,17 @@ class RebookingServiceTests(_RebookBase):
         self.assertEqual(self.booking.status, Booking.Status.RESCHEDULED)
         self.assertIsNone(self.booking.reschedule_token)  # consumed
 
+    def test_rebook_accepts_naive_start_time(self):
+        """The service normalizes naive input rather than raising TypeError.
+
+        Asserted at this layer too, not only through the API: `create_booking` has
+        four callers with different validation in front of them, and only the DRF
+        path guarantees an aware datetime.
+        """
+        new = rebooking.rebook(str(self.token), self.new_start.replace(tzinfo=None))
+        self.assertEqual(new.start_time, self.new_start)
+        self.assertIsNotNone(new.start_time.tzinfo)
+
     def test_token_is_single_use(self):
         rebooking.rebook(str(self.token), self.new_start)
         with self.assertRaises(rebooking.InvalidRescheduleToken):
@@ -139,3 +150,30 @@ class PublicRescheduleApiTests(_RebookBase):
             self.url, {"start_time": self.new_start.isoformat()}, format="json"
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_post_naive_start_time_is_accepted_not_500(self):
+        """Regression: a timestamp with no UTC offset used to be hand-parsed into a
+        naive datetime, which then hit `start_time < now` in the booking service and
+        raised TypeError — a 500 on the only unauthenticated endpoint in the module.
+
+        With USE_TZ it now coerces to the default timezone and books normally.
+        """
+        naive = self.new_start.replace(tzinfo=None).isoformat()  # no 'Z', no offset
+        response = self.client.post(self.url, {"start_time": naive}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.RESCHEDULED)
+
+    def test_post_malformed_start_time_400_not_500(self):
+        for bad in ("not-a-date", "2026-13-45T99:99:99", "", None, 12345, []):
+            with self.subTest(start_time=bad):
+                response = self.client.post(
+                    self.url, {"start_time": bad}, format="json"
+                )
+                self.assertEqual(response.status_code, 400, f"{bad!r} -> {response.data}")
+                self.assertFalse(response.data["status"])
+
+    def test_post_missing_start_time_400(self):
+        response = self.client.post(self.url, {}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("start_time", response.data["errors"])

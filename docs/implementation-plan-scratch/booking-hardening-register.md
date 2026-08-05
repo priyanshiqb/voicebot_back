@@ -1,6 +1,12 @@
 # Booking module — hardening register
 
-**Status:** 📋 findings, not yet fixed. Companion to
+**Status:** ✅ **all findings fixed** (699 tests pass on Postgres). Each section below keeps its
+original diagnosis under a "Fixed" note, so the reasoning survives even though the code has
+moved on. Two proposed DB constraints were **withdrawn during implementation** as not
+expressible — see *Cross-cutting 1*. The only item still open is *Cross-cutting 4* (the
+`audit_bookings` invariant command), which is additive rather than a fix.
+
+Companion to
 [booking-flow-internals.md](../flows/booking-flow-internals.md) (which describes current
 behaviour) and
 [overnight-availability-utc-materialization-plan.md](overnight-availability-utc-materialization-plan.md)
@@ -25,7 +31,14 @@ migration instead of a migration plus a data-cleanup plus a coordination window.
 
 ---
 
-## P0-1 — Public reschedule 500s on a naive datetime *(verified)*
+## ~~P0-1 — Public reschedule 500s on a naive datetime~~ ✅ FIXED
+
+**Fixed** with `PublicRescheduleInputSerializer` (DRF `DateTimeField`, so `USE_TZ` coercion
+applies) plus `_ensure_aware()` at the booking-service boundary, which covers all four callers
+rather than only this one. Regression tests
+`test_post_naive_start_time_is_accepted_not_500`, `test_rebook_accepts_naive_start_time`,
+`test_post_malformed_start_time_400_not_500`, `test_post_missing_start_time_400` — the first
+two were confirmed to fail with `TypeError` against the pre-fix source. Original finding below.
 
 **Where:** [public_reschedule.py:109-117](../../core/views/public_reschedule.py#L109-L117)
 
@@ -110,7 +123,14 @@ per-profile isolation in the beat loop so one failure cannot abort the batch (P2
 
 ---
 
-## P0-3 — `max_horizon_days` is unbounded *(verified field type)*
+## ~~P0-3 — `max_horizon_days` is unbounded~~ ✅ FIXED
+
+**Fixed.** `MAX_HORIZON_DAYS = 365` and `MIN_SLOT_GRANULARITY_MINUTES = 5` on
+[event_template.py](../../core/models/event_template.py), enforced by field validators, DRF
+serializer methods, **and** two DB check constraints (`event_template_horizon_bounded`,
+`event_template_granularity_min`) so a direct-ORM writer cannot bypass them. Migration
+`0039_bound_scheduling_policy_fields`. Two test fixtures that used `max_horizon_days=400`
+were lowered to 365. Original finding below.
 
 **Where:** [event_template.py:69-72](../../core/models/event_template.py#L69-L72) —
 `PositiveSmallIntegerField(default=60)`, no `MaxValueValidator`. Accepts up to **32767**.
@@ -137,7 +157,13 @@ has no legitimate booking use and is purely a cost multiplier).
 
 ---
 
-## P0-4 — `participants` list is unbounded
+## ~~P0-4 — `participants` list is unbounded~~ ✅ FIXED
+
+**Fixed.** `MAX_PARTICIPANTS_PER_BOOKING = 25` enforced in `validate_participants`, and
+`_create_participants` now `bulk_create`s attendees so the host row lock is held for one
+statement rather than N. Note `bulk_create` skips `pre_save`, so contact resolution is applied
+explicitly — covered by `test_bulk_create_still_resolves_contacts`, since losing it would be a
+silent regression. Original finding below.
 
 **Where:** [booking.py:111](../../core/serializers/booking.py#L111) —
 `participants = BookingParticipantInputSerializer(many=True)`, validated only for non-emptiness
@@ -155,7 +181,14 @@ the attendee rows.
 
 ---
 
-## P0-5 — `on_commit` callbacks can 500 a committed booking
+## ~~P0-5 — `on_commit` callbacks can 500 a committed booking~~ ✅ FIXED
+
+**Fixed** with `core/services/deferred.py`. Every `transaction.on_commit` in `bookings.py`,
+`reschedule.py` and `rebooking.py` is now wrapped in `deferred.safe(...)`, which logs a
+traceback and returns instead of propagating. Note the deliberate carve-out: under
+`CELERY_TASK_ALWAYS_EAGER` it **re-raises**, because eager mode means the task body runs inline
+(a test) and swallowing there would turn a genuinely broken task into a silently passing test.
+Original finding below.
 
 **Where:** [bookings.py:233-237](../../core/services/bookings.py#L233-L237) and every other
 `transaction.on_commit(...)` in the module.
@@ -193,7 +226,27 @@ that removes the 500.
 
 ---
 
-## P1-1 — Calendar-provider failure silently widens availability
+## ~~P1-1 — Calendar-provider failure silently widens availability~~ ✅ FIXED
+
+**Fixed.** `_external_busy()` now returns `(intervals, degraded)`, separating "the host has
+nothing booked" from "we could not ask" — conflating those was the whole bug. Behaviour by
+caller, matching the rule in *Cross-cutting 3*:
+
+- **Browsing** degrades open (an outage must not empty the calendar) but every affected slot
+  carries `external_check_failed`, exposed as `external_check_failed` on the slots API and
+  `unverified` in the AI tool result.
+- **Committing** raises the new `ExternalCalendarUnavailable` → **503** on both the booking
+  API and the public reschedule endpoint, and `{"reason": "calendar_unavailable", "retry":
+  true}` in the AI bridge. Deliberately *not* `SlotConflictError`: the slot may well be free,
+  so telling the caller it is taken would be untrue.
+- The failure now logs at **ERROR** with a traceback and writes `CalendarIntegration.last_error`.
+  Previously a WARNING was the only trace and nothing surfaced it.
+
+⚠️ **Product consequence, stated explicitly:** during a provider outage, hosts with a connected
+calendar cannot be booked at all. That is deliberate — an unverified booking double-books the
+host against an external meeting and nothing in this system can detect it afterwards — but it
+trades availability for safety, and it is a one-line change in `eligible_free_hosts` to flip.
+Original finding below.
 
 **Where:** [availability.py:171-176](../../core/services/availability.py#L171-L176)
 
@@ -221,7 +274,21 @@ trace and nothing surfaces it.
 
 ---
 
-## P1-2 — `NotificationLog` is marked `SENT` before the email is sent
+## ~~P1-2 — `NotificationLog` is marked `SENT` before the email is sent~~ ✅ FIXED
+
+**Fixed.** `_emit` leaves the row `PENDING` and passes `notification_log_id` to the task, which
+marks `SENT` on success or `FAILED` with the error once retries are exhausted. `FAILED` rows are
+re-enqueueable, so a lost notification can now recover — previously impossible.
+
+One consequence had to be handled: moving the `SENT` write into the task opens a window where a
+still-queued row could be re-enqueued by the next caller, which would double-send reminders
+(the beat scans every 5 minutes). `PENDING_IN_FLIGHT_GRACE` (15 min, measured from `updated_at`)
+treats a recent `PENDING` as in flight; past that it becomes re-sendable, which is also how a
+message the broker lost recovers.
+
+Testing note: under `CELERY_TASK_ALWAYS_EAGER`, `self.retry()` raises `Retry` immediately and
+`request.retries` never advances, so retry exhaustion is unreachable end-to-end. The terminal
+branch is tested by invoking the task with `retries=max_retries`. Original finding below.
 
 **Where:** [notifications.py:96-105](../../core/services/notifications.py#L96-L105) — `.delay()`
 then immediately `log.status = SENT; log.sent_at = now()`.
@@ -241,7 +308,11 @@ Then a periodic sweep can retry `FAILED` rows, which is currently impossible.
 
 ---
 
-## P1-3 — `is_active` is not honoured on the REST booking path
+## ~~P1-3 — `is_active` is not honoured on the REST booking path~~ ✅ FIXED
+
+**Fixed.** Both `BookingCreateSerializer.event_template` and
+`AvailableSlotsQuerySerializer.event_template` now use
+`EventTemplate.objects.filter(is_active=True)`. Original finding below.
 
 **Where:** [booking.py:100](../../core/serializers/booking.py#L100) —
 `EventTemplate.objects.all()`, no `is_active` filter. The default manager excludes
@@ -257,7 +328,11 @@ availability profile half of this is already handled by the materialization plan
 
 ---
 
-## P1-4 — Buffer handling differs between the two availability entry points
+## ~~P1-4 — Buffer handling differs between the two availability entry points~~ ✅ FIXED
+
+**Fixed.** `eligible_free_hosts` now tests leave and external-busy against `eff_start`/`eff_end`,
+matching `get_available_slots`. Working hours stay on the raw times in both — buffers pad the
+surrounding calendar, they do not extend the shift. Original finding below.
 
 **Where:** `get_available_slots` tests all three busy sources against buffer-inclusive
 `eff_start`/`eff_end` ([availability.py:299-301](../../core/services/availability.py#L299-L301));
@@ -274,7 +349,14 @@ worth doing.
 
 ---
 
-## P1-5 — Calendar tasks retry permanent errors, then fail silently
+## ~~P1-5 — Calendar tasks retry permanent errors, then fail silently~~ ✅ FIXED
+
+**Fixed.** `calendars.is_permanent()` / `http_status_of()` classify provider errors, and
+`_handle_permanent_calendar_error()` acts on them: 401/403 → `REAUTH_REQUIRED` (which also drops
+the integration out of availability lookups), 404/410 → clear `external_event_id` so the next
+push re-inserts instead of updating an event that no longer exists, other 4xx → `ERROR` with
+`last_error`. 408/429 stay retryable — rate limiting is not a defect. Applied to all four
+calendar tasks. Original finding below.
 
 **Where:** [tasks.py:129-131](../../core/tasks.py#L129-L131) and the sibling calendar tasks —
 `except Exception: ... raise self.retry(exc=exc)`.
@@ -291,7 +373,12 @@ terminal failure.
 
 ---
 
-## P1-6 — `.ics` `SEQUENCE` never increments
+## ~~P1-6 — `.ics` `SEQUENCE` never increments~~ ✅ FIXED
+
+**Fixed.** `_ics_sequence()` counts the booking's CREATED/CONFIRMED/RESCHEDULED/CANCELED
+`BookingEvent` rows. Derived from the append-only log rather than stored, so it only ever
+grows — exactly the guarantee RFC 5545 needs. Group invites share one UID, so they take the
+max across the group's rows. Original finding below.
 
 **Where:** [ics.py:23-36](../../core/services/ics.py#L23-L36) — `sequence=0` default, no caller
 overrides, despite the docstring stating it must increase on each update.
@@ -305,7 +392,13 @@ event_type__in=(CREATED, RESCHEDULED, CONFIRMED)).count()`.
 
 ---
 
-## P2-1 — Beat tasks iterate unbounded and abort as a batch
+## ~~P2-1 — Beat tasks iterate unbounded and abort as a batch~~ ✅ FIXED
+
+**Fixed.** `send_due_reminders` and the two calendar beat loops now stream with `.iterator()`
+and isolate per item; `release_expired_holds` is capped at 500 per run (the beat fires every
+60s, so a backlog drains across runs) and isolated per hold. One bad row no longer strands
+every later one — which previously also meant the next run hit the same row again. Original
+finding below.
 
 - `release_expired_holds` ([bookings.py:504-523](../../core/services/bookings.py#L504-L523))
   materializes every expired id, then opens **one transaction per hold**.
@@ -323,7 +416,11 @@ where one bad timezone (P0-2) would otherwise take out everyone's availability.
 
 ---
 
-## P2-2 — No alerting on exhausted Celery retries
+## ~~P2-2 — No alerting on exhausted Celery retries~~ ✅ FIXED
+
+**Fixed.** `ReportedTask` base class with an `on_failure` hook, applied to all 18 tasks in
+`core/tasks.py`. Emits one structured ERROR to the dedicated `core.tasks.failures` logger with
+task name, id and retry count — alert on that logger. Original finding below.
 
 Every task in [core/tasks.py](../../core/tasks.py) uses `max_retries=3` and then gives up. There
 is no dead-letter queue, no `on_failure` hook, and no metric. Confirmations, calendar pushes,
@@ -335,7 +432,9 @@ increments a counter — `django-prometheus` is already a dependency
 
 ---
 
-## P2-3 — `_load_by_token` picks a group member non-deterministically
+## ~~P2-3 — `_load_by_token` picks a group member non-deterministically~~ ✅ FIXED
+
+**Fixed.** `.order_by("created_at", "id")`. Original finding below.
 
 **Where:** [rebooking.py:29-36](../../core/services/rebooking.py#L29-L36) — `.filter(...).first()`
 under `Booking.Meta.ordering = ["-start_time"]`. Every row in a COLLECTIVE group shares a
@@ -350,16 +449,23 @@ are identical across the group), but it is load-bearing correctness resting on a
 
 ## Cross-cutting suggestions
 
-**1. Push invariants down to the database while it is free.** The exclusion constraint
-([booking.py:161-176](../../core/models/booking.py#L161-L176)) is the best thing in this codebase —
-double-booking is impossible rather than merely checked. With no production data, extend the
-same philosophy at zero cost:
+**1. Push invariants down to the database while it is free.** ✅ **partially done.** The
+exclusion constraint ([booking.py](../../core/models/booking.py)) is the best thing in this
+codebase — double-booking is impossible rather than merely checked. Extending it:
 
-- `CHECK (hold_expires_at IS NOT NULL) WHERE status = 'HELD'` — a hold with no expiry never
-  lapses and blocks its slot forever.
-- `CHECK (group_id IS NOT NULL)` for COLLECTIVE bookings.
-- Partial unique index on `reschedule_token WHERE status = 'REQUIRES_RESCHEDULE'`.
-- `AvailabilityWindow`'s `end_utc > start_utc` (already in the plan).
+- ✅ `booking_held_requires_expiry` — a hold with no expiry never lapses and blocks its slot
+  forever, because `release_expired_holds` filters on `hold_expires_at__lt`. Shipped.
+- ✅ `event_template_horizon_bounded`, `event_template_granularity_min` — see P0-3. Shipped.
+- ❌ **`CHECK (group_id IS NOT NULL)` for COLLECTIVE — withdrawn, not expressible.**
+  `assignment_strategy` lives on `EventTemplate`, and a table-level `CHECK` cannot join. It
+  would need a trigger or a denormalized column; neither is worth it for this.
+- ❌ **Partial unique index on `reschedule_token` — withdrawn, and it would have been a bug.**
+  A COLLECTIVE group deliberately shares **one** token across all its member rows
+  ([reschedule.py](../../core/services/reschedule.py) assigns the same `token` to every member),
+  so a unique index would make group reschedule fail outright. Uniqueness belongs to the
+  *reschedule request*, which is not a row in this table. See P2-3 for the related ordering
+  issue, which is the real defect in that area.
+- `AvailabilityWindow`'s `end_utc > start_utc` (in the overnight plan, not yet built).
 
 **2. Contract-test the four booking entry points against each other.** REST, public link, AI
 bridge, and rebooking all reach `create_booking` with different validation in front of them —
@@ -385,9 +491,9 @@ mode above into something a cron job notices.
 | Step | Items | Rationale |
 |---|---|---|
 | ~~0~~ | ~~P0-2~~ | ✅ done — shipped with the timezone conversion authority |
-| 1 | P0-1 | 5xx on the only unauthenticated endpoint; small |
-| 2 | P0-3, P0-4 + the constraints in *Cross-cutting 1* | Schema-level; free now, expensive after launch |
-| 3 | P0-5, P1-2 | The two "customer thinks it failed but it didn't / thinks it worked but it didn't" pairs |
-| 4 | P1-1, P1-3, P1-4 | Correctness divergences between callers |
-| 5 | P2-1 | Fold into the materialization task while writing it |
-| 6 | P1-5, P1-6, P2-2, P2-3, *Cross-cutting 4* | Operational polish |
+| ~~1~~ | ~~P0-1~~ | ✅ done — serializer + service-boundary guard, 4 regression tests |
+| ~~2~~ | ~~P0-3, P0-4, *Cross-cutting 1*~~ | ✅ done — migration `0039`, 13 tests. Two proposed constraints withdrawn as not expressible |
+| ~~3~~ | ~~P0-5, P1-2~~ | ✅ done — `deferred.safe` + task-owned notification status, 11 tests |
+| ~~4~~ | ~~P1-1, P1-3, P1-4~~ | ✅ done — 11 tests. Fail-open/closed rule now applied consistently |
+| ~~5~~ | ~~P2-1~~ | ✅ done — streaming + per-item isolation |
+| ~~6~~ | ~~P1-5, P1-6, P2-2, P2-3~~ | ✅ done — 10 tests. *Cross-cutting 4* (audit command) still open |

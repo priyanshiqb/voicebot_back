@@ -1,7 +1,11 @@
 from rest_framework import serializers
 
 from tenant.common import TenantBaseModelSerializer
-from core.models.event_template import EventTemplate
+from core.models.event_template import (
+    MAX_HORIZON_DAYS,
+    MIN_SLOT_GRANULARITY_MINUTES,
+    EventTemplate,
+)
 
 
 class EventTemplateRefSerializer(serializers.ModelSerializer):
@@ -46,8 +50,17 @@ class EventTemplateSerializer(TenantBaseModelSerializer):
         return value
 
     def validate_slot_granularity_minutes(self, value):
-        if value < 1:
-            raise serializers.ValidationError("Slot granularity must be at least 1 minute.")
+        if value < MIN_SLOT_GRANULARITY_MINUTES:
+            raise serializers.ValidationError(
+                f"Slot granularity must be at least {MIN_SLOT_GRANULARITY_MINUTES} minutes."
+            )
+        return value
+
+    def validate_max_horizon_days(self, value):
+        if not 1 <= value <= MAX_HORIZON_DAYS:
+            raise serializers.ValidationError(
+                f"Booking horizon must be between 1 and {MAX_HORIZON_DAYS} days."
+            )
         return value
 
     def validate(self, attrs):

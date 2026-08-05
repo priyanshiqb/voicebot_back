@@ -7,6 +7,42 @@ from datetime import datetime
 from typing import Optional
 
 
+def http_status_of(exc):
+    """Best-effort HTTP status from a provider exception, or None.
+
+    Google's ``HttpError`` carries ``exc.resp.status``; other clients tend to use
+    ``status_code``. Kept here rather than in the task so a second provider only
+    has to be recognised in one place.
+    """
+    resp = getattr(exc, "resp", None)
+    status = getattr(resp, "status", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+# Retrying these is pointless: the credentials or the remote object will not come
+# back on their own. Retrying them anyway is how a task burns its budget and then
+# gives up silently, leaving the integration permanently broken with no signal.
+AUTH_FAILURE_STATUSES = frozenset({401, 403})
+GONE_STATUSES = frozenset({404, 410})
+# 429 is a client error but IS worth retrying — it is rate limiting, not a defect.
+RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
+
+def is_permanent(exc):
+    """True when retrying `exc` cannot succeed."""
+    status = http_status_of(exc)
+    if status is None:
+        return False  # unknown shape: assume transient, let retries decide
+    if status in RETRYABLE_CLIENT_STATUSES:
+        return False
+    return 400 <= status < 500
+
+
 @dataclass(frozen=True)
 class BusyInterval:
     start: datetime  # UTC-aware

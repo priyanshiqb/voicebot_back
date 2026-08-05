@@ -14,6 +14,7 @@ from core.serializers.booking import (
 )
 from core.services import bookings as booking_service
 from core.services.exceptions import (
+    ExternalCalendarUnavailable,
     InvalidTransitionError,
     NoEligibleHostError,
     PolicyViolationError,
@@ -98,6 +99,12 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         except SlotConflictError as exc:
             return None, self.error(
                 message=str(exc), status_code=status.HTTP_409_CONFLICT
+            )
+        except ExternalCalendarUnavailable as exc:
+            # 503, not 409: the slot may well be free — the host's calendar simply
+            # could not be read, so booking would be unverified. Retryable.
+            return None, self.error(
+                message=str(exc), status_code=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
     def _serialized(self, booking):

@@ -6,8 +6,11 @@ from core.models.event_template import EventTemplate
 
 class AvailableSlotsQuerySerializer(serializers.Serializer):
     event_template = serializers.PrimaryKeyRelatedField(
-        queryset=EventTemplate.objects.all(),
-        help_text="Event template id. Must belong to the caller's tenant."
+        # Same reason as BookingCreateSerializer: is_active is not filtered by the
+        # default manager. Offering slots for a deactivated template would only
+        # lead to a rejected booking.
+        queryset=EventTemplate.objects.filter(is_active=True),
+        help_text="Event template id. Must belong to the caller's tenant and be active."
     )
     date_from = serializers.DateField(
         help_text="Start date YYYY-MM-DD (inclusive)."
@@ -59,3 +62,10 @@ class SlotSerializer(serializers.Serializer):
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
     eligible_host_ids = serializers.ListField(child=serializers.UUIDField())
+    external_check_failed = serializers.BooleanField(
+        help_text=(
+            "True when a host's external calendar could not be reached, so this "
+            "slot is offered on unverified information. Booking it will be "
+            "refused with 503 while the provider is still unreachable."
+        )
+    )

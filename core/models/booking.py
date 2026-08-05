@@ -15,6 +15,9 @@ from tenant.common.models.tenant_base_model import TenantBaseModel
 # (nested class bodies cannot see enclosing-class names).
 ACTIVE_BOOKING_STATUSES = ["HELD", "SCHEDULED", "CONFIRMED", "REQUIRES_RESCHEDULE"]
 
+# Same reason as above: Meta cannot see Booking.Status.HELD.
+HELD_STATUS = "HELD"
+
 
 class TsTzRange(Func):
     """Postgres tstzrange(lower, upper, bounds) expression for the exclusion constraint."""
@@ -157,6 +160,15 @@ class Booking(TenantBaseModel):
                     effective_end_time__gt=models.F("effective_start_time")
                 ),
                 name="booking_effective_end_after_start",
+            ),
+            # A HELD row occupies the exclusion constraint below, so without an
+            # expiry it reserves its slot forever and no cleanup task can ever
+            # release it (release_expired_holds filters on hold_expires_at__lt).
+            # The service always sets one; this makes it unrepresentable.
+            models.CheckConstraint(
+                condition=~models.Q(status=HELD_STATUS)
+                | models.Q(hold_expires_at__isnull=False),
+                name="booking_held_requires_expiry",
             ),
             ExclusionConstraint(
                 name="core_booking_no_overlap_per_host",

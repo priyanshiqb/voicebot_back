@@ -4,7 +4,15 @@ Google is currently the only one. The registry and `CalendarProvider` interface 
 kept so adding another provider stays an addition rather than a refactor.
 """
 
-from core.services.calendars.base import BusyInterval, CalendarProvider, OAuthTokens
+from core.services.calendars.base import (
+    AUTH_FAILURE_STATUSES,
+    GONE_STATUSES,
+    BusyInterval,
+    CalendarProvider,
+    OAuthTokens,
+    http_status_of,
+    is_permanent,
+)
 from core.services.calendars.google import GoogleCalendarProvider
 
 _PROVIDERS = {
@@ -33,6 +41,8 @@ def get_provider_class(provider_name):
 
 
 __all__ = [
+    "AUTH_FAILURE_STATUSES",
+    "GONE_STATUSES",
     "BusyInterval",
     "CalendarProvider",
     "OAuthTokens",
@@ -40,4 +50,6 @@ __all__ = [
     "get_provider",
     "get_provider_for",
     "get_provider_class",
+    "http_status_of",
+    "is_permanent",
 ]

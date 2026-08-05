@@ -14,6 +14,7 @@ Correctness invariants:
 import logging
 import uuid
 from datetime import timedelta
+from datetime import timezone as dt_timezone
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, transaction
@@ -22,7 +23,7 @@ from django.utils import timezone
 from core.models.booking import Booking
 from core.models.booking_event import BookingEvent
 from core.models.booking_participant import BookingParticipant
-from core.services import availability, events, notifications
+from core.services import availability, deferred, events, notifications
 from core.services.exceptions import (
     InvalidTransitionError,
     NoEligibleHostError,
@@ -38,6 +39,23 @@ TERMINAL_STATUSES = {
     Booking.Status.NO_SHOW,
     Booking.Status.RESCHEDULED,
 }
+
+
+def _ensure_aware(value):
+    """Coerce a naive datetime to UTC.
+
+    This service is reached from four entry points — the REST viewset, the public
+    reschedule link, the AI bridge, and rebooking — each with different validation
+    in front of it. Only DRF guarantees awareness. A naive value reaching
+    ``_validate_policy`` raises ``TypeError: can't compare offset-naive and
+    offset-aware datetimes``, which is a 500 rather than a 400.
+
+    Normalizing at the service boundary means no future caller can reintroduce
+    that, regardless of how it parses its input.
+    """
+    if value is not None and timezone.is_naive(value):
+        return timezone.make_aware(value, dt_timezone.utc)
+    return value
 
 
 def _validate_policy(event_template, start_time, now):
@@ -56,6 +74,17 @@ def _validate_policy(event_template, start_time, now):
 
 
 def _create_participants(booking, host, participants):
+    """Write the host row plus every attendee.
+
+    Runs inside the booking transaction while a row lock is held on the host, so
+    the attendee rows go in as one statement rather than one INSERT each — the
+    lock is released proportionally sooner. The host row stays separate because
+    it is always exactly one.
+
+    Note bulk_create does NOT fire pre_save, so the contact-resolution signal on
+    BookingParticipant is applied explicitly below. Dropping that would silently
+    stop linking attendees to Contacts by phone number.
+    """
     BookingParticipant.objects.create(
         tenant=booking.tenant,
         booking=booking,
@@ -64,8 +93,10 @@ def _create_participants(booking, host, participants):
         email=host.email if host else "",
         role=BookingParticipant.Role.HOST,
     )
+
+    rows = []
     for p in participants or []:
-        BookingParticipant.objects.create(
+        row = BookingParticipant(
             tenant=booking.tenant,
             booking=booking,
             user=p.get("user"),
@@ -74,6 +105,14 @@ def _create_participants(booking, host, participants):
             phone_number=p.get("phone_number"),
             role=p.get("role") or BookingParticipant.Role.ATTENDEE,
         )
+        if row.phone_number:
+            from core.services.contact_resolution import find_contact
+
+            row.contact = find_contact(booking.tenant_id, row.phone_number)
+        rows.append(row)
+
+    if rows:
+        BookingParticipant.objects.bulk_create(rows)
 
 
 def _enqueue_calendar_push(booking_id):
@@ -89,6 +128,12 @@ def _enqueue_calendar_delete(booking_id):
 
 
 _MAX_CONFLICT_RETRIES = 5
+
+# Ceiling on one release_expired_holds run. The beat fires every 60s, so a backlog
+# drains across runs rather than in one unbounded transaction storm. Logged when
+# hit (see release_expired_holds) so a persistent backlog is visible rather than
+# looking like steady-state.
+_HOLD_RELEASE_BATCH = 500
 
 
 def _is_retryable_conflict(exc):
@@ -139,6 +184,7 @@ def create_booking(
     now = now or timezone.now()
     if not target_host_id:
         raise NoEligibleHostError("This event type requires a specific host.")
+    start_time = _ensure_aware(start_time)
     end_time = start_time + timedelta(minutes=event_template.duration_minutes)
     _validate_policy(event_template, start_time, now)
 
@@ -232,8 +278,10 @@ def _create_once(
 
         if status != Booking.Status.HELD:
             booking_id = booking.id
-            transaction.on_commit(lambda: notifications.send_confirmation(booking_id))
-            transaction.on_commit(lambda: _enqueue_calendar_push(booking_id))
+            transaction.on_commit(
+                deferred.safe(notifications.send_confirmation, booking_id)
+            )
+            transaction.on_commit(deferred.safe(_enqueue_calendar_push, booking_id))
 
     return booking
 
@@ -282,6 +330,7 @@ def create_collective_booking(
     SlotConflictError (409) if any required host is unavailable.
     """
     now = now or timezone.now()
+    start_time = _ensure_aware(start_time)
     end_time = start_time + timedelta(minutes=event_template.duration_minutes)
     _validate_policy(event_template, start_time, now)
 
@@ -366,12 +415,10 @@ def _create_collective_once(
             created.append(booking)
 
         transaction.on_commit(
-            lambda gid=group_id: notifications.send_group_confirmation(gid)
+            deferred.safe(notifications.send_group_confirmation, group_id)
         )
         for member in created:
-            transaction.on_commit(
-                lambda bid=member.id: _enqueue_calendar_push(bid)
-            )
+            transaction.on_commit(deferred.safe(_enqueue_calendar_push, member.id))
     return created
 
 
@@ -391,8 +438,8 @@ def confirm_hold(*, booking, actor=None, now=None):
         b.save(update_fields=["status", "hold_expires_at", "updated_by", "updated_at"])
         events.log_event(b, BookingEvent.EventType.CONFIRMED, actor=actor)
         bid = b.id
-        transaction.on_commit(lambda: notifications.send_confirmation(bid))
-        transaction.on_commit(lambda: _enqueue_calendar_push(bid))
+        transaction.on_commit(deferred.safe(notifications.send_confirmation, bid))
+        transaction.on_commit(deferred.safe(_enqueue_calendar_push, bid))
     return b
 
 
@@ -424,8 +471,8 @@ def cancel_booking(*, booking, actor=None, reason="", enforce_lead=True, now=Non
         )
         if not was_hold:
             bid = b.id
-            transaction.on_commit(lambda: notifications.send_cancellation(bid))
-            transaction.on_commit(lambda: _enqueue_calendar_delete(bid))
+            transaction.on_commit(deferred.safe(notifications.send_cancellation, bid))
+            transaction.on_commit(deferred.safe(_enqueue_calendar_delete, bid))
     return b
 
 
@@ -470,12 +517,10 @@ def cancel_group(*, group_id, actor=None, reason="", enforce_lead=True, now=None
             )
             canceled.append(booking)
         transaction.on_commit(
-            lambda gid=group_id: notifications.send_group_cancellation(gid)
+            deferred.safe(notifications.send_group_cancellation, group_id)
         )
         for booking in rows:
-            transaction.on_commit(
-                lambda bid=booking.id: _enqueue_calendar_delete(bid)
-            )
+            transaction.on_commit(deferred.safe(_enqueue_calendar_delete, booking.id))
     return canceled
 
 
@@ -509,15 +554,27 @@ def release_expired_holds(now=None):
     expired_ids = list(
         Booking.objects.filter(
             status=Booking.Status.HELD, hold_expires_at__lt=now, is_deleted=False
-        ).values_list("pk", flat=True)
+        ).values_list("pk", flat=True)[:_HOLD_RELEASE_BATCH]
     )
     for pk in expired_ids:
-        with transaction.atomic():
-            b = Booking.objects.select_for_update().get(pk=pk)
-            if b.status == Booking.Status.HELD and b.hold_expires_at and b.hold_expires_at < now:
-                b.status = Booking.Status.CANCELED
-                b.cancellation_reason = "Hold expired"
-                b.save(update_fields=["status", "cancellation_reason", "updated_at"])
-                events.log_event(b, BookingEvent.EventType.HOLD_EXPIRED)
-                released += 1
+        # Isolated per hold: one row that cannot be released must not strand every
+        # later one, which would keep their slots reserved and hit the same wall
+        # on the next run.
+        try:
+            with transaction.atomic():
+                b = Booking.objects.select_for_update().get(pk=pk)
+                if (
+                    b.status == Booking.Status.HELD
+                    and b.hold_expires_at
+                    and b.hold_expires_at < now
+                ):
+                    b.status = Booking.Status.CANCELED
+                    b.cancellation_reason = "Hold expired"
+                    b.save(
+                        update_fields=["status", "cancellation_reason", "updated_at"]
+                    )
+                    events.log_event(b, BookingEvent.EventType.HOLD_EXPIRED)
+                    released += 1
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to release expired hold %s", pk)
     return released

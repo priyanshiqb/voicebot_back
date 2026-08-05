@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta
 
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.dateparse import parse_date
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 
 from core.services import rebooking
 from core.services.exceptions import (
+    ExternalCalendarUnavailable,
     NoEligibleHostError,
     PolicyViolationError,
     SlotConflictError,
@@ -26,6 +27,22 @@ class RescheduleRateThrottle(AnonRateThrottle):
 
     def get_rate(self):
         return "30/min"
+
+
+class PublicRescheduleInputSerializer(serializers.Serializer):
+    """
+    Validates the chosen slot.
+
+    A DRF ``DateTimeField`` is deliberate rather than hand-parsing: with
+    ``USE_TZ=True`` it returns an AWARE datetime, coercing a value that carries no
+    offset instead of passing a naive one through. Hand-parsing here previously
+    accepted naive input, which then hit ``start_time < now`` in the booking
+    service and raised ``TypeError`` — an uncaught 500 on the only unauthenticated
+    endpoint in the module, triggered by nothing worse than a client omitting the
+    ``Z`` suffix.
+    """
+
+    start_time = serializers.DateTimeField()
 
 
 @extend_schema(tags=["Booking"])
@@ -106,13 +123,17 @@ class PublicRescheduleView(APIView):
         }
     )
     def post(self, request, token):
-        raw_start = request.data.get("start_time")
-        start_time = parse_datetime(raw_start) if raw_start else None
-        if start_time is None:
+        payload = PublicRescheduleInputSerializer(data=request.data)
+        if not payload.is_valid():
             return Response(
-                {"status": False, "message": "A valid start_time is required."},
+                {
+                    "status": False,
+                    "message": "A valid start_time is required.",
+                    "errors": payload.errors,
+                },
                 status=400,
             )
+        start_time = payload.validated_data["start_time"]
         try:
             new = rebooking.rebook(str(token), start_time)
         except rebooking.InvalidRescheduleToken as exc:
@@ -121,6 +142,9 @@ class PublicRescheduleView(APIView):
             return Response({"status": False, "message": str(exc)}, status=400)
         except SlotConflictError as exc:
             return Response({"status": False, "message": str(exc)}, status=409)
+        except ExternalCalendarUnavailable as exc:
+            # 503: the slot may be free; the host's calendar just could not be read.
+            return Response({"status": False, "message": str(exc)}, status=503)
 
         booking_id = new[0].id if isinstance(new, list) else new.id
         return Response(

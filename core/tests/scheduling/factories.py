@@ -64,7 +64,7 @@ def make_template(tenant, **kwargs):
         duration_minutes=30,
         slot_granularity_minutes=30,
         min_notice_minutes=0,
-        max_horizon_days=400,
+        max_horizon_days=365,
         cancellation_lead_minutes=60,
         reschedule_lead_minutes=60,
         assignment_strategy=EventTemplate.AssignmentStrategy.DIRECT,

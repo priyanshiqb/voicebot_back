@@ -1,5 +1,6 @@
 from django.core.validators import (
     MaxLengthValidator,
+    MaxValueValidator,
     MinLengthValidator,
     MinValueValidator,
     RegexValidator,
@@ -7,6 +8,14 @@ from django.core.validators import (
 from django.db import models
 
 from tenant.common.models.tenant_base_model import TenantBaseModel
+
+# Slot generation is O(days x minutes_per_day / granularity x hosts) and runs
+# synchronously inside the request. Both bounds below exist to keep that product
+# finite: the field types alone allow max_horizon_days=32767 with a 1-minute
+# granularity, which is ~47 million iterations per host per request — reachable
+# by a tenant through the ordinary API, on themselves.
+MAX_HORIZON_DAYS = 365
+MIN_SLOT_GRANULARITY_MINUTES = 5
 
 
 class EventTemplate(TenantBaseModel):
@@ -68,11 +77,18 @@ class EventTemplate(TenantBaseModel):
     )
     max_horizon_days = models.PositiveSmallIntegerField(
         default=60,
-        help_text="Furthest into the future a slot may be booked (days).",
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_HORIZON_DAYS)],
+        help_text=(
+            f"Furthest into the future a slot may be booked (days, max {MAX_HORIZON_DAYS})."
+        ),
     )
     slot_granularity_minutes = models.PositiveSmallIntegerField(
         default=15,
-        help_text="Step size between candidate start times when generating slots (minutes).",
+        validators=[MinValueValidator(MIN_SLOT_GRANULARITY_MINUTES)],
+        help_text=(
+            "Step size between candidate start times when generating slots "
+            f"(minutes, min {MIN_SLOT_GRANULARITY_MINUTES})."
+        ),
     )
     cancellation_lead_minutes = models.PositiveIntegerField(
         default=60,
@@ -110,9 +126,19 @@ class EventTemplate(TenantBaseModel):
                 condition=models.Q(duration_minutes__gt=0),
                 name="event_template_duration_positive",
             ),
+            # Enforced in the database as well as the serializer: these bound the
+            # cost of a synchronous request, so a direct-ORM writer (management
+            # command, data fix, future service) must not be able to bypass them.
             models.CheckConstraint(
-                condition=models.Q(slot_granularity_minutes__gt=0),
-                name="event_template_granularity_positive",
+                condition=models.Q(
+                    slot_granularity_minutes__gte=MIN_SLOT_GRANULARITY_MINUTES
+                ),
+                name="event_template_granularity_min",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(max_horizon_days__gte=1)
+                & models.Q(max_horizon_days__lte=MAX_HORIZON_DAYS),
+                name="event_template_horizon_bounded",
             ),
         ]
 

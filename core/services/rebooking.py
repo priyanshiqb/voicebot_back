@@ -13,7 +13,7 @@ from core.models.booking import Booking
 from core.models.booking_event import BookingEvent
 from core.models.booking_participant import BookingParticipant
 from core.models.event_template import EventTemplate
-from core.services import availability, bookings as booking_service, events
+from core.services import availability, bookings as booking_service, deferred, events
 from core.services.exceptions import SchedulingError
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,12 @@ def _load_by_token(token, now, *, lock=False):
     )
     if lock:
         qs = qs.select_for_update()
-    booking = qs.first()
+    # Deterministic pick: a COLLECTIVE group shares one token across every member
+    # row, and Booking.Meta.ordering is "-start_time" — identical for all of them,
+    # so the tiebreak was whatever Postgres happened to return. Harmless today
+    # (the collective path reads only group_id and event_template, both identical)
+    # but it is correctness resting on an accident.
+    booking = qs.order_by("created_at", "id").first()
     if booking is None:
         raise InvalidRescheduleToken(
             "This reschedule link is invalid or has already been used."
@@ -147,6 +152,8 @@ def rebook(token, start_time, now=None):
             )
             if row.external_event_id:
                 transaction.on_commit(
-                    lambda bid=row.id: booking_service._enqueue_calendar_delete(bid)
+                    deferred.safe(
+                        booking_service._enqueue_calendar_delete, row.id
+                    )
                 )
     return new

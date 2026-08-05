@@ -23,7 +23,7 @@ class AvailabilityEngineTests(TestCase):
         tenant = f.make_tenant()
         tz = f.make_timezone("America/New_York", "UTC-05:00", "New York")
         template = f.make_template(
-            tenant, duration_minutes=60, slot_granularity_minutes=60, max_horizon_days=400
+            tenant, duration_minutes=60, slot_granularity_minutes=60, max_horizon_days=365
         )
         host = f.make_user(tenant)
         UserEventSkill.objects.create(tenant=tenant, user=host, event_template=template)

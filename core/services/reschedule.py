@@ -23,7 +23,7 @@ from django.db import transaction
 from core.models.availability_exception import AvailabilityException
 from core.models.booking import Booking
 from core.models.booking_event import BookingEvent
-from core.services import events, notifications
+from core.services import deferred, events, notifications
 from core.services.time_utils import utcnow
 
 logger = logging.getLogger(__name__)
@@ -92,11 +92,14 @@ def _process_booking(tenant, booking_id, leave, now, token_ttl):
         # One customer notification for the meeting (the leaving host's row carries
         # the attendees + the shared token), plus an internal push alert.
         transaction.on_commit(
-            lambda bid=booking.id: notifications.send_reschedule_request(bid)
+            deferred.safe(notifications.send_reschedule_request, booking.id)
         )
         transaction.on_commit(
-            lambda tid=tenant.id, title=booking.title: _enqueue_push_admins(
-                tid, "Booking needs rescheduling", title
+            deferred.safe(
+                _enqueue_push_admins,
+                tenant.id,
+                "Booking needs rescheduling",
+                booking.title,
             )
         )
         return "flagged"

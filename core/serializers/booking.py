@@ -83,6 +83,13 @@ class BookingListSerializer(serializers.ModelSerializer):
         )
 
 
+# Attendee rows are inserted inside the booking transaction, while a row lock is
+# held on the host (see bookings._create_once). An unbounded list therefore holds
+# that lock — blocking every other booking for that host — for as long as the
+# inserts take. 25 is generous for a meeting; the point is that it is finite.
+MAX_PARTICIPANTS_PER_BOOKING = 25
+
+
 class BookingParticipantInputSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     email = serializers.EmailField()
@@ -97,7 +104,14 @@ class BookingCreateSerializer(serializers.Serializer):
     """Validates input for creating or holding a booking. The actual insert is
     performed by the booking service (which enforces overlap/host selection)."""
 
-    event_template = serializers.PrimaryKeyRelatedField(queryset=EventTemplate.objects.all())
+    # is_active is NOT filtered by the default manager (which only excludes
+    # is_deleted), so this has to be explicit. Without it, deactivating a template
+    # stopped the AI bridge booking it (agent_scheduling filters is_active) but not
+    # the REST API — two callers disagreeing about what is bookable, with the admin
+    # who deactivated it reasonably believing it was off.
+    event_template = serializers.PrimaryKeyRelatedField(
+        queryset=EventTemplate.objects.filter(is_active=True)
+    )
     start_time = serializers.DateTimeField()
     target_host = serializers.PrimaryKeyRelatedField(
         queryset=CustomUser.objects.all(),
@@ -113,6 +127,10 @@ class BookingCreateSerializer(serializers.Serializer):
     def validate_participants(self, value):
         if not value:
             raise serializers.ValidationError("At least one participant is required.")
+        if len(value) > MAX_PARTICIPANTS_PER_BOOKING:
+            raise serializers.ValidationError(
+                f"A booking may have at most {MAX_PARTICIPANTS_PER_BOOKING} participants."
+            )
         return value
 
     def validate(self, attrs):

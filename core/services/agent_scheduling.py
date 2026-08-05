@@ -20,6 +20,7 @@ from core.models.booking import Booking
 from core.models.event_template import EventTemplate
 from core.services import availability, bookings as booking_service
 from core.services.exceptions import (
+    ExternalCalendarUnavailable,
     InvalidTransitionError,
     NoEligibleHostError,
     PolicyViolationError,
@@ -97,6 +98,15 @@ def _error_result(exc):
         }
     if isinstance(exc, InvalidTransitionError):
         return {"ok": False, "reason": "invalid_state", "message": str(exc)}
+    if isinstance(exc, ExternalCalendarUnavailable):
+        # Distinct from slot_taken: the time may be free, we just could not check.
+        # Telling the caller "that slot is taken" would be a plain untruth.
+        return {
+            "ok": False,
+            "reason": "calendar_unavailable",
+            "retry": True,
+            "message": str(exc),
+        }
     if isinstance(exc, TemplateNotAllowed):
         return {"ok": False, "reason": "template_not_allowed", "message": str(exc)}
     raise exc
@@ -107,6 +117,7 @@ _ENGINE_ERRORS = (
     NoEligibleHostError,
     PolicyViolationError,
     InvalidTransitionError,
+    ExternalCalendarUnavailable,
     TemplateNotAllowed,
 )
 
@@ -171,6 +182,9 @@ def check_availability(agent, event_template_id, date_from, date_to, target_host
                 "start": s.start.isoformat(),
                 "end": s.end.isoformat(),
                 "host_ids": [str(h) for h in s.eligible_host_ids],
+                # Unverified: a host's external calendar was unreachable. Booking
+                # this slot will come back as calendar_unavailable until it clears.
+                "unverified": s.external_check_failed,
             }
             for s in slots
         ],

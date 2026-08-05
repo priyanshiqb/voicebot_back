@@ -29,3 +29,15 @@ class PolicyViolationError(SchedulingError):
 
 class InvalidTransitionError(SchedulingError):
     """An illegal booking status transition was attempted (HTTP 400)."""
+
+
+class ExternalCalendarUnavailable(SchedulingError):
+    """A host's external calendar could not be reached, so their availability
+    could not be verified (HTTP 503).
+
+    Deliberately distinct from SlotConflictError: the slot may well be free — we
+    simply do not know. Committing a booking on an unverified calendar is how a
+    host gets double-booked against an external meeting, which nothing in this
+    system can detect afterwards. Browsing degrades open and flags the slot;
+    committing refuses and asks the caller to retry.
+    """
