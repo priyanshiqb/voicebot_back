@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest import skipUnless
 
 from django.core.cache import cache
@@ -122,6 +122,64 @@ class PublicRescheduleApiTests(_RebookBase):
             response.data["data"]["booking"]["event_type"], self.template.name
         )
         self.assertIsInstance(response.data["data"]["slots"], list)
+
+    def test_get_renders_times_in_the_requested_zone(self):
+        """The customer's browser states its zone; the page shows their clock.
+
+        Without this the reschedule page shows UTC to someone who has never
+        thought about UTC, on the one screen where they must pick a time.
+        """
+        response = self.client.get(self.url, {"timezone": "Asia/Kolkata"})
+        self.assertEqual(response.status_code, 200, response.data)
+        data = response.data["data"]
+
+        self.assertEqual(data["timezone"], "Asia/Kolkata")
+        self.assertTrue(data["slots"], "no slots to check")
+        for slot in data["slots"][:3]:
+            utc = datetime.fromisoformat(str(slot["start"]).replace("Z", "+00:00"))
+            local = datetime.fromisoformat(slot["start_local"])
+            self.assertEqual(utc, local, "start_local is a rendering, not a new time")
+            self.assertEqual(local.utcoffset(), timedelta(hours=5, minutes=30))
+
+    def test_original_start_time_is_also_rendered_locally(self):
+        """The customer needs to recognise the meeting being moved."""
+        response = self.client.get(self.url, {"timezone": "Asia/Kolkata"})
+        booking = response.data["data"]["booking"]
+
+        utc = datetime.fromisoformat(
+            str(booking["original_start_time"]).replace("Z", "+00:00")
+        )
+        local = datetime.fromisoformat(booking["original_start_time_local"])
+        self.assertEqual(utc, local)
+        self.assertEqual(local.utcoffset(), timedelta(hours=5, minutes=30))
+
+    def test_requested_zone_does_not_change_which_slots_are_offered(self):
+        utc_slots = self.client.get(self.url, {"timezone": "UTC"}).data["data"]["slots"]
+        ist_slots = self.client.get(
+            self.url, {"timezone": "Asia/Kolkata"}
+        ).data["data"]["slots"]
+
+        self.assertEqual(
+            [str(s["start"]) for s in utc_slots],
+            [str(s["start"]) for s in ist_slots],
+        )
+
+    def test_unusable_zone_falls_back_instead_of_breaking_the_page(self):
+        """Deliberately unlike the authenticated endpoint, which 400s.
+
+        This is the customer's only route to reschedule; failing the whole page
+        over a browser quirk is worse than showing the host's zone. The effective
+        zone is echoed back, so a client that cares can detect the fallback.
+        """
+        response = self.client.get(self.url, {"timezone": "Mars/Olympus_Mons"})
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["data"]["timezone"], "UTC")  # the host's
+        self.assertTrue(response.data["data"]["slots"])
+
+    def test_zone_defaults_to_the_hosts(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["data"]["timezone"], "UTC")
 
     def test_post_rebooks_and_consumes_token(self):
         response = self.client.post(

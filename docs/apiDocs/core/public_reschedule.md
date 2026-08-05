@@ -46,10 +46,17 @@ Safe to call repeatedly — it does **not** consume the token.
 |---|---|---|---|
 | `start_utc` | ISO-8601 datetime | Start of the slot search window. | Defaults to **now**. Clamped so it is never earlier than now. A value with no offset is read as UTC. Unparseable values fall back to the default rather than erroring. |
 | `end_utc` | ISO-8601 datetime | End of the window, exclusive. | Defaults to **now + the event's `max_horizon_days`**, and is clamped to that ceiling. If it ends up on or before `start_utc`, one day is used. |
+| `timezone` | IANA zone name | Zone used to render every `*_local` field. **Send the customer's browser zone** — `Intl.DateTimeFormat().resolvedOptions().timeZone`. **Presentational only**; it never changes which slots are returned. | Defaults to the host's zone, then the tenant's, then UTC. An unusable value **falls back silently** rather than failing — see below. |
 
-These are **instants, not dates**, for the same reason as the authenticated slots endpoint: a date
-is a different 24 hours in every timezone, and only the customer's browser knows which one they
-mean. Resolve their chosen day locally, then send instants.
+`start_utc`/`end_utc` are **instants, not dates**, for the same reason as the authenticated slots
+endpoint: a date is a different 24 hours in every timezone, and only the customer's browser knows
+which one they mean. Resolve their chosen day locally, then send instants.
+
+> **An unknown `timezone` does not error here**, unlike the authenticated
+> [slots endpoint](./availability_slots.md), which returns `400`. This page is the customer's only
+> route to reschedule, and breaking it over a browser quirk is worse than showing the host's zone.
+> The **effective** zone is always echoed in `data.timezone`, so a client that cares can compare it
+> against what it sent and detect the fallback. The server logs a warning either way.
 
 ### Response — `200 OK`
 
@@ -57,16 +64,22 @@ mean. Resolve their chosen day locally, then send instants.
 {
   "status": true,
   "data": {
+    "timezone": "Asia/Kolkata",
     "booking": {
       "id": "9c1e85f64-5717-4562-b3fc-2c963f66af22",
       "title": "Intro call with Jane",
       "original_start_time": "2026-07-05T14:00:00Z",
+      "original_start_time_local": "2026-07-05T19:30:00+05:30",
       "event_type": "Intro Call",
       "duration_minutes": 30
     },
     "slots": [
-      { "start": "2026-07-06T14:00:00Z", "end": "2026-07-06T14:30:00Z" },
-      { "start": "2026-07-06T14:30:00Z", "end": "2026-07-06T15:00:00Z" }
+      {
+        "start": "2026-07-06T14:00:00Z",
+        "end": "2026-07-06T14:30:00Z",
+        "start_local": "2026-07-06T19:30:00+05:30",
+        "end_local": "2026-07-06T20:00:00+05:30"
+      }
     ]
   }
 }
@@ -74,16 +87,19 @@ mean. Resolve their chosen day locally, then send instants.
 
 | Field | Type | Meaning |
 |---|---|---|
+| `data.timezone` | string | The IANA zone every `*_local` field is expressed in. **The effective zone** — compare against what you sent to detect a fallback. |
 | `data.booking.id` | UUID | The booking being replaced. |
 | `data.booking.title` | string | Shown so the customer recognises which meeting this is. |
-| `data.booking.original_start_time` | ISO-8601 UTC | The time that no longer works. Render it in the customer's zone so they can see what changed. |
+| `data.booking.original_start_time` | ISO-8601 UTC | The time that no longer works. |
+| `data.booking.original_start_time_local` | ISO-8601 with offset | The same instant in `data.timezone` — show this, so the customer sees the time they remember. |
 | `data.booking.event_type` | string | The event template's name. |
 | `data.booking.duration_minutes` | integer | Length of the meeting; every slot below is this long. |
-| `data.slots[]` | array | Bookable alternatives, ascending. `start`/`end` are UTC. **May be empty.** |
+| `data.slots[]` | array | Bookable alternatives, ascending. **May be empty.** |
+| `slots[].start` / `end` | ISO-8601 UTC | **Send `start` back on `POST`.** The canonical value. |
+| `slots[].start_local` / `end_local` | ISO-8601 with offset | The same instants rendered in `data.timezone`. Display only. |
 
-**All times are UTC.** Unlike the authenticated slots endpoint, this response carries no `timezone`
-field and no pre-rendered local values — the customer's zone is unknown to the server. Convert
-client-side using the browser's zone.
+Every `*_local` value is a *rendering* of its UTC counterpart, never a different time — both parse
+to the same instant, and the offset shown is the one in force on that date.
 
 #### An empty `slots` array
 
@@ -197,13 +213,6 @@ the whole group.
   engine will not offer it either.
 - The rebook runs in one transaction with a row lock on the token's booking, so two simultaneous
   submissions cannot both succeed.
-
-## Possible improvement
-
-This response returns bare UTC with no timezone context, while the authenticated
-[slots endpoint](./availability_slots.md) now returns `timezone` plus `start_local`/`end_local`.
-Adding a `timezone` query parameter here would let the customer's browser state its zone and get
-pre-rendered local times back, matching the rest of the API. Not currently implemented.
 
 ## Related
 

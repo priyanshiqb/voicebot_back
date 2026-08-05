@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from core.services import rebooking
+from core.services import availability, rebooking
 from core.services.exceptions import (
     ExternalCalendarUnavailable,
     NoEligibleHostError,
@@ -20,7 +20,7 @@ from core.services.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
 
 class RescheduleRateThrottle(AnonRateThrottle):
@@ -59,6 +59,31 @@ class PublicRescheduleView(APIView):
     throttle_classes = [RescheduleRateThrottle]
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "start_utc", str, OpenApiParameter.QUERY,
+                description=(
+                    "Slot search window start, ISO-8601 instant. Defaults to now; "
+                    "never earlier than now."
+                ),
+            ),
+            OpenApiParameter(
+                "end_utc", str, OpenApiParameter.QUERY,
+                description=(
+                    "Slot search window end, exclusive. Defaults to (and is capped "
+                    "at) now + the event's horizon."
+                ),
+            ),
+            OpenApiParameter(
+                "timezone", str, OpenApiParameter.QUERY,
+                description=(
+                    "IANA zone for the *_local fields, e.g. Asia/Kolkata. Send the "
+                    "customer's browser zone. Display only — it never changes which "
+                    "slots are returned. Defaults to the host's zone; an unusable "
+                    "value falls back rather than failing the page."
+                ),
+            ),
+        ],
         responses={
             200: inline_serializer(
                 name="PublicRescheduleGetResponse",
@@ -96,19 +121,40 @@ class PublicRescheduleView(APIView):
             range_end = range_start + timedelta(days=1)
 
         _, slots = rebooking.list_slots(str(token), range_start, range_end, now=now)
+
+        # Display zone for this page. Unlike the authenticated slots endpoint, an
+        # unusable value falls back instead of returning 400: this is the
+        # customer's only route to reschedule, and breaking the page over a
+        # browser quirk is worse than showing the host's zone. The effective zone
+        # is echoed below, so a client that cares can detect the fallback.
+        zone, zone_name = availability.display_zone(
+            booking.tenant,
+            target_host_id=booking.primary_host_id,
+            requested=request.query_params.get("timezone") or None,
+        )
         return Response(
             {
                 "status": True,
                 "data": {
+                    "timezone": zone_name,
                     "booking": {
                         "id": str(booking.id),
                         "title": booking.title,
                         "original_start_time": booking.start_time,
+                        "original_start_time_local": booking.start_time.astimezone(
+                            zone
+                        ).isoformat(),
                         "event_type": template.name,
                         "duration_minutes": template.duration_minutes,
                     },
                     "slots": [
-                        {"start": s.start, "end": s.end} for s in slots
+                        {
+                            "start": s.start,
+                            "end": s.end,
+                            "start_local": s.start.astimezone(zone).isoformat(),
+                            "end_local": s.end.astimezone(zone).isoformat(),
+                        }
+                        for s in slots
                     ],
                 },
             },
