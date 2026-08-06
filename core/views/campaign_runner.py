@@ -233,9 +233,17 @@ class CampaignRunnerViewSet(
         Linked explicitly rather than matched on contact plus a time window: AgentCallLog
         carries inbound calls too, and a concurrent campaign may be calling the same
         person.
+
+        Scoped to the campaign's tenant. `provider_call_id` is globally unique, so this
+        is not about colliding ids — it is that the id is supplied by the caller and
+        matching on it alone accepted ANY tenant's log. A runner naming another tenant's
+        call id had that log stamped with this campaign's member and contact: a
+        cross-tenant write chosen entirely by a request field. The tenant filter makes
+        the row unreachable instead of merely unlikely to be named.
         """
         if not provider_call_id:
             return
-        AgentCallLog.objects.filter(provider_call_id=provider_call_id).update(
-            campaign_member=member, contact=member.contact
-        )
+        AgentCallLog.objects.filter(
+            provider_call_id=provider_call_id,
+            tenant_id=campaign.tenant_id,
+        ).update(campaign_member=member, contact=member.contact)

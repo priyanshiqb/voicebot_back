@@ -125,7 +125,7 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
     "data": [
       {
         "id": "0f0c2a2e-2a1e-4f5a-9a41-9d1f1a5a6b21",
-        "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+        "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
         "first_name": "Ada",
         "last_name": "Lovelace",
         "full_name": "Ada Lovelace",
@@ -214,7 +214,7 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
     "message": "Created successfully",
     "data": {
       "id": "0f0c2a2e-2a1e-4f5a-9a41-9d1f1a5a6b21",
-      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "first_name": "Ada",
       "last_name": "Lovelace",
       "full_name": "Ada Lovelace",

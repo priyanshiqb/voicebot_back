@@ -81,7 +81,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
     "message": "Retrieved successfully",
     "data": {
       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "name": "30-Min Demo",
       "description": "Product walkthrough with a specialist.",
       "duration_minutes": 30,

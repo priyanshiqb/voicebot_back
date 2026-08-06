@@ -100,7 +100,7 @@ duplicate is a `400`. To re-enable a host you previously turned off, `PATCH` the
     "message": "Created successfully",
     "data": {
       "id": "9aa85f64-5717-4562-b3fc-2c963f66afa1",
-      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "user": {
         "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
         "email": "alex@acme.com",

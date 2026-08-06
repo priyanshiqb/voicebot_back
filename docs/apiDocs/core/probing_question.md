@@ -189,7 +189,7 @@ first — i.e. already in the order an agent would ask them.
     "message": "Created successfully",
     "data": {
       "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c",
-      "tenant": { "id": "3fa85f64-…", "name": "Alpha Corp" },
+      "tenant": { "id": "3fa85f64-…", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "question": "What is your primary investment goal?",
       "priority": 1,
       "score": 80,

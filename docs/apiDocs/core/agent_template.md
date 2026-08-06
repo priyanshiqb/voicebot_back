@@ -139,7 +139,7 @@ Your tenant's templates plus the shared defaults, newest first.
     "message": "Retrieved successfully",
     "data": {
       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "name": "Wealth Advisory",
       "short_description": "Custom customer support bot for investments.",
       "visual_icon": "support-icon",

@@ -363,6 +363,49 @@ class RunnerUpdateTests(RunnerTestCase):
         self.assertEqual(log.campaign_member_id, self.pending.id)
         self.assertEqual(log.contact_id, self.pending.contact_id)
 
+    def test_provider_call_id_does_not_link_another_tenants_call_log(self):
+        """
+        `provider_call_id` is globally unique, so this is not about colliding ids — it
+        is that the id comes from the caller. Matching on it alone accepted any tenant's
+        log, so a runner naming another tenant's call id had that row stamped with this
+        campaign's member and contact.
+        """
+        other_tenant = Tenant.objects.create(name="Globex", subdomain="globex-runner")
+        other_agent = Agent.objects.create(
+            tenant=other_tenant,
+            bot_name="Other Bot",
+            persona_name="Persona",
+            languages=["en-IN"],
+        )
+        foreign_log = AgentCallLog.objects.create(
+            tenant=other_tenant,
+            provider_call_id="prov-belongs-to-globex",
+            agent=other_agent,
+            caller_number="+14155559999",
+            direction=AgentCallLog.CallDirection.OUTBOUND,
+        )
+
+        response = self._update(
+            {
+                "updates": [
+                    {
+                        "member_id": str(self.pending.id),
+                        "status": "COMPLETED",
+                        "provider_call_id": "prov-belongs-to-globex",
+                    }
+                ]
+            }
+        )
+
+        # The member update itself still applies — linking is best-effort, and an
+        # unmatched id is not an error.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["applied"], 1)
+
+        foreign_log.refresh_from_db()
+        self.assertIsNone(foreign_log.campaign_member_id)
+        self.assertIsNone(foreign_log.contact_id)
+
     def test_empty_batch_rejected(self):
         response = self._update({"updates": []})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

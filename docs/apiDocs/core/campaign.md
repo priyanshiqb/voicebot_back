@@ -38,6 +38,8 @@ For architecture, flow diagrams, and how the statuses fit together, see the
 - [`GET /{id}/stats/`](#get-idstats)
 - [`POST /preview-audience/`](#post-preview-audience)
 - [Error reference](#error-reference)
+- [Configuration](#configuration)
+- [Related](#related)
 
 ---
 
@@ -75,11 +77,28 @@ Every response uses the same wrapper.
 }
 ```
 
-**DRF field-validation errors** bypass the wrapper and return the field map directly:
+**Field-validation errors use the same wrapper.** The per-field map is nested under `errors`, and
+`message` is lifted from the first error so it is always a displayable string:
 
 ```json
-{ "name": ["A campaign with this name already exists."] }
+{
+  "status": false,
+  "message": "A campaign with this name already exists.",
+  "data": null,
+  "errors": { "name": ["A campaign with this name already exists."] },
+  "request_id": "5f2c9b14-…"
+}
 ```
+
+Two things follow, and both bite clients that assume otherwise:
+
+- **Nothing on this API returns a bare field map.** A global exception handler wraps every error,
+  so `response.name` is always undefined — read `response.errors.name`.
+- **`message` is safe to display for any error**, including field errors. It is the first
+  `detail`, else the first `non_field_errors` entry, else the first message of the first field.
+
+Error responses also carry **`request_id`**, absent from success responses. Include it when
+reporting a problem — it is what correlates your request with the server logs.
 
 ---
 
@@ -108,16 +127,18 @@ Every response uses the same wrapper.
 
 ### Writable
 
-| Field | Type | Required | Rules |
+`*` marks required.
+
+| Field | Type | Description | Validation |
 |---|---|---|---|
-| `name` | string | **yes** | 3–100 chars; letters, digits, spaces, `-`, `_` only (`^[\w\s-]+$`); **unique per tenant, case-insensitive**, ignoring soft-deleted |
-| `description` | string | no | `""` allowed. If non-blank, 3–500 chars |
-| `agent` | uuid | **yes** | Must be an **active, non-deleted** bot **in your tenant** |
-| `contacts` | uuid[] | no | Each a non-deleted contact **in your tenant**. Max `CAMPAIGN_MAX_SELECTED_CONTACTS` (5000). Replaces the whole selection |
-| `audience_source` | enum | no | Only `SELECTED` accepted. `FILTER` / `UPLOAD` → 400 |
-| `start_date` | string | no | `DD/MM/YYYY` or `YYYY-MM-DD`. **Write-only.** Requires `start_time` |
-| `start_time` | string | no | `HH:MM`, `HH:MM:SS`, `HH:MM AM/PM`. **Write-only.** Requires `start_date` |
-| `is_active` | bool | no | Defaults `true` |
+| `name` * | string | What operators will call this campaign. Shown in lists, pickers, and reports. | 3–100 characters. Letters, digits, spaces, `-`, `_` only (`^[\w\s-]+$`) — no punctuation. **Unique per tenant, case-insensitively**: `Q1 Leads` and `q1 leads` collide. Soft-deleted campaigns do not reserve their name. |
+| `agent` * | UUID | The bot that will place these calls. Its voice, prompt, and probing questions define what happens on the call. | Must be an **active, non-deleted** bot **in your tenant**. Another tenant's id reads as "does not exist". |
+| `description` | string | Free-text note on who this audience is and why — for the humans reading the list later. | Optional; `""` is accepted. If non-blank, **3–500** characters. A 1–2 character description is rejected. |
+| `contacts` | UUID array | The audience: who this campaign intends to call. Frozen into members at launch. | Optional. Each must be a non-deleted contact **in your tenant**. At most **5 000** (`CAMPAIGN_MAX_SELECTED_CONTACTS`). **Replaces the entire selection** — send the full list, never a delta. |
+| `audience_source` | enum | How the audience was chosen. | Optional, default `SELECTED`. Only `SELECTED` is accepted today; `FILTER` and `UPLOAD` are reserved and return **400**. |
+| `start_date` | string | Calendar date to start on, in your tenant's timezone. Omit both this and `start_time` to launch immediately instead. | Optional, **write-only**. `DD/MM/YYYY` or `YYYY-MM-DD`. Must be sent together with `start_time`. |
+| `start_time` | string | Wall-clock time to start at, in your tenant's timezone. | Optional, **write-only**. `HH:MM`, `HH:MM:SS`, `HH:MM AM/PM`. Must be sent together with `start_date`. |
+| `is_active` | boolean | Soft on/off switch, independent of both `status` and deletion. Does not stop a running campaign. | Optional, default `true`. |
 
 ### Read-only
 
@@ -126,7 +147,7 @@ Every response uses the same wrapper.
 | `id` | uuid | |
 | `tenant` | object | `{id, name, subdomain}` |
 | `status` | enum | Server-derived; sending it is ignored |
-| `contact_count` | int | Size of the current selection (detail only) |
+| `contact_count` | int | Size of the **current** selection (detail only). Compare with `total_members`, which is the **frozen** count from launch — after materialisation they can legitimately differ, because editing `contacts` afterwards does not re-freeze the audience |
 | `start_local` | object \| null | `{date, time, timezone}` — the schedule as typed |
 | `scheduled_start_at` | datetime \| null | UTC |
 | `schedule_timezone` | string | IANA name, e.g. `Asia/Kolkata` |
@@ -192,6 +213,17 @@ the detail endpoint for the selection.
 
 `GET /api/v1/core/campaigns/?status=RUNNING&ordering=-created_at&page_size=20`
 
+| Code | When | `message` |
+|---|---|---|
+| **200** | Zero or more campaigns. An empty `data` array is a normal result. | `success` |
+| **400** | An unrecognised value for `status`, `audience_source`, or `handoff_status`; a non-boolean `is_active`; a malformed `agent` UUID. | filter error |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
+| **403** | No active tenant mapping, or a `VB_AGENT` token — listing is not available to machine callers. | as [Error reference](#error-reference) |
+| **404** | `page` beyond the last page. | `Invalid page.` |
+
+> **Unlike the members list, these filters *are* validated** — `?status=RUNNIG` is a `400` here but
+> an empty `200` on `/{id}/members/`. The two use different filtering machinery.
+
 ### Response `200`
 
 ```json
@@ -255,23 +287,38 @@ Creates in `DRAFT`. Only `name` and `agent` are required.
 
 Full detail object — same shape as [`GET /{id}/`](#get-id--retrieve).
 
-### Errors
+### Responses
 
-| Code | Body | When |
-|---|---|---|
-| 400 | `{"name": ["A campaign with this name already exists."]}` | Duplicate, including case-only differences |
-| 400 | `{"name": ["Campaign Name can only contain letters, numbers, spaces, hyphens, and underscores."]}` | Bad characters |
-| 400 | `{"name": ["Ensure this field has at least 3 characters."]}` | Too short |
-| 400 | `{"agent": ["Invalid pk \"…\" - object does not exist."]}` | Unknown, inactive, deleted, **or another tenant's** bot |
-| 400 | `{"contacts": ["Invalid pk \"…\" - object does not exist."]}` | Unknown or **another tenant's** contact |
-| 400 | `{"contacts": ["A campaign cannot target more than 5000 contacts at once."]}` | Over the cap |
-| 400 | `{"start_date": ["The campaign start must be in the future."]}` | Past instant |
-| 400 | `{"start_time": ["Start date and start time must be supplied together."]}` | Only one supplied |
-| 400 | `{"audience_source": ["'FILTER' audiences are not supported yet. Use 'SELECTED'."]}` | Reserved value |
-| **400** | `{"status": false, "message": "Create an active bot before creating a campaign.", "data": null, "errors": {"code": "NO_ACTIVE_BOT"}}` | Tenant has no active bot |
+All field errors arrive as `{"status": false, "message": "<first error>", "errors": {…}}` — see
+[Response envelope](#response-envelope). The `errors` column below shows only the nested map.
+
+| Code | When | `message` | `errors` |
+|---|---|---|---|
+| **201** | Created, in `DRAFT`. Nothing is called until you launch it. | `Created successfully` | `null` |
+| **400** | Tenant has no active bot. Checked **before** the payload, so this wins over field errors. | `Create an active bot before creating a campaign.` | `{"code": "NO_ACTIVE_BOT"}` |
+| **400** | Duplicate name, including case-only differences. | `A campaign with this name already exists.` | `{"name": [...]}` |
+| **400** | `name` contains disallowed characters. | `Campaign Name can only contain letters, numbers, spaces, hyphens, and underscores.` | `{"name": [...]}` |
+| **400** | `name` shorter than 3 or longer than 100. | `Ensure this field has at least 3 characters.` | `{"name": [...]}` |
+| **400** | `agent` unknown, inactive, deleted, **or another tenant's**. | `Invalid pk "…" - object does not exist.` | `{"agent": [...]}` |
+| **400** | A contact id is unknown, deleted, **or another tenant's**. | `Invalid pk "…" - object does not exist.` | `{"contacts": [...]}` |
+| **400** | More than 5 000 contacts. | `A campaign cannot target more than 5000 contacts at once.` | `{"contacts": [...]}` |
+| **400** | The combined start instant is in the past. | `The campaign start must be in the future.` | `{"start_date": [...]}` |
+| **400** | Only one of `start_date` / `start_time` supplied. | `Start date and start time must be supplied together.` | `{"start_time": [...]}` |
+| **400** | `audience_source` is a reserved value. | `'FILTER' audiences are not supported yet. Use 'SELECTED'.` | `{"audience_source": [...]}` |
+| **400** | `description` supplied but 1–2 characters. | `Ensure this field has at least 3 characters.` | `{"description": [...]}` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **403** | No active tenant mapping, or a `VB_AGENT` token. | `Your user account is not associated with any active tenant.` / `This endpoint is not available to agent tokens.` | `{"detail": …}` |
 
 > **Check `errors.code === "NO_ACTIVE_BOT"`,** not the message text — it is there so the UI can
 > deep-link to bot creation.
+
+> **The no-active-bot check is skipped for superusers**, who have no tenant mapping to check
+> against. It also asks only whether *any* active bot exists — not whether the `agent` you named is
+> one. A deleted or inactive `agent` id still fails separately, as a field error.
+
+> **The duplicate-name check is a pre-flight, not a lock.** Two simultaneous creates with the same
+> name can both pass validation; the database constraint then rejects the loser, which is caught
+> and returned as the same clean `400` rather than a 500. No retry needed — the error is accurate.
 
 ---
 
@@ -324,11 +371,27 @@ Full detail, including the contact selection. **Poll this** after launching.
 
 `start_local` is `null` when unscheduled. `contacts` is a flat array of ids.
 
+| Code | When | `message` |
+|---|---|---|
+| **200** | Found. | `Retrieved successfully` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
+| **403** | No tenant mapping. For a `VB_AGENT` token, also when `X-Tenant-ID` is missing (**400**) — this is the one action agent tokens may call. | as [Error reference](#error-reference) |
+| **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` |
+
+> **This is the poll target.** After `launch` returns `202`, poll here until `status` leaves
+> `MATERIALIZING`. Success looks like `RUNNING` with a non-zero `pending_count`; failure looks like
+> `FAILED` with `error_message` explaining why.
+
+> **`contacts` is expanded only here.** The list endpoint omits it entirely, and `contact_count`
+> saves you counting the array yourself.
+
 ---
 
 ## `PATCH /{id}/` — Update
 
-Which fields you may change depends on status. Anything else → **409**.
+Change a campaign's configuration. **What you may change narrows as the campaign progresses** —
+once the audience has been handed to the runner, editing it would mean the record no longer
+describes what was actually called.
 
 | Status | Editable |
 |---|---|
@@ -338,20 +401,38 @@ Which fields you may change depends on status. Anything else → **409**.
 | `MATERIALIZING`, `HANDING_OFF` | Nothing |
 | `COMPLETED`, `CANCELLED`, `FAILED` | Nothing |
 
+The check is on **which keys you send**, not on whether you changed anything. Re-sending `agent`
+with its current value on a `RUNNING` campaign is still a 409 — omit the keys you are not
+changing.
+
 `contacts` **replaces** the whole selection — send the complete list, not a delta.
 
-### Response `200`
+> **Use `PATCH`, not `PUT`.** `PUT` is routed, but it requires the full payload, and a full payload
+> necessarily includes keys that a non-`DRAFT` campaign forbids — so `PUT` returns 409 for anything
+> past `DRAFT`. There is no state in which `PUT` does something `PATCH` cannot.
 
-```json
-{ "status": true, "message": "Updated successfully", "data": { }, "errors": null }
-```
+> **An empty `PATCH {}` succeeds in any state**, including terminal ones, because no forbidden key
+> was sent. It changes nothing and returns `200` with the current object. Harmless, but do not read
+> that `200` as "this campaign is editable".
 
-### Errors
+### Responses
 
-| Code | Body |
-|---|---|
-| 409 | `{"status": false, "message": "A campaign in RUNNING cannot change: agent, contacts.", "data": null, "errors": null}` |
-| 400 | Same field errors as create |
+| Code | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Updated. | `Updated successfully` | `null` |
+| **400** | Any field error from [create](#post--create), including the new name colliding. | as create | `{"<field>": [...]}` |
+| **409** | You sent a key this campaign's status forbids. Lists exactly which. | `A campaign in RUNNING cannot change: agent, contacts.` | `null` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **403** | No tenant mapping, or a `VB_AGENT` token. | as create | `{"detail": …}` |
+| **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` | `{"detail": …}` |
+
+> **409 lists the offending fields**, sorted, so the message is directly displayable: *"A campaign
+> in RUNNING cannot change: agent, contacts."*
+
+> **Editing `contacts` after materialisation does not change who gets called.** The audience was
+> frozen into members at launch; `contacts` is only the *selection*. This is why `contact_count`
+> and `total_members` can diverge — and why the guard forbids it in every state where the runner is
+> live.
 
 ---
 
@@ -365,16 +446,29 @@ Soft delete. The name is freed for reuse immediately.
 { "status": true, "message": "Deleted successfully", "data": null, "errors": null }
 ```
 
-### Errors
+| Code | When | `message` |
+|---|---|---|
+| **200** | Soft-deleted. The name is freed for reuse immediately. | `Deleted successfully` |
+| **409** | The campaign is live (`MATERIALIZING`, `HANDING_OFF`, `RUNNING`, or `PAUSED`). Cancel it first. | `This campaign is still running. Cancel it before deleting.` |
+| **401** / **403** | As elsewhere. | — |
+| **404** | No such campaign, already deleted, or another tenant's. | `Not found.` |
 
-| Code | Body |
-|---|---|
-| 409 | `{"status": false, "message": "This campaign is still running. Cancel it before deleting.", "data": null, "errors": null}` |
-| 404 | Not found, or another tenant's |
+> **`DRAFT`, `SCHEDULED`, and terminal campaigns delete freely.** The guard only covers states
+> where the runner may be acting on the audience right now.
+
+> **Members are not deleted.** They cascade only if the campaign row is hard-deleted, which this
+> is not — the compliance record of who was suppressed and why survives the soft delete.
+
+> **The guard lives on the model, not the view.** That is what makes `bulk_delete` below safe:
+> it calls `soft_delete()` directly on each row, so a view-only check would have left it as an
+> open route to deleting a live campaign.
 
 ---
 
 ## `POST /bulk_delete/`
+
+Soft-delete several campaigns at once. **All-or-nothing** — if any one is refused, none are
+deleted.
 
 ### Request
 
@@ -382,19 +476,30 @@ Soft delete. The name is freed for reuse immediately.
 { "ids": ["3f2a…", "7b1c…"] }
 ```
 
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `ids` * | UUID array | Campaigns to soft-delete. | Non-empty list. Every id must exist, be undeleted, and be in your tenant. None may be live. |
+
 ### Response `200`
 
 ```json
 { "status": true, "message": "Bulk deleted successfully", "data": null, "errors": null }
 ```
 
-### Errors
-
-| Code | Message | When |
+| Code | When | `message` |
 |---|---|---|
-| 400 | `ids must be a non-empty list` | Missing or empty |
-| 400 | `Some ids are invalid` | Any id unknown or another tenant's |
-| 409 | `This campaign is still running. Cancel it before deleting.` | **Any** campaign in the batch is live — nothing is deleted |
+| **200** | All soft-deleted. | `Bulk deleted successfully` |
+| **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
+| **400** | Any id unknown, already deleted, or another tenant's — **nothing is deleted**. | `Some ids are invalid` |
+| **409** | **Any** campaign in the batch is live — **nothing is deleted**. | `This campaign is still running. Cancel it before deleting.` |
+| **401** / **403** | As elsewhere. | — |
+
+> **The 409 does not say which campaign blocked it.** The message is the model's, raised by the
+> first offending row. With a mixed batch you will have to check statuses yourself — or delete
+> individually, where the id is unambiguous.
+
+> **Duplicate ids fail the whole request** with `Some ids are invalid`, because the check compares
+> matched rows against the length of `ids`. De-duplicate client-side.
 
 ---
 
@@ -402,10 +507,12 @@ Soft delete. The name is freed for reuse immediately.
 
 Compact picker options.
 
-| Param | Notes |
-|---|---|
-| `limit` | Max 1000; over that → 400 |
-| plus every list filter | `status`, `search`, … |
+| Param | Type | Description | Validation |
+|---|---|---|---|
+| `limit` | int | Cap the number of options. | ≤ **1000**; over that → **400 `Limit cannot exceed 1000`**. A non-numeric value is ignored, not rejected. |
+| *(list filters)* | — | Every filter and `search` from [`GET /`](#get--list) applies. | As there. |
+
+`label` is the campaign name, `value` its id.
 
 ### Response `200`
 
@@ -443,20 +550,31 @@ Generates `handoff_id`.
 
 Full detail object; abbreviated above.
 
-### Errors
+### Responses
 
-| Code | Message | When |
+| Code | When | `message` |
 |---|---|---|
-| 409 | `A campaign in RUNNING cannot be launched.` | Not `DRAFT` — including a double-click, where the second request loses |
-| 409 | `The bot for this campaign is no longer active.` | Bot deleted or deactivated since create |
-| 409 | `This campaign has no contacts that can be called. Everyone selected is either suppressed or has no usable phone number.` | Empty or fully suppressed audience — campaign **stays `DRAFT`** |
-| 429 | Throttled | 30/min |
+| **202** | Accepted. Now `SCHEDULED` (future start) or `MATERIALIZING` (immediate). **Not yet running** — 202, not 200, because the work happens after the response. | `Campaign launched` |
+| **409** | Not in `DRAFT`. Includes the double-click case, where the second request loses the row lock race. | `A campaign in RUNNING cannot be launched.` |
+| **409** | The bot was deleted or deactivated since the campaign was created. | `The bot for this campaign is no longer active.` |
+| **409** | Nobody in the audience can be called. The campaign **stays `DRAFT`** so you can fix the selection and retry. | `This campaign has no contacts that can be called. Everyone selected is either suppressed or has no usable phone number.` |
+| **404** | The campaign was deleted between the lookup and the lock, or is another tenant's. | `Campaign not found.` / `Not found.` |
+| **401** / **403** | As elsewhere. | — |
+| **429** | Throttled. Shares one 30/min budget with `cancel` and `preview-audience`. | `Request was throttled. Expected available in N seconds.` |
+
+> **The callable check runs synchronously, before the 202.** Resolving the audience up front costs
+> a scan, but it means a pointless campaign is refused immediately rather than accepted and landing
+> in `FAILED` minutes later with nobody watching.
+
+> **A `202` is not a promise it will run.** Materialisation happens in a background task and can
+> still fail afterwards — most often because every remaining contact opted out in the gap between
+> launch and the task running. Poll `GET /{id}/` and watch for `FAILED` plus `error_message`.
 
 ---
 
 ## `POST /{id}/pause/`
 
-`RUNNING` → `PAUSED`. Records `paused_by`. No body.
+Hold a running campaign. `RUNNING` → `PAUSED`, recording `paused_by`. No request body.
 
 ### Response `200`
 
@@ -464,17 +582,27 @@ Full detail object; abbreviated above.
 { "status": true, "message": "Campaign paused", "data": { "status": "PAUSED" }, "errors": null }
 ```
 
-### Errors
+Full detail object; abbreviated above.
 
-| Code | Message |
-|---|---|
-| 409 | `A campaign in DRAFT cannot be paused.` |
+| Code | When | `message` |
+|---|---|---|
+| **200** | Paused. | `Campaign paused` |
+| **409** | Any status other than `RUNNING`. | `A campaign in DRAFT cannot be paused.` |
+| **404** | Deleted between lookup and lock, or another tenant's. | `Campaign not found.` / `Not found.` |
+| **401** / **403** | As elsewhere. | — |
+
+> **Pausing is recorded here, not enforced here.** This service does not hold the call queue — the
+> runner does. `PAUSED` is the instruction; how quickly in-flight calls stop is the runner's
+> behaviour. Members already `IN_PROGRESS` may still complete.
+
+> **Not throttled.** Only `launch`, `cancel`, and `preview-audience` are.
 
 ---
 
 ## `POST /{id}/resume/`
 
-`PAUSED` → `RUNNING`. No body.
+Release a hold. `PAUSED` → `RUNNING`. No request body, and no actor is recorded — unlike pause and
+cancel, there is no `resumed_by` field.
 
 ### Response `200`
 
@@ -482,11 +610,15 @@ Full detail object; abbreviated above.
 { "status": true, "message": "Campaign resumed", "data": { "status": "RUNNING" }, "errors": null }
 ```
 
-### Errors
+| Code | When | `message` |
+|---|---|---|
+| **200** | Resumed. | `Campaign resumed` |
+| **409** | Any status other than `PAUSED`. | `A campaign in RUNNING cannot be resumed.` |
+| **404** | Deleted between lookup and lock, or another tenant's. | `Campaign not found.` / `Not found.` |
+| **401** / **403** | As elsewhere. | — |
 
-| Code | Message |
-|---|---|
-| 409 | `A campaign in RUNNING cannot be resumed.` |
+> **`paused_by` is not cleared on resume.** It keeps the last pauser, so after a pause/resume cycle
+> it reads as a stale "paused by" in the UI. Show it only when `status == PAUSED`.
 
 ---
 
@@ -509,12 +641,20 @@ item.
 }
 ```
 
-### Errors
+| Code | When | `message` |
+|---|---|---|
+| **200** | Cancelled. Terminal — there is no un-cancel. | `Campaign cancelled` |
+| **409** | Already terminal (`COMPLETED`, `CANCELLED`, or `FAILED`). | `A campaign in COMPLETED cannot be cancelled.` |
+| **404** | Deleted between lookup and lock, or another tenant's. | `Campaign not found.` / `Not found.` |
+| **401** / **403** | As elsewhere. | — |
+| **429** | Throttled. Shares one 30/min budget with `launch` and `preview-audience`. | `Request was throttled. Expected available in N seconds.` |
 
-| Code | Message |
-|---|---|
-| 409 | `A campaign in COMPLETED cannot be cancelled.` |
-| 429 | Throttled — 30/min |
+> **Cancellable from any non-terminal state**, including `DRAFT` and `SCHEDULED` — not just while
+> running. Cancelling a `DRAFT` campaign is how you retire one without deleting the record.
+
+> **Members are cancelled with a single bulk update**, not row by row, because an audience can run
+> to six figures. `PENDING` and `IN_PROGRESS` become `CANCELLED`; counters are recomputed
+> immediately, so the response already reflects the new totals.
 
 ---
 
@@ -524,12 +664,21 @@ The frozen audience. Empty until materialisation completes.
 
 ### Query parameters
 
-| Param | Type | Values |
-|---|---|---|
-| `status` | enum | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED` |
-| `suppression_reason` | enum | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED` |
-| `search` | string | Substring match on `phone_e164` **only** |
-| `page`, `page_size` | int | Max page size 100 |
+| Param | Type | Description | Validation |
+|---|---|---|---|
+| `status` | enum | Narrow to one member state. | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`. **Not validated** — see below. |
+| `suppression_reason` | enum | Narrow to one exclusion reason. Pair with `status=SUPPRESSED` for a compliance list. | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED`. **Not validated.** |
+| `search` | string | Substring match on `phone_e164` **only**. | Case-insensitive. Does **not** search names — the audience is keyed by number here. |
+| `page`, `page_size` | int | Pagination. | Default page size 10, max 100. |
+
+> **These filters are not validated against their choices.** Unlike the campaign list, a
+> misspelled value such as `?status=PENDNIG` returns **`200` with an empty list**, not a `400`.
+> An empty result therefore means either "none match" or "you typed it wrong", and the response
+> cannot tell you which — check the spelling before concluding the audience is empty.
+
+> **`search` matches the frozen number, not the contact's current one.** If a contact's phone was
+> edited after materialisation, searching their new number finds nothing here. That is deliberate:
+> the member row records what was actually handed over.
 
 ### Response `200`
 
@@ -573,6 +722,19 @@ The frozen audience. Empty until materialisation completes.
 Deliberately limited to name and number rather than the full contact, so a campaign export does
 not widen the PII surface. Use `/contacts/{contact_id}/` for the rest.
 
+| Code | When | `message` |
+|---|---|---|
+| **200** | Members returned. **Empty until materialisation completes** — a `DRAFT` or `SCHEDULED` campaign has no members yet, and that is not an error. | `success` |
+| **401** / **403** | As elsewhere. | — |
+| **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` |
+
+> **`suppression_reason` is `""`, not `null`, for members that were not suppressed.** Test for
+> truthiness rather than `!== null`.
+
+> **`attempt_count`, `last_call_at`, `outcome`, and `error_message` are mirrored from the runner**,
+> not authoritative. They stay at their defaults until the runner reports, so zeros on a freshly
+> materialised campaign mean "nothing reported yet", not "tried and got nowhere".
+
 ---
 
 ## `GET /{id}/stats/`
@@ -605,6 +767,20 @@ denormalised on the campaign. They should agree — a mismatch means counter dri
 
 Keys are **omitted when zero**, so treat a missing key as `0`.
 
+| Code | When | `message` |
+|---|---|---|
+| **200** | Counters returned. Before materialisation everything is `0` and both maps are `{}`. | `Retrieved successfully` |
+| **401** / **403** | As elsewhere. | — |
+| **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` |
+
+> **Prefer this over `/members/` for dashboards.** It answers "how is this campaign doing" with two
+> aggregate queries instead of paging an audience that may run to six figures. It takes no
+> filters — it is deliberately the cheap, whole-campaign view.
+
+> **The live maps are the trustworthy ones.** `by_status` and `suppressed_by_reason` are computed
+> per request; the flat counters are denormalised and only refreshed at materialisation, on cancel,
+> and when the runner reports. If they disagree, believe `by_status`.
+
 ---
 
 ## `POST /preview-audience/`
@@ -617,6 +793,10 @@ the wizard can call it before the campaign exists.
 ```json
 { "contact_ids": ["c1a2…", "d3f4…", "e5f6…"] }
 ```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `contact_ids` * | UUID array | The prospective audience to evaluate. No campaign needs to exist. | Required — but **may be empty**, which returns all-zero counts rather than an error. At most **5 000** entries. Each must be a UUID; ids that are unknown, deleted, or another tenant's are silently ignored rather than rejected. |
 
 ### Response `200`
 
@@ -646,31 +826,76 @@ the wizard can call it before the campaign exists.
 A gap between `requested` and `matched` means ids that are unknown, deleted, **or another
 tenant's** — those are silently ignored rather than erroring.
 
-### Errors
+### Responses
 
-| Code | Body |
-|---|---|
-| 400 | `{"contact_ids": ["A campaign cannot target more than 5000 contacts at once."]}` |
-| 400 | `{"contact_ids": ["This field is required."]}` |
-| 403 | `{"status": false, "message": "Your user account is not associated with any active tenant.", …}` |
-| 429 | Throttled — 30/min |
+| Code | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Counts returned. An empty `contact_ids` gives zeros, not an error. | `Retrieved successfully` | `null` |
+| **400** | More than 5 000 ids. | `A campaign cannot target more than 5000 contacts at once.` | `{"contact_ids": [...]}` |
+| **400** | `contact_ids` omitted. | `This field is required.` | `{"contact_ids": [...]}` |
+| **400** | An entry is not a valid UUID. | `"abc" is not a valid UUID.` | `{"contact_ids": {...}}` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **403** | No active tenant mapping, or a `VB_AGENT` token. | `Your user account is not associated with any active tenant.` | `{"detail": …}` |
+| **429** | Throttled. Shares one 30/min budget with `launch` and `cancel`. | `Request was throttled. Expected available in N seconds.` | `{"detail": …}` |
+
+> **Debounce this.** It scans every selected contact, and it draws from the same 30/min budget as
+> `launch` — a wizard that previews on each keystroke will lock the user out of launching.
+
+> **Suppression is evaluated live, not cached.** A preview is accurate as of the moment you call
+> it; a contact can opt out between preview and launch, and again between launch and
+> materialisation. Treat `callable` as an estimate, not a guarantee.
 
 ---
 
 ## Error reference
 
-| Code | Meaning | Shape |
-|---|---|---|
-| `400` | Validation failed | DRF field map, or envelope with `errors.code` |
-| `401` | Missing or invalid token | `{"detail": "Authentication credentials were not provided."}` |
-| `403` | No active tenant mapping | Envelope |
-| `404` | Not found **or another tenant's** — never 403, which would confirm it exists | `{"detail": "Not found."}` |
-| `409` | Wrong state for this action | Envelope |
-| `429` | Throttled | `{"detail": "Request was throttled. Expected available in N seconds."}` |
+**Every error uses the standard envelope** — see [Response envelope](#response-envelope). Nothing
+here returns a bare DRF body, and every error carries `request_id`.
+
+| Code | Meaning | `message` | `errors` |
+|---|---|---|---|
+| `400` | Validation failed. Fix the payload. | First field error, or the guard's own message | `{"<field>": [...]}` or `{"code": "NO_ACTIVE_BOT"}` |
+| `401` | Missing, malformed, or expired token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| `403` | No active tenant mapping, or a `VB_AGENT` token on anything but `retrieve`. | `Your user account is not associated with any active tenant.` / `This endpoint is not available to agent tokens.` | `{"detail": …}` |
+| `404` | Not found, soft-deleted, **or another tenant's**. Never 403, which would confirm it exists. | `Not found.` (`Campaign not found.` from lifecycle actions) | `{"detail": …}` |
+| `409` | Wrong state for this action. | Names the current status and what it forbids | usually `null` |
+| `429` | Throttled. | `Request was throttled. Expected available in N seconds.` | `{"detail": …}` |
+| `500` | Unexpected server fault. | `Something went wrong` | `null` |
 
 ### 400 vs 409
 
 - **400** — the request is wrong. Fix the payload and resend.
 - **409** — the request is fine, the campaign moved. Refresh and reconsider.
 
-Throttled at **30/min** per user: `launch`, `cancel`, `preview-audience`.
+That distinction drives the UI: a 400 belongs on the form field, a 409 belongs in a "this changed,
+reload" prompt. Sending the same 400 payload again always fails; retrying a 409 after a refresh
+often succeeds.
+
+### Throttling
+
+`launch`, `cancel`, and `preview-audience` share **one 30/min budget per user** — the scope is
+shared, not per-endpoint, so 30 preview calls exhaust your launch allowance too. Preview is
+included because it counts across the whole selected audience, and an under-debounced wizard will
+call it on every keystroke.
+
+Everything else on this API is unthrottled.
+
+## Configuration
+
+| Setting | Default | Effect |
+|---|---|---|
+| `CAMPAIGN_MAX_SELECTED_CONTACTS` | `5000` | Cap on `contacts` and on `preview-audience` ids. |
+| `CAMPAIGN_MAX_MEMBERS` | `100000` | Materialisation refuses above this and moves the campaign to `FAILED`. |
+| `CAMPAIGN_MATERIALIZE_BATCH_SIZE` | `1000` | Rows per savepoint while freezing the audience. |
+| `CAMPAIGN_MAX_CONCURRENT_RUNNING` | `5` | **Reserved — not enforced today.** |
+
+Scheduled campaigns are swept **every 60 seconds**, so `scheduled_start_at` is a "not before"
+guarantee rather than an exact firing time.
+
+## Related
+
+- [Campaign Runner API](campaign_runner.md) — the machine-facing side that pulls context and reports outcomes
+- [Campaign Overview](../../campaigns/README.md) — architecture and status diagrams
+- [Contacts API](./contact.md) — where the audience comes from, and where `do_not_call` is set
+- [Agent API](./agent.md) — the bot that places the calls
+- [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md)

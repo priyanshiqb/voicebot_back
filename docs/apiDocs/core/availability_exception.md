@@ -103,7 +103,7 @@ Deleting the exception does **not** un-flag bookings; those customers already ha
     "message": "Created successfully",
     "data": {
       "id": "8aa85f64-5717-4562-b3fc-2c963f66af20",
-      "tenant": { "id": "7bf2...", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf2...", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "user": { "id": "5fa85f64-…", "email": "alex@acme.com", "first_name": "Alex", "last_name": "Host" },
       "start_time": "2026-07-01T13:00:00Z",
       "end_time": "2026-07-01T17:00:00Z",

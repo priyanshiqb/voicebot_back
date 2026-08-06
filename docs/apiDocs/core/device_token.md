@@ -149,7 +149,7 @@ one, that row is updated rather than a new one created:
     "message": "Device registered",
     "data": {
       "id": "d1aa85f64-5717-4562-b3fc-2c963f66afb2",
-      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf26cf4-e53b-48bb-bb82-261ee976378c", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
       "token": "fcm-registration-token-abc123",
       "platform": "WEB",

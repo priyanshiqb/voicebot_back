@@ -131,7 +131,7 @@ the user separately if you need their name or email.
     "message": "Retrieved successfully",
     "data": {
       "id": "c1aa…-integration",
-      "tenant": { "id": "7bf2…", "name": "Alpha Corp" },
+      "tenant": { "id": "7bf2…", "name": "Alpha Corp", "subdomain": "alpha-corp" },
       "user": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
       "provider": "GOOGLE",
       "account_email": "host@gmail.com",

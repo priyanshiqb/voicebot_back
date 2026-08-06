@@ -24,6 +24,8 @@ the human-facing side, see the [Campaigns API](campaign.md).
 - [Retry semantics](#retry-semantics)
 - [Integration walkthrough](#integration-walkthrough)
 - [Error reference](#error-reference)
+- [Known gaps](#known-gaps)
+- [Related](#related)
 
 ---
 
@@ -95,6 +97,25 @@ the caller, which is the caller naming its own scope. Full rationale:
 | `POST` | `/{campaign_id}/members/update/` | Batch member outcomes | 200 |
 
 Both use the standard envelope: `{status, message, data, errors}`, plus `meta` when paginated.
+
+**Errors use that envelope too.** A global exception handler wraps every failure, so the DRF
+detail or field map is nested under `errors` and `message` carries a displayable string:
+
+```json
+{
+  "status": false,
+  "message": "Invalid or inactive agent token.",
+  "data": null,
+  "errors": { "detail": "Invalid or inactive agent token." },
+  "request_id": "5f2c9b14-…"
+}
+```
+
+Nothing here returns a bare `{"detail": …}` or a bare field map — read `errors`, and log
+`request_id`, which appears on errors only.
+
+**There is no collection route.** `GET /api/v1/core/campaign-runner/` is a **404**; every path
+includes a campaign id.
 
 ---
 
@@ -193,14 +214,26 @@ Only `PENDING` and `IN_PROGRESS`. So:
 - `COMPLETED`, `FAILED`, and `CANCELLED` members drop out once reported.
 - A re-pull after a crash resumes cleanly without re-dialling anyone already finished.
 
-### Errors
+### Responses
 
-| Code | Body | When |
-|---|---|---|
-| 401 | `{"detail": "Invalid or inactive agent token."}` | Bad, expired, or missing token |
-| 403 | `{"detail": "You do not have permission to perform this action."}` | Authenticated but not `VB_AGENT` |
-| 404 | `{"detail": "Not found."}` | No such campaign, or soft-deleted |
-| 409 | `{"status": false, "message": "Campaign is DRAFT; there is nothing to run.", "data": null, "errors": null}` | Not `RUNNING` / `HANDING_OFF` |
+| Code | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Context returned. An empty `members` array with `meta.count: 0` means everything has been reported — not an error, and the signal to stop pulling. | `success` | `null` |
+| **400** | `X-Tenant-ID` missing. | `This header is required for agent tokens.` | `{"X-Tenant-ID": [...]}` |
+| **400** | `X-Tenant-ID` is not a UUID, or names no active tenant. | `Must be a valid tenant UUID.` / `No active tenant matches this id.` | `{"X-Tenant-ID": [...]}` |
+| **401** | Token missing, unknown, inactive, or the secret does not match. | `Invalid or inactive agent token.` / `Invalid agent token secret.` | `{"detail": …}` |
+| **403** | Authenticated, but not a `VB_AGENT` — i.e. a human JWT. | `You do not have permission to perform this action.` | `{"detail": …}` |
+| **404** | No such campaign, soft-deleted, or outside the tenant you named. | `Not found.` | `{"detail": …}` |
+| **404** | `page` beyond the last page. | `Invalid page.` | `{"detail": …}` |
+| **409** | Campaign is not `RUNNING` or `HANDING_OFF`. | `Campaign is DRAFT; there is nothing to run.` | `null` |
+
+> **A 409 is a wait, not a failure.** A campaign still `MATERIALIZING` will become workable shortly;
+> one in `PAUSED`, `COMPLETED`, or `CANCELLED` will not. Read `message` — it names the current
+> status — and back off rather than retrying tightly.
+
+> **The acknowledgement happens before the response is built**, and only on a state change. If your
+> first pull succeeds but the response is lost in transit, the handoff is already `ACKED` and
+> `handed_off_at` is stamped — re-pulling is still correct and will not move the timestamp.
 
 ---
 
@@ -230,16 +263,29 @@ Report outcomes. **Each item is applied independently** — one bad row never re
 }
 ```
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `member_id` | uuid | **yes** | The `id` from the context response |
-| `status` | enum | **yes** | `IN_PROGRESS`, `COMPLETED`, `FAILED` — **only these three** |
-| `outcome` | string ≤200 | no | Your disposition, stored verbatim. Blank leaves the existing value |
-| `error_message` | string | no | Free text |
-| `attempted_at` | ISO 8601 datetime | no | Defaults to now |
-| `provider_call_id` | string ≤255 | no | Links the matching `AgentCallLog` to this member |
+### Request fields
 
-**Batch limits:** 1–1000 updates. Empty → 400.
+`*` marks required. Every item lives inside the `updates` array.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `updates` * | array | The batch of per-member outcomes. | **1–1000** items. Empty → 400. Over 1000 → 400. The whole batch is rejected if any item is malformed. |
+| `updates[].member_id` * | UUID | The `id` you were given in the context response. Opaque — echo it back, never parse or construct it. | Required, must be a valid UUID. An id belonging to another campaign is reported per-item as `not_found`, not as a 400. |
+| `updates[].status` * | enum | What happened to this member. | Required. **Only `IN_PROGRESS`, `COMPLETED`, `FAILED`.** `PENDING`, `SUPPRESSED`, and `CANCELLED` belong to this backend and reject the **entire batch** with 400. |
+| `updates[].outcome` | string | Your own disposition label, stored verbatim for reporting — e.g. `answered_interested`, `voicemail`. | Optional, max **200** characters. **Blank or omitted preserves the existing value.** |
+| `updates[].error_message` | string | Why the attempt failed. Free text, no length limit. | Optional. **Blank or omitted CLEARS the stored value** — see the warning below. |
+| `updates[].attempted_at` | datetime | When the attempt happened, ISO-8601. Send this if you buffer updates, so the record reflects the call time rather than the upload time. | Optional, and `null` is accepted. Omitted or `null` → server time at processing. Not validated against the campaign window; a far-past or future value is stored as given. |
+| `updates[].provider_call_id` | string | Your identifier for the call, used to link the matching `AgentCallLog` to this member and contact. | Optional, max **255** characters. Blank skips linking. The log must be in the **same tenant as the campaign**; one in another tenant is not linked. No error if nothing matches — linking is best-effort. |
+
+> **`outcome` and `error_message` behave differently on omission, and this catches people out.**
+> Omitting `outcome` keeps whatever was there; omitting `error_message` **wipes** it. So a
+> `FAILED` update carrying an error, followed by a `COMPLETED` retry that omits it, ends with an
+> empty `error_message` — which is usually what you want, but it means you cannot rely on
+> `error_message` accumulating across updates. Resend it on every update if you need it to persist.
+
+> **`attempt_count` is maintained by this backend, not by you.** It increments on `COMPLETED` and
+> `FAILED` only — never on `IN_PROGRESS` — so a member that goes `IN_PROGRESS → FAILED` records
+> exactly one attempt. There is no field to set it directly.
 
 ### Response `200`
 
@@ -272,13 +318,31 @@ Report outcomes. **Each item is applied independently** — one bad row never re
 
 `results` is in the same order as `updates`.
 
-### Side effects of a `COMPLETED` update
+### Side effects of an applied update
 
-- Member `status` → `COMPLETED`, `attempt_count` +1, `last_call_at` set.
-- The contact's `last_contacted_at` is updated — usable for excluding recently-called people from
-  future campaigns.
-- If `provider_call_id` matches an `AgentCallLog`, that log is linked to the member and contact.
-- Campaign counters are recomputed.
+| Effect | When |
+|---|---|
+| Member `status`, `outcome`, `error_message`, `last_call_at` written | Every applied update |
+| `provider_call_id` links the matching `AgentCallLog` to this member **and** contact | Every applied update that carries one — **not** only terminal ones |
+| `attempt_count` +1 | `COMPLETED` or `FAILED` only |
+| Contact's `last_contacted_at` set to `last_call_at` | `COMPLETED` only |
+| Campaign counters recomputed | Once per request, if at least one item applied |
+
+> **Call-log linking is not restricted to terminal updates.** Sending `provider_call_id` on an
+> `IN_PROGRESS` update links the log immediately, which is usually what you want if you post the
+> log before the call finishes.
+
+> **Linking is silent when it does not happen.** An id that matches nothing — not yet posted,
+> mistyped, or belonging to another tenant — still returns `applied`, because the member update
+> itself succeeded. If the link matters to your reporting, verify it rather than inferring it from
+> the result.
+
+> **`last_contacted_at` moves only on `COMPLETED`.** A member the runner tried and failed does not
+> count as contacted, so this field stays a reliable "when did we last actually reach them".
+
+> **Counters are recomputed once per batch, not per item** — so a 1000-item batch costs one
+> aggregate query, not a thousand. If every item was `ignored` or `not_found`, the recompute is
+> skipped entirely.
 
 ### Status restrictions
 
@@ -288,20 +352,32 @@ belong to this backend and are rejected with **400** for the whole batch.
 This is deliberate and load-bearing: accepting `PENDING` would let an external service move
 somebody who opted out back into the callable set.
 
-### Errors
+### Responses
 
-| Code | Body | When |
-|---|---|---|
-| 400 | `{"updates": {"0": {"status": ["\"PENDING\" is not a valid choice."]}}}` | A status this backend owns, or an unknown value |
-| 400 | `{"updates": ["This list may not be empty."]}` | Empty batch |
-| 400 | `{"updates": ["Ensure this field has no more than 1000 elements."]}` | Over the batch cap |
-| 400 | `{"updates": {"0": {"member_id": ["Must be a valid UUID."]}}}` | Malformed id |
-| 401 | `{"detail": "Invalid or inactive agent token."}` | |
-| 403 | `{"detail": "You do not have permission to perform this action."}` | Not `VB_AGENT` |
-| 404 | `{"detail": "Not found."}` | No such campaign |
+The `errors` column shows the map nested under `errors` in the envelope — see
+[Endpoint index](#endpoint-index).
 
-A field error rejects the **entire batch** — nothing is applied. Per-item failures come back as
-`200` with `results`.
+| Code | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Batch processed. **Individual items may still have failed** — read `results`. | `Updates processed` | `null` |
+| **400** | A status this backend owns (`PENDING`, `SUPPRESSED`, `CANCELLED`), or an unknown value. | `"PENDING" is not a valid choice.` | `{"updates": {"0": {"status": [...]}}}` |
+| **400** | Empty batch. | `This list may not be empty.` | `{"updates": [...]}` |
+| **400** | More than 1000 items. | `Ensure this field has no more than 1000 elements.` | `{"updates": [...]}` |
+| **400** | Malformed `member_id`, or `member_id` / `status` missing from an item. | `Must be a valid UUID.` / `This field is required.` | `{"updates": {"0": {...}}}` |
+| **400** | `outcome` over 200 or `provider_call_id` over 255 characters. | `Ensure this field has no more than 200 characters.` | `{"updates": {"0": {...}}}` |
+| **400** | `X-Tenant-ID` missing, malformed, or naming no active tenant. | as [`context`](#get-idcontext) | `{"X-Tenant-ID": [...]}` |
+| **401** | Token missing, unknown, inactive, or wrong secret. | `Invalid or inactive agent token.` | `{"detail": …}` |
+| **403** | Authenticated but not a `VB_AGENT`. | `You do not have permission to perform this action.` | `{"detail": …}` |
+| **404** | No such campaign, soft-deleted, or outside the tenant you named. | `Not found.` | `{"detail": …}` |
+
+> **A field error rejects the entire batch — nothing is applied.** The index in the `errors` key
+> (`"0"`, `"3"`, …) is the position in your `updates` array, so you can point at the offending item
+> without re-deriving it.
+
+> **Validation is all-or-nothing; application is per-item.** Malformed input fails the batch with a
+> `400`; well-formed input that cannot be applied comes back as `200` with `not_found` or `ignored`
+> in `results`. Those are different failure classes and want different handling — a `400` is a bug
+> in your payload, a `not_found` is stale state.
 
 ---
 
@@ -360,12 +436,42 @@ sequenceDiagram
 
 ## Error reference
 
-| Code | Meaning | Shape |
-|---|---|---|
-| `400` | Malformed batch — nothing applied | DRF field map |
-| `401` | Missing, invalid, or expired agent token | `{"detail": "…"}` |
-| `403` | Authenticated but not `VB_AGENT` | `{"detail": "…"}` |
-| `404` | No such campaign | `{"detail": "Not found."}` |
-| `409` | Campaign not in a runnable state (context only) | Envelope |
+Every error uses the standard envelope and carries `request_id` — see
+[Endpoint index](#endpoint-index).
+
+| Code | Meaning | `message` | `errors` |
+|---|---|---|---|
+| `400` | Malformed batch, or a missing/invalid `X-Tenant-ID`. **Nothing applied.** | First field error | `{"updates": {...}}` or `{"X-Tenant-ID": [...]}` |
+| `401` | Missing, unknown, inactive, or wrong-secret agent token. | `Invalid or inactive agent token.` / `Invalid agent token secret.` | `{"detail": …}` |
+| `403` | Authenticated but not `VB_AGENT` — a human JWT. | `You do not have permission to perform this action.` | `{"detail": …}` |
+| `404` | No such campaign, soft-deleted, outside the named tenant, or a page past the end. | `Not found.` / `Invalid page.` | `{"detail": …}` |
+| `409` | Campaign not in a runnable state. **`context` only.** | `Campaign is DRAFT; there is nothing to run.` | `null` |
+| `500` | Unexpected server fault. | `Something went wrong` | `null` |
 
 Per-item failures are **not** HTTP errors — they appear in `results` on a `200`.
+
+### How to react
+
+| Code | Retry? | Action |
+|---|---|---|
+| `400` | No | Fix the payload. Retrying identical input always fails. |
+| `401` / `403` | No | Credential problem. Escalate; do not loop. |
+| `404` | No | The campaign is gone or you named the wrong tenant. Stop working it. |
+| `409` | Yes, with backoff | Not runnable *yet*, or no longer. Check `message` for the status. |
+| `500` | Yes, with backoff | Transient. Include `request_id` when reporting it. |
+
+## Known gaps
+
+Recorded so they are not rediscovered as bugs:
+
+| # | Gap | Impact |
+|---|---|---|
+| 1 | `X-Tenant-ID` is a filter, not an authorization boundary. | Any valid runner token can read any tenant's audience by naming it. See [Scoping warning](#-scoping-warning). |
+| 2 | `attempted_at` is not range-checked. | A clock-skewed runner can write `last_call_at` values outside the campaign window, and nothing rejects them. |
+
+## Related
+
+- [Campaigns API](campaign.md) — the human-facing side
+- [Campaign Overview](../../campaigns/README.md) — architecture and status diagrams
+- [Agent Call Log API](./agent_call_log.md) — where `provider_call_id` comes from
+- [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md)
