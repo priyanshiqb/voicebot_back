@@ -717,7 +717,16 @@ class UploadEndpointTests(ImportTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_request_upload_url_creates_pending_file_and_hides_the_key(self):
+    def test_request_upload_url_creates_pending_file_and_sanitizes_the_key(self):
+        """A hostile filename must not escape the tenant's prefix.
+
+        `object_key` IS returned to the client, but it is never client-controlled:
+        it is derived from the row's own id and a sanitized filename, so the
+        traversal attempt below lands inside `t-<tenant>/contact_imports/` like
+        any other upload. Returning it is informational — `confirm-upload` accepts
+        `file_id` only and ignores any key a client sends back, so there is no
+        path where this value is trusted as input.
+        """
         from unittest.mock import patch
 
         with patch(
@@ -736,9 +745,54 @@ class UploadEndpointTests(ImportTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("file_id", response.data["data"])
-        self.assertNotIn("object_key", response.data["data"])
+        self.assertIn("object_key", response.data["data"])
 
         import_file = ContactImportFile.objects.get(id=response.data["data"]["file_id"])
         self.assertEqual(import_file.upload_status, ContactImportFile.UploadStatus.PENDING)
         self.assertTrue(import_file.file.name.startswith(f"t-{self.tenant.id}/contact_imports/"))
         self.assertNotIn("..", import_file.file.name)
+        # What is returned is exactly what was stored — no second, unsanitized copy.
+        self.assertEqual(response.data["data"]["object_key"], import_file.file.name)
+        self.assertNotIn("..", response.data["data"]["object_key"])
+
+    def test_confirm_upload_ignores_a_client_supplied_object_key(self):
+        """The returned key must not become a trusted input.
+
+        This is the failure the key-hiding once guarded against: a client passing
+        someone else's key back at confirm time. `confirm-upload` resolves the
+        file by `file_id` alone, so an injected `object_key` changes nothing.
+        """
+        from unittest.mock import patch
+
+        with patch(
+            "utils.s3_storage.service.S3StorageService.get_presigned_put_url",
+            return_value="https://example/put",
+        ):
+            created = self.client_alex.post(
+                f"{IMPORTS}request-upload-url/",
+                {
+                    "filename": "contacts.csv",
+                    "content_type": "text/csv",
+                    "file_size_in_bytes": 100,
+                },
+                format="json",
+            )
+        file_id = created.data["data"]["file_id"]
+
+        with patch(
+            "utils.s3_storage.service.S3StorageService.verify_object_exists",
+            return_value=True,
+        ), patch(
+            "utils.s3_storage.service.S3StorageService.get_file_disk_usage",
+            return_value={"total_size_bytes": 100},
+        ) as usage:
+            self.client_alex.post(
+                f"{IMPORTS}confirm-upload/",
+                {"file_id": file_id, "object_key": "t-other-tenant/contact_imports/theirs.csv"},
+                format="json",
+            )
+
+        import_file = ContactImportFile.objects.get(id=file_id)
+        # The stored key was used, not the one the client tried to inject.
+        usage.assert_called_once_with(import_file.file.name)
+        self.assertTrue(import_file.file.name.startswith(f"t-{self.tenant.id}/"))

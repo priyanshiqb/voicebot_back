@@ -157,10 +157,17 @@ class AgentProbingViewsTestCase(APITestCase):
         self.assertEqual(response_dup.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("question", response_dup.data["errors"])
 
-        # Make the question editable via ORM to allow testing deletion
+        # A question created through the API is editable by the person who created it.
         pq_obj = ProbingQuestion.objects.get(id=pq_id)
-        pq_obj.can_user_edit = True
-        pq_obj.save()
+        self.assertTrue(pq_obj.can_user_edit)
+
+        response_edit = self.client_alex.patch(
+            f"/api/v1/core/probing-questions/{pq_id}/",
+            {"priority": 7},
+            format="json",
+        )
+        self.assertEqual(response_edit.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_edit.data["data"]["priority"], 7)
 
         # Bulk delete
         response_del = self.client_alex.post("/api/v1/core/probing-questions/bulk_delete/", {"ids": [pq_id]}, format="json")
@@ -182,7 +189,8 @@ class AgentProbingViewsTestCase(APITestCase):
         )
         pq_id = pq.id
 
-        # Attempt to create via API with can_user_edit=False -> will create it as False
+        # can_user_edit is not client-controlled: a caller asking for False still gets
+        # an editable row, because the server forces True on anything created here.
         payload = {
             "question": "What is your passport number?",
             "priority": 3,
@@ -192,7 +200,7 @@ class AgentProbingViewsTestCase(APITestCase):
         }
         response = self.client_alex.post("/api/v1/core/probing-questions/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["data"]["can_user_edit"], False)
+        self.assertEqual(response.data["data"]["can_user_edit"], True)
 
         # Attempt update read-only question -> 400 Bad Request
         response_update = self.client_alex.patch(

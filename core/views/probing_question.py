@@ -138,6 +138,23 @@ class ProbingQuestionViewSet(ImportExportMixin, TenantBaseViewSet):
         except Exception:
             raise PermissionDenied("Your user account is not associated with any active tenant.")
 
+    def perform_create(self, serializer, **kwargs):
+        """
+        A question someone creates here is theirs to edit.
+
+        `can_user_edit` defaults to False on the model and is read-only on the
+        serializer, which combined to make every API-created question immediately
+        uneditable through the API — POST, then PATCH the same row, and you got
+        "This probing question is read-only and cannot be modified." The default
+        exists to lock seeded and imported rows, so it stays; this narrows the
+        exception to rows a user deliberately created.
+
+        Still not client-controlled: the value is forced here rather than accepted
+        from the payload, so a caller cannot mint an uneditable row either.
+        """
+        kwargs["can_user_edit"] = True
+        super().perform_create(serializer, **kwargs)
+
     def perform_destroy(self, instance):
         if instance.is_default:
             raise ValidationError({"detail": "This is a default probing question and cannot be deleted."})
@@ -167,19 +184,27 @@ class ProbingQuestionViewSet(ImportExportMixin, TenantBaseViewSet):
         queryset = self.get_queryset().filter(id__in=ids, is_deleted=False)
         if queryset.filter(is_default=True).exists():
             raise ValidationError({"detail": "One or more selected probing questions are default and cannot be deleted."})
-            
+
+        # Scoped to what this caller can actually see, not to the raw `ids` they sent.
+        # Filtering the usage checks by `ids` meant an id belonging to another tenant
+        # was answered with "currently selected in an agent" instead of the
+        # "Some ids are invalid" every other unknown id gets — confirming both that
+        # the row exists and that it is in use. super().bulk_delete rejects the id
+        # either way; this only stops the error text from distinguishing the cases.
+        visible_ids = list(queryset.values_list("id", flat=True))
+
         used_pq_ids = Agent.objects.filter(
-            probing_questions__id__in=ids,
+            probing_questions__id__in=visible_ids,
             is_deleted=False
         ).values_list('probing_questions__id', flat=True)
         if used_pq_ids:
             raise ValidationError({"detail": "One or more selected probing questions are currently selected in an agent and cannot be deleted."})
-            
+
         used_template_pq_ids = AgentTemplate.objects.filter(
-            probing_questions__id__in=ids,
+            probing_questions__id__in=visible_ids,
             is_deleted=False
         ).values_list('probing_questions__id', flat=True)
         if used_template_pq_ids:
             raise ValidationError({"detail": "One or more selected probing questions are currently selected in an agent template and cannot be deleted."})
-            
+
         return super().bulk_delete(request)

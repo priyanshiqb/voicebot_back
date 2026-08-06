@@ -94,34 +94,74 @@ The session row itself always survives as an audit record.
 ## 1. Request an upload URL
 **`POST /api/v1/core/contact-imports/request-upload-url/`**
 
-```json
-{ "filename": "contacts.csv", "content_type": "text/csv", "file_size_in_bytes": 20480 }
-```
+Reserves a row and hands back a short-lived presigned `PUT` URL. The file bytes go **directly to
+storage**, never through this API — so a 50 MB CSV never occupies a request worker.
+
+`*` marks required.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `filename` * | string | The user's original filename. Used for the stored name and to derive the extension. | Sanitized server-side — a traversal attempt like `../../evil.csv` lands inside the tenant's own prefix like any other upload. |
+| `content_type` * | string | MIME type, e.g. `text/csv`. Baked into the presigned URL, so the actual `PUT` must send a matching `Content-Type` header. | Must be a supported spreadsheet type. |
+| `file_size_in_bytes` * | integer | Size of the file you are about to upload. Also baked into the URL. | Must be > 0 and ≤ `CONTACT_IMPORT_MAX_FILE_BYTES` (default **10 MB**). Rejected here *before* any upload happens. |
 
 ```json
 {
   "status": true,
-  "data": { "file_id": "…", "upload_url": "https://…presigned…" }
+  "message": "Upload URL generated successfully.",
+  "data": {
+    "file_id": "9c1e85f6-…",
+    "upload_url": "https://…presigned…",
+    "object_key": "t-7bf26cf4-…/contact_imports/9c1e85f6-…_contacts.csv"
+  }
 }
 ```
 
-> The S3 object key is created and stored **server-side** and is never returned or
-> accepted back. You confirm with `file_id`, so it is not possible to name — and then
-> import — a file belonging to another tenant.
+| Field | Meaning |
+|---|---|
+| `file_id` | **The handle for every later step.** Confirm and import with this. |
+| `upload_url` | Presigned `PUT` target. Short-lived — request a new one rather than caching it. |
+| `object_key` | Where the file will live in storage. **Informational only** (see below). |
 
-Then `PUT` the file bytes directly to `upload_url`.
+> **`object_key` is output, never input.** It is derived server-side from the row's own id and a
+> sanitized filename, so nothing about it is client-controlled. `confirm-upload` resolves the file
+> by `file_id` **alone** and ignores any `object_key` a client sends back — so knowing the key
+> grants nothing, and it cannot be used to name (and then import) another tenant's file.
+>
+> Use it for display or debugging. Do not build flows that send it back.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Row reserved; upload with the returned URL. `upload_status` is `PENDING`. | `Upload URL generated successfully.` |
+| **400** | Missing field, unsupported `content_type`, or size over the limit. | the field's message |
+| **403** | Caller's account has no tenant mapping. | `Your user account is not associated with any active tenant.` |
+| **500** | Storage refused to mint a URL. The row is marked `FAILED` — request a new one. | `Failed to generate upload URL.` |
+
+Then `PUT` the bytes to `upload_url` with the same `Content-Type` you declared. A mismatch makes
+the signature invalid and storage rejects the upload.
 
 ---
 
 ## 2. Confirm the upload
 **`POST /api/v1/core/contact-imports/confirm-upload/`**
 
-```json
-{ "file_id": "…" }
-```
+Tells the server the bytes have landed. Until this succeeds the file is not importable.
 
-Verifies the object exists and is within `CONTACT_IMPORT_MAX_FILE_BYTES` (default 10 MB),
-then marks it `CONFIRMED`. Another tenant's `file_id` returns **404**.
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `file_id` * | UUID | The handle from step 1. | Must resolve **within your tenant** — another tenant's id is a 404, not a 403, so it never confirms the id exists. |
+
+Verifies the object is really in storage and re-checks its **actual** size against
+`CONTACT_IMPORT_MAX_FILE_BYTES` — the declared size in step 1 was a client claim, so it is
+re-measured here against what was really uploaded.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Confirmed; marked ready to import. Body is the file record. | — |
+| **400** | Nothing at that key — the `PUT` failed or was never made. | `File not found in storage. Did the upload succeed?` |
+| **400** | The uploaded file exceeds the size limit. | size-limit message |
+| **403** | Caller's account has no tenant mapping. | `Your user account is not associated with any active tenant.` |
+| **404** | Unknown `file_id`, or one belonging to another tenant. | `Import file not found.` |
 
 ---
 

@@ -159,9 +159,16 @@ class AgentTemplateViewSet(ImportExportMixin, TenantBaseViewSet):
         queryset = self.get_queryset().filter(id__in=ids, is_deleted=False)
         if queryset.filter(is_default=True).exists():
             raise ValidationError({"detail": "One or more selected agent templates are default and cannot be deleted."})
-            
+
+        # Scoped to what this caller can see, not to the raw `ids` they sent. Filtering
+        # by `ids` answered an id from another tenant with "currently selected in an
+        # agent" instead of the "Some ids are invalid" every other unknown id gets,
+        # which confirmed both that the row exists and that it is in use. The id is
+        # rejected either way; this only stops the error text distinguishing the cases.
+        visible_ids = list(queryset.values_list("id", flat=True))
+
         used_template_ids = Agent.objects.filter(
-            agent_template_id__in=ids, 
+            agent_template_id__in=visible_ids,
             is_deleted=False
         ).values_list('agent_template_id', flat=True)
         if used_template_ids:

@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
@@ -54,7 +55,42 @@ class DeviceTokenViewSet(TenantBaseViewSet):
         device = DeviceToken.objects.filter(
             tenant=tenant, token=token, is_deleted=False
         ).first()
-        if device:
+
+        if device is None:
+            # Read-then-write against the partial unique index on (tenant, token).
+            # Clients are told to POST on every app start, so a launch that fires the
+            # call twice races here and the loser used to surface as a 500. Catching
+            # the constraint and re-reading turns that into the update branch, which
+            # is what the second request wanted anyway.
+            #
+            # atomic() is required, not decorative: without the savepoint the
+            # IntegrityError leaves the surrounding transaction unusable and the
+            # recovery query fails too.
+            try:
+                with transaction.atomic():
+                    device = DeviceToken.objects.create(
+                        tenant=tenant,
+                        user=request.user,
+                        token=token,
+                        platform=platform,
+                        last_seen_at=now,
+                    )
+                    created = True
+            except IntegrityError:
+                device = DeviceToken.objects.filter(
+                    tenant=tenant, token=token, is_deleted=False
+                ).first()
+                if device is None:
+                    # The constraint fired for a reason we have not accounted for.
+                    raise
+                created = False
+        else:
+            created = False
+
+        # Tracked explicitly rather than inferred from the row's state — comparing
+        # last_seen_at against `now` would skip the refresh on a timestamp collision
+        # and silently leave user/platform/is_active stale.
+        if not created:
             device.user = request.user
             device.platform = platform
             device.is_active = True
@@ -62,14 +98,7 @@ class DeviceTokenViewSet(TenantBaseViewSet):
             device.save(
                 update_fields=["user", "platform", "is_active", "last_seen_at", "updated_at"]
             )
-        else:
-            device = DeviceToken.objects.create(
-                tenant=tenant,
-                user=request.user,
-                token=token,
-                platform=platform,
-                last_seen_at=now,
-            )
+
         return self.success(
             data=DeviceTokenSerializer(device).data,
             message="Device registered",

@@ -32,16 +32,26 @@ Manage configured Voicebot Agents under the active tenant context.
 ## Endpoint Details
 
 ### 1. List Agents
-- **Path**: `GET /api/v1/core/agents/`
-- **Query Parameters**:
-  - `page` (optional): Page number
-  - `page_size` (optional): Items per page
-  - `search` (optional): Filter agents by `bot_name` or `persona_name`
-  - `ordering` (optional): Sort by `bot_name`, `created_at`, or `tone` (prefix with `-` for descending, default: `-created_at`)
-  - `is_active` (optional): Boolean filter
-  - `tone` (optional): Filter by agent tone. Allowed values: `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`
-  - `industry` (optional): Filter by the industry category of the agent's template. Allowed values: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`
-  - `agent_template` (optional): UUID of the associated template
+
+**`GET /api/v1/core/agents/`**
+
+Paginated list of the tenant's agents. Returns a compact shape — relationships, `timezone`, and
+audit fields are **not** included; use Retrieve for those.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page`, `page_size` | integer | Pagination. |
+| `search` | string | Partial, case-insensitive match on `bot_name` or `persona_name`. |
+| `ordering` | string | `bot_name`, `created_at`, or `tone`; prefix `-` to reverse. Default `-created_at`. |
+| `is_active` | boolean | Filter by active flag. |
+| `tone` | enum | `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`. |
+| `agent_template` | UUID | Only agents built from this template. |
+| `industry` | enum | Filters by the **template's** industry, not a field on the agent: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`. Agents with no template are excluded when this is set. |
+
+> **Not available to `VB_AGENT` tokens** — this action returns **403**. A runner is handed the
+> agent id it is acting for, so enumerating a tenant's agents is reach it never needed. Use
+> `GET /agents/{id}/`.
+
 - **Success Response (200 OK)**:
   ```json
   {
@@ -203,8 +213,26 @@ the name becomes reusable immediately.
 ---
 
 ### 5. Update Agent
-- **Path**: `PUT /api/v1/core/agents/{id}/`
-- **Request Payload (Full Update)**: *(Same field validations as POST)*
+
+**`PUT` / `PATCH /api/v1/core/agents/{id}/`**
+
+Same field table as Create; on `PATCH` every field is optional.
+
+**Relationships are edited incrementally, not replaced.** Unlike most resources here, you never
+send the full `knowledge_bases` list — you send `add_*` / `remove_*` deltas. That is deliberate:
+two people editing different knowledge bases at the same time would otherwise clobber each other,
+since a whole-list write encodes "and nothing else".
+
+| You send | Result |
+|---|---|
+| `add_knowledge_bases: [a]` | `a` is linked; every existing link is kept |
+| `remove_knowledge_bases: [b]` | `b` is unlinked; everything else kept |
+| both, in one call | removals and additions both applied |
+| `knowledge_bases: [...]` | **400** — read-only field |
+| neither | links untouched |
+
+The same pattern applies to `probing_questions` and `event_templates`.
+
 - **Request Payload (Incremental Update)**:
   ```json
   {
@@ -228,103 +256,151 @@ the name becomes reusable immediately.
     ]
   }
   ```
-- **Success Response (200 OK)**:
-  *(Returns full detail representation)*
+| Status | When | `message` |
+|---|---|---|
+| **200** | Updated. Body is the full detail representation. | `Updated successfully` |
+| **400** | Same causes as Create, plus: an `add_*` id belongs to another tenant. | the first error |
+| **403** | Caller's account has no tenant mapping. | `Your user account is not associated with any active tenant.` |
+| **404** | No such agent in your tenant. | — |
+
+> Changing `timezone` affects **future conversations only**. Times already quoted on a live call
+> are not revisited, and stored bookings are UTC and therefore unaffected.
 
 ---
 
 ### 6. Check Bot Name Uniqueness
-- **Path**: `POST /api/v1/core/agents/check-bot-name/`
-- **Description**: Checks if a bot name is unique under the active tenant context.
-- **Request Payload**:
-  ```json
-  {
-    "bot_name": "Investment Advisor Bot",
-    "exclude_id": "7bf26cf4-e53b-48bb-bb82-261ee976378c" // Optional: ID to exclude from uniqueness check
-  }
-  ```
-- **Field Validations**:
-  - `bot_name`: Required, max 100 characters.
-  - `exclude_id`: Optional, valid UUID string.
-- **Success Response (200 OK)**:
-  ```json
-  {
-    "status": true,
-    "message": "success",
-    "data": {
-      "is_unique": true
-    },
-    "errors": null
-  }
-  ```
+
+**`POST /api/v1/core/agents/check-bot-name/`**
+
+Answers "is this name free?" without attempting a write — for inline validation on a create or
+rename form, so the user learns before submitting.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `bot_name` * | string | The name to test. | Required, max 100 chars. **Matched exactly** — not case-insensitively, and not trimmed, so `"Bot "` and `"bot"` both count as free when `"Bot"` is taken. |
+| `exclude_id` | UUID | An agent to ignore in the check. **Pass the agent's own id when renaming**, or it will always report its current name as taken. | Optional, valid UUID. |
+
+**Scope:** the caller's tenant only. Superusers check globally. Soft-deleted agents never count as
+taking a name, since deletion suffixes the name to free it.
+
+```json
+{ "status": true, "message": "success", "data": { "is_unique": true }, "errors": null }
+```
+
+| Status | When |
+|---|---|
+| **200** | Checked. `data.is_unique` is `true` (free) or `false` (taken). |
+| **400** | `bot_name` missing or over 100 chars, or `exclude_id` is not a UUID. |
+| **403** | Caller's account has no tenant mapping. |
+
+> **This is advisory, not a reservation.** Another request can take the name between your check
+> and your `POST`. Always handle `400 "Agent with this name already exists."` on submit as well —
+> a green tick here is not a guarantee.
 
 ---
 
 ### 7. Dropdown Options
-- **Path**: `GET /api/v1/core/agents/dropdown/`
-- **Description**: Lightweight `{label, value}` pairs for active agents (for select inputs).
-- **Query Parameters**:
-  - `limit` (optional): Max rows to return. Must be ≤ `1000` (else `400`).
-  - Also accepts the same `search` / filter params as List.
-- **Success Response (200 OK)**:
-  ```json
-  {
-    "status": true,
-    "message": "Dropdown options retrieved successfully",
-    "data": [
-      { "label": "Investment Advisor Bot", "value": "7bf26cf4-e53b-48bb-bb82-261ee976378c" }
-    ],
-    "errors": null
-  }
-  ```
+
+**`GET /api/v1/core/agents/dropdown/`**
+
+Compact `{label, value}` pairs for a select input, skipping pagination. `label` is `bot_name`.
+
+| Parameter | Type | Description | Validation |
+|---|---|---|---|
+| `limit` | integer | Max rows. | Above 1000 is a **400** (`Limit cannot exceed 1000`), not a silent cap. Omitting it returns at most 1000. |
+| `search`, filters | — | Same as List. | — |
+
+```json
+{
+  "status": true,
+  "message": "Dropdown options retrieved successfully",
+  "data": [{ "label": "Investment Advisor Bot", "value": "7bf26cf4-…" }],
+  "errors": null
+}
+```
 
 ---
 
 ### 8. Bulk Delete
-- **Path**: `POST /api/v1/core/agents/bulk_delete/`
-- **Description**: Soft-delete multiple agents in one call (tenant-scoped).
-- **Request Payload**:
-  ```json
-  { "ids": ["7bf26cf4-e53b-48bb-bb82-261ee976378c", "8cc37df5-...."] }
-  ```
-- **Field Validations**:
-  - `ids`: Required, **non-empty** list of agent UUIDs. If any id is unknown/not in the caller's tenant, the whole request fails with `400 "Some ids are invalid"` (nothing is deleted).
-- **Success Response (200 OK)**: `{ "status": true, "message": "Bulk deleted successfully" }`
+
+**`POST /api/v1/core/agents/bulk_delete/`**
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `ids` * | UUID array | Agents to soft-delete. | Non-empty list; every id must exist, be undeleted, and be in your tenant. All-or-nothing. |
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | All soft-deleted; each name freed for reuse. | `Bulk deleted successfully` |
+| **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
+| **400** | Any id unknown, already deleted, or in another tenant; **nothing deleted**. | `Some ids are invalid` |
+| **400** | Any agent is still used by a live campaign; **nothing deleted**. | `This bot is used by 2 campaign(s) that are still running. Cancel them before deleting the bot.` |
+
+The live-campaign guard is enforced on the model, so it applies here exactly as it does to
+`DELETE /{id}/` — a bulk call cannot route around it.
 
 ---
 
 ### 9. Export Agents
-- **Path**: `GET /api/v1/core/agents/export/`
-- **Description**: Download the current (filtered) agent list as a file. Honors the same
-  `search` / filter / `ordering` query params as List.
-- **Query Parameters**:
-  - `format` (optional): `csv` (default) or `xlsx`.
-- **Success Response (200 OK)**: a file download (`text/csv` or the XLSX mime type) via
-  `Content-Disposition: attachment`. **Not** the JSON envelope.
+
+**`GET /api/v1/core/agents/export/`**
+
+Downloads the current agent list as a spreadsheet. Honours the same `search`, filter, and
+`ordering` parameters as List, so **what you filter is what you export** — there is no
+"export everything" mode separate from the list view.
+
+| Parameter | Type | Description | Validation |
+|---|---|---|---|
+| `format` | enum | `csv` (default) or `xlsx`. | Anything else falls back to CSV. |
+| `search`, filters, `ordering` | — | Same as List. | — |
+
+**Returns a file, not JSON.** The response is `text/csv` or the XLSX mime type with
+`Content-Disposition: attachment` — do not try to parse the standard envelope from it. Errors
+(401/403) *do* still come back as JSON, so branch on the content type.
+
+The export is paired with Import below: a round-trip of export → edit → import is the intended
+bulk-edit workflow.
 
 ---
 
 ### 10. Import Agents
-- **Path**: `POST /api/v1/core/agents/import/`
-- **Headers**: `Content-Type: multipart/form-data`
-- **Request Payload** (form-data):
-  - `file`: Required. A `.csv`, `.xls`, or `.xlsx` file.
-- **Behaviour**: Parsed and validated in a dry run first; only committed if the whole file is
-  valid (all-or-nothing). Tenant/user context is injected from the caller.
-- **Requires a tenant**: the caller must have an active tenant mapping, or be a superuser.
-  `VB_AGENT` tokens have no mapping and receive **403** — bulk CSV writes are not a machine
-  caller's action. An `id` column resolves only within the caller's own tenant, so a CSV
-  carrying another tenant's id creates a new row rather than updating theirs.
-  See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
-- **Success Response (200 OK)**: `{ "status": true, "message": "Successfully imported N records." }`
-- **Error Response (400 Bad Request)**:
-  - No file: `{ "status": false, "message": "No file provided" }`
-  - Bad extension: `{ "status": false, "message": "Unsupported file format. Use csv or xlsx." }`
-  - Row validation errors:
-    ```json
-    {
-      "status": false,
-      "message": "Import failed due to validation errors.",
-      "errors": [ { "row": 2, "error": "..." } ]
-    }
-    ```
+
+**`POST /api/v1/core/agents/import/`** · `Content-Type: multipart/form-data`
+
+Creates or updates agents in bulk from a spreadsheet.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `file` * | file | The spreadsheet to import. Columns match the Export output. | Required. Extension must be `.csv`, `.xls`, or `.xlsx`. |
+
+**All-or-nothing.** The file is parsed and validated in a dry run first; only if *every* row passes
+is anything written. One bad row on line 400 means nothing at all is imported — you never end up
+with a half-applied file to reconcile by hand.
+
+**An `id` column updates rather than creates**, but only resolves **within your own tenant**. A CSV
+carrying another tenant's id creates a new row in yours instead of touching theirs, so a leaked
+export cannot be used to overwrite someone else's data.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Imported. | `Successfully imported 12 records.` |
+| **400** | No file in the request. | `No file provided` |
+| **400** | Extension not csv/xls/xlsx. | `Unsupported file format. Use csv or xlsx.` |
+| **400** | One or more rows failed validation; **nothing imported**. | `Import failed due to validation errors.` |
+| **403** | Caller has no tenant mapping — including every `VB_AGENT` token. Bulk spreadsheet writes are not a machine caller's action. | permission denied |
+
+Row errors are returned as a list so a UI can point at the offending lines:
+
+```json
+{
+  "status": false,
+  "message": "Import failed due to validation errors.",
+  "errors": [
+    { "row": 2, "error": "bot_name: Agent with this name already exists." },
+    { "row": 7, "error": "tone: \"LOUD\" is not a valid choice." }
+  ]
+}
+```
+
+> `row` is the **spreadsheet row number**, counting the header as row 1 — so `row: 2` is the first
+> data row.
