@@ -1,483 +1,432 @@
-# User Authentication & Password Reset APIs
+# Authentication API Documentation
 
-This document covers endpoints related to user login, logout, JWT token refresh, and the step-by-step forgot password/reset password flow for active onboarded users.
+How a caller proves who they are. Three separate credential types reach this backend, and they are
+not interchangeable:
 
----
+| Credential | Header | Who uses it | Where it comes from |
+|---|---|---|---|
+| **JWT** | `Authorization: Bearer <access>` | Humans in the dashboard and mobile app | [Login](#1-login) |
+| **Agent token** | `Authorization: Bearer vb_<prefix>_<secret>` | The voicebot runtime | Issued in the Django admin |
+| **ETL token** | `Authorization: Bearer <static token>` | The knowledge-base ingestion service | `ETL_SYSTEM_TOKEN` setting |
 
-## 🔑 1. User Login
+**Base path:** `/api/v1/auth/`
 
-* **Path**: `/api/v1/auth/login/`
-* **Method**: `POST`
-* **Authentication**: None (Anonymous/AllowAny)
-* **Description**: Authenticates active users via email and password, returning JWT access and refresh tokens.
+Four things shape this API:
 
-### Request Payload
+- **Every JWT is backed by a session row.** An access token is not sufficient on its own — its `jti`
+  is checked against an active `UserSession` on every request. That is what makes logout and remote
+  revocation immediate rather than "wait for the token to expire".
+- **Refresh tokens rotate.** Each refresh returns a *new* refresh token and blacklists the old one.
+  A refresh token is single-use.
+- **Refresh lifetime is per user**, taken from `session_timeout_hours` (default **168** = 7 days),
+  not from a global constant.
+- **Login is rate-limited by both account and IP.** Five failures locks you out for an hour.
 
-```json
-{
-  "email": "user@example.com",
-  "password": "SecurePassword123"
-}
-```
+## Endpoints Summary
 
-### Fields and Validation
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| `POST` | `/auth/login/` | Exchange email + password for tokens | None |
+| `POST` | `/auth/logout/` | Revoke the current session | JWT |
+| `POST` | `/auth/refresh/` | Rotate tokens | None (the refresh token is the credential) |
+| `POST` | `/auth/forgot-password/` | Send a reset OTP | None |
+| `POST` | `/auth/forgot-password/resend/` | Re-send the OTP | None |
+| `POST` | `/auth/forgot-password/verify/` | Exchange the OTP for a reset token | None |
+| `POST` | `/auth/reset-password/` | Set a new password | None (the reset token is the credential) |
 
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-| `password` | String | Yes | None (no length or complexity check on login). | User's plaintext password. |
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Login successful.",
-  "data": {
-    "access": "eyJhbGciOi...",
-    "refresh": "eyJhbGciOi...",
-    "user": {
-      "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-      "email": "user@example.com",
-      "first_name": "John",
-      "last_name": "Doe"
-    }
-  },
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Validation Error / Onboarding Pending Redirect)
-
-##### Case A: Standard Validation/Credentials Error
-```json
-{
-  "status": false,
-  "message": "Invalid email or password format.",
-  "data": null,
-  "errors": {
-    "email": ["Enter a valid email address."]
-  }
-}
-```
-
-##### Case B: Onboarding Pending Redirect
-If the supplied email and password match a pending onboarding (`TempUser`) session, the API returns a `400 Bad Request` with an `onboarding_pending` flag and the session ID. The frontend can use this flag to redirect the user back to the signup/onboarding workflow:
-```json
-{
-  "status": false,
-  "message": "Your registration is still pending. Please complete your onboarding.",
-  "data": null,
-  "errors": {
-    "onboarding_pending": true,
-    "temp_registration_id": "b1a4cfd2-6d12-4cf4-9124-fa9a1d29bcfa",
-    "email": "pending.user@example.com"
-  }
-}
-```
-
-##### Case C: Invalid Credentials
-Wrong email/password (or the account does not exist). Returned as a `400` with a `credentials` errors key:
-```json
-{
-  "status": false,
-  "message": "Invalid email or password",
-  "data": null,
-  "errors": {
-    "credentials": ["Invalid email or password"]
-  }
-}
-```
-
-##### Case D: Inactive Account
-Credentials are valid but the user account is disabled. Returned as a `400` with an `account` errors key:
-```json
-{
-  "status": false,
-  "message": "User account is disabled",
-  "data": null,
-  "errors": {
-    "account": ["User account is disabled"]
-  }
-}
-```
-
-#### 403 Forbidden (Account/IP Locked)
-
-The only `403` this endpoint returns. Produced by django-defender after too many failed login attempts; the account or source IP is temporarily locked.
-```json
-{
-  "status": false,
-  "message": "Account or IP temporarily locked due to too many failed login attempts. Please try again in 1 hour.",
-  "data": null,
-  "errors": null
-}
-```
+Related: [Users](./users.md) · [Sessions](./sessions.md)
 
 ---
 
-## 🚪 2. User Logout
+## Token lifetimes
 
-* **Path**: `/api/v1/auth/logout/`
-* **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Blacklists the provided refresh token to terminate the user session.
+| Token | Lifetime | Notes |
+|---|---|---|
+| Access | **60 minutes** | Fixed. Sent on every authenticated request. |
+| Refresh | **`session_timeout_hours`**, default **168 h** (7 days) | Per user, minimum 1 hour. Overrides the `SIMPLE_JWT` default at issue time. |
+| Password-reset OTP | **`OTP_VALIDITY_MINUTES`**, default **2 minutes** | 6 digits. |
+| Password-reset token | **30 minutes** | Signed, single-use. |
+| Agent token | `expires_at`, or none | Set per token in the admin. |
 
-### Request Payload
-
-```json
-{
-  "refresh": "eyJhbGciOi..."
-}
-```
-
-### Fields and Validation
-
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `refresh` | String | Yes | Must be a valid active refresh token. | The JWT refresh token to blacklist. |
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Logout successful",
-  "data": null,
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Token Error)
-
-Returned as a plain message with no `errors` array. The message is `"Refresh token is required."` when the field is missing, or `"Invalid refresh token."` when it is invalid/expired.
-```json
-{
-  "status": false,
-  "message": "Invalid refresh token.",
-  "data": null,
-  "errors": null
-}
-```
+> **Both access *and* refresh are rotated on refresh.** `ROTATE_REFRESH_TOKENS` and
+> `BLACKLIST_AFTER_ROTATION` are on, so the refresh token you send is blacklisted and a new one is
+> returned. Store the new pair every time — reusing an old refresh token fails.
 
 ---
 
-## 🔄 3. Token Refresh
+## Endpoint Details
 
-* **Path**: `/api/v1/auth/refresh/`
-* **Method**: `POST`
-* **Authentication**: None
-* **Description**: Issues a new JWT access token using an active refresh token. 
-  * **Note on Inactivity Timeouts**: The new refresh token will automatically calculate its new absolute expiration date by reading the user's `session_timeout_hours` configuration. By rotating tokens regularly while the user is active, they will stay logged in; if they exceed `session_timeout_hours` without a refresh, the token expires and they are logged out.
+### 1. Login
 
-### Request Payload
+Exchange credentials for a token pair and open a session.
 
-```json
-{
-  "refresh": "eyJhbGciOi..."
-}
-```
+- **Path**: `POST /api/v1/auth/login/`
+- **Auth**: none. Any `Authorization` header is ignored.
 
-### Fields and Validation
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | The account's email address. | Required, must be a valid email. Compared case-insensitively — emails are lower-cased on save. |
+| `password` * | string | The account's password. | Required. |
 
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `refresh` | String | Yes | Must be a valid active refresh token. | The JWT refresh token to verify. |
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Login successful",
+    "data": {
+      "access": "eyJhbGciOiJIUzI1NiIs…",
+      "refresh": "eyJhbGciOiJIUzI1NiIs…",
+      "user": {
+        "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "email": "alex@acme.com",
+        "first_name": "Alex",
+        "last_name": "P"
+      }
+    },
+    "errors": null
+  }
+  ```
 
 ### Responses
 
-#### 200 OK (Success)
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Authenticated. A `UserSession` is opened, recording device name and IP. | `Login successful` | `null` |
+| **400** | Wrong email or password. | `Invalid email or password` | `{"credentials": [...]}` |
+| **400** | The account exists but `is_active` is false. | `User account is disabled` | `{"account": [...]}` |
+| **400** | **The email belongs to an unfinished signup.** See below. | `Your registration is still pending. Please complete your onboarding.` | `{"onboarding_pending": true, "temp_registration_id": "…", "email": "…"}` |
+| **400** | `email` malformed or either field missing. | `This field is required.` | `{"<field>": [...]}` |
+| **403** | Five failed attempts for this email **or** from this IP. | `Account or IP temporarily locked due to too many failed login attempts. Please try again in 1 hour.` | `null` |
 
-```json
-{
-  "status": true,
-  "message": "Token refreshed successfully.",
-  "data": {
-    "access": "eyJhbGciOi...",
-    "refresh": "eyJhbGciOi..."
-  },
-  "errors": null
-}
+> **Handle the onboarding-pending case explicitly.** If the credentials match a `TempUser` who has
+> not finished signing up, login fails with a `400` carrying `errors.onboarding_pending: true` and a
+> `temp_registration_id`. Send the user back into the
+> [signup flow](../onboard/signup_flow.md) with that id rather than showing "invalid password" —
+> the password was correct.
+
+> **The lockout is checked before the password is.** Five failures locks the account *and* the
+> source IP for **1 hour** (`DEFENDER_LOGIN_LOCKOUT_LIMIT`, `DEFENDER_COOLOFF_TIME`). During the
+> lockout even correct credentials return `403`. The counter is keyed on both, so a shared office IP
+> can lock out colleagues.
+
+> **`last_login` is updated on every successful login**, before the session is created.
+
+---
+
+### 2. Logout
+
+Revokes the session and blacklists the refresh token.
+
+- **Path**: `POST /api/v1/auth/logout/`
+- **Auth**: **JWT required** — unlike login and refresh, this endpoint is authenticated.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `refresh` * | string | The refresh token for the session being closed. | Required. Must be a valid, unexpired, non-blacklisted refresh token. |
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Refresh token blacklisted and the matching `UserSession` revoked. | `Logout successful` |
+| **400** | `refresh` missing or empty. | `Refresh token is required.` |
+| **400** | `refresh` malformed, expired, or already blacklisted. | `Invalid refresh token.` |
+| **401** | No valid access token on the request. | `Authentication credentials were not provided.` |
+
+> **Logout revokes the access token too, not just the refresh.** The session's `access_jti` is
+> marked revoked in the cache, so the access token is rejected on its very next use rather than
+> remaining valid for up to an hour.
+
+> **You must send the refresh token even though you are authenticated with the access token.** The
+> access token alone does not say which session to close — a user may have several.
+
+> **Logging out one session does not touch the others.** To end every session, use
+> [Sessions](./sessions.md).
+
+---
+
+### 3. Refresh
+
+Rotate an expiring access token.
+
+- **Path**: `POST /api/v1/auth/refresh/`
+- **Auth**: none — the refresh token in the body *is* the credential.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `refresh` * | string | The current refresh token. | Required. Must be valid, unexpired, not blacklisted, and belong to an **active session**. |
+
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Token refreshed successfully",
+    "data": {
+      "access": "eyJhbGciOiJIUzI1NiIs…",
+      "refresh": "eyJhbGciOiJIUzI1NiIs…"
+    },
+    "errors": null
+  }
+  ```
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Rotated. **Both** tokens are new; the old refresh is blacklisted and the old access revoked. | `Token refreshed successfully` |
+| **400** | `refresh` missing. | `Refresh token is required.` |
+| **400** | `refresh` malformed, expired, or already blacklisted. | `Invalid refresh token.` |
+| **400** | The account has been deactivated since login. | `User account is inactive.` |
+| **400** | The account has been soft-deleted since login. | `User account is deleted.` |
+| **400** | The session was logged out, revoked, or expired. | `Session is invalid or has been logged out.` |
+| **400** | The token's user no longer exists. | `User not found.` |
+
+> **Replace both tokens in storage.** The response contains a new `refresh` as well as a new
+> `access`. Keeping the old refresh token guarantees the next refresh fails.
+
+> **Every failure here is a `400`, never a `401`.** Unusual for an auth endpoint — do not branch on
+> `401` to detect an expired session; branch on the `400` and its `message`.
+
+> **The new refresh token's lifetime comes from the user's `session_timeout_hours`**, re-applied on
+> each rotation. Changing that value takes effect from the next refresh onwards, not immediately.
+
+---
+
+## Password reset
+
+Four steps. OTP → verify → signed token → new password.
+
 ```
-
-> **Note**: Refresh tokens are rotated (`ROTATE_REFRESH_TOKENS=True`), so a **new** `refresh` token is returned alongside the new `access` token. Clients must replace their stored refresh token with this rotated value.
-
-#### 400 Bad Request (Token/Account Error)
-
-Returned as a plain message with no `errors` array. Possible messages:
-- `"Refresh token is required."`
-- `"Invalid refresh token."`
-- `"User account is inactive."`
-- `"User account is deleted."`
-- `"Session is invalid or has been logged out."`
-- `"User not found."`
-
-```json
-{
-  "status": false,
-  "message": "Invalid refresh token.",
-  "data": null,
-  "errors": null
-}
+POST /forgot-password/          → 6-digit OTP emailed (valid 2 min)
+POST /forgot-password/resend/   → new OTP, 30s cooldown
+POST /forgot-password/verify/   → returns a signed reset token (valid 30 min)
+POST /reset-password/           → sets the new password
 ```
 
 ---
 
-## 🔒 4. Password Reset - Step 1: Forgot Password
+### 4. Forgot Password (step 1)
 
-* **Path**: `/api/v1/auth/forgot-password/`
-* **Method**: `POST`
-* **Authentication**: None (Anonymous/AllowAny)
-* **Description**: Generates a 6-digit OTP verification code valid for 2 minutes and emails it to the user.
+- **Path**: `POST /api/v1/auth/forgot-password/`
+- **Auth**: none.
 
-### Request Payload
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | The account to reset. | Required, valid email. Lower-cased before lookup. |
 
-```json
-{
-  "email": "user@example.com"
-}
-```
+| Status | When | `message` |
+|---|---|---|
+| **200** | OTP generated and queued for email — **or** the email is not registered. The response is identical either way. | `If the email is registered, a verification OTP code will be sent shortly.` |
+| **400** | An OTP was requested for this account under 30 seconds ago. | `Please wait before requesting another OTP.` |
+| **400** | `email` missing or malformed. | `This field is required.` |
 
-### Fields and Validation
-
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "If the email is registered, a verification OTP code will be sent shortly.",
-  "data": null,
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Cooldown Active)
-
-Returned if another OTP is requested within the 30-second cooldown window.
+The cooldown response carries the remaining time:
 ```json
 {
   "status": false,
   "message": "Please wait before requesting another OTP.",
-  "data": {
-    "cooldown_remaining": 18
-  },
+  "data": { "cooldown_remaining": 18 },
   "errors": ["OTP_COOLDOWN_ACTIVE"]
 }
 ```
 
----
+> **`errors` is an array of codes here, not the usual field map.** Branch on
+> `errors[0] === "OTP_COOLDOWN_ACTIVE"`.
 
-## 🔁 5. Password Reset - Step 1 Helper: Resend Forgot Password OTP
+> **The success response deliberately does not reveal whether the email exists** — but see
+> [Known gaps](#known-gaps), because the cooldown branch undoes this.
 
-* **Path**: `/api/v1/auth/forgot-password/resend/`
-* **Method**: `POST`
-* **Authentication**: None (Anonymous/AllowAny)
-* **Description**: Resends a new 6-digit verification OTP to the user's email, subject to a 30-second cooldown period.
-
-### Request Payload
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-### Fields and Validation
-
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "A new verification OTP has been emailed.",
-  "data": null,
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Cooldown Active)
-
-```json
-{
-  "status": false,
-  "message": "Please wait before resending OTP.",
-  "data": {
-    "cooldown_remaining": 18
-  },
-  "errors": ["OTP_COOLDOWN_ACTIVE"]
-}
-```
+> **Email delivery failures are swallowed.** The OTP is stored and a `200` returned even if queuing
+> the email fails. A user who never receives a code may still be inside the cooldown window.
 
 ---
 
-## 🔍 6. Password Reset - Step 2: Verify Forgot Password OTP
+### 5. Resend OTP (step 1, repeated)
 
-* **Path**: `/api/v1/auth/forgot-password/verify/`
-* **Method**: `POST`
-* **Authentication**: None (Anonymous/AllowAny)
-* **Description**: Verifies the received OTP. Upon success, returns a secure temporary signed reset token.
+Identical to step 1, with wording for a second send.
 
-### Request Payload
+- **Path**: `POST /api/v1/auth/forgot-password/resend/`
 
-```json
-{
-  "email": "user@example.com",
-  "otp_code": "123456"
-}
-```
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | The account to resend to. | Required, valid email. |
 
-### Fields and Validation
+| Status | When | `message` |
+|---|---|---|
+| **200** | A new OTP was generated, or the email is unknown. | `A new verification OTP has been emailed.` |
+| **400** | Under 30 seconds since the last OTP. Carries `cooldown_remaining` and `["OTP_COOLDOWN_ACTIVE"]`. | `Please wait before resending OTP.` |
+| **400** | `email` missing or malformed. | `This field is required.` |
 
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-| `otp_code` | String | Yes | 5 to 6 characters (`min_length=5`, `max_length=6`). No numeric-only validation is enforced. | The OTP code sent to the email. |
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "OTP verified successfully.",
-  "data": {
-    "token": "eyJhbGciOi..."
-  },
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Invalid/Expired OTP)
-
-```json
-{
-  "status": false,
-  "message": "Verification code has expired.",
-  "data": null,
-  "errors": ["OTP_EXPIRED"]
-}
-```
+> **Resending invalidates the previous OTP** — the stored code is overwritten, so only the newest
+> email works.
 
 ---
 
-## 🔒 7. Password Reset - Step 3: Reset Password
+### 6. Verify OTP (step 2)
 
-* **Path**: `/api/v1/auth/reset-password/`
-* **Method**: `POST`
-* **Authentication**: None (Anonymous/AllowAny)
-* **Description**: Uses the temporary signed token to perform the password update. The token is single-use.
+Exchange the emailed code for a signed reset token.
 
-### Request Payload
+- **Path**: `POST /api/v1/auth/forgot-password/verify/`
 
-```json
-{
-  "email": "user@example.com",
-  "token": "eyJhbGciOi...",
-  "password": "NewSecurePassword123",
-  "confirm_password": "NewSecurePassword123"
-}
-```
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | The account being reset. | Required, valid email. |
+| `otp_code` * | string | The 6-digit code from the email. | Required. **5–6 characters** — the field accepts 5, though issued codes are always 6. |
 
-### Fields and Validation
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "OTP verified successfully.",
+    "data": { "token": "eyJ1c2VyX2lkIjoi…:1abcDe:xY…" },
+    "errors": null
+  }
+  ```
 
-| Field | Type | Required | Constraints / Validation | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `email` | String | Yes | Must be a valid email format. | User's registered email address. |
-| `token` | String | Yes | Must be a valid, unexpired signed token. | The verification reset token. |
-| `password` | String | Yes | 8 to 32 characters, no spaces; must contain at least one uppercase letter, one lowercase letter, one digit, and one special character. | New plaintext password. |
-| `confirm_password` | String | Yes | Must match `password`. | Password confirmation. |
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Correct and unexpired. The OTP is cleared and a 30-minute reset token returned. | `OTP verified successfully.` | `null` |
+| **400** | Wrong code, or the email is not registered. **Indistinguishable by design.** | `Invalid OTP code.` | `["INVALID_OTP"]` |
+| **400** | Correct code, but older than `OTP_VALIDITY_MINUTES` (default 2). | `Verification code has expired.` | `["OTP_EXPIRED"]` |
+| **400** | Five wrong attempts within 10 minutes. **The OTP is destroyed** — request a new one. | `Too many failed attempts. Verification code has been invalidated.` | `["TOO_MANY_ATTEMPTS"]` |
+| **400** | `email` or `otp_code` missing or malformed. | `This field is required.` | field map |
 
-### Responses
+> **Attempts are counted per email over a 10-minute window, and unknown emails are counted too** —
+> against a hashed key — so probing for valid addresses looks exactly like mistyping a code.
 
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Password reset successfully.",
-  "data": null,
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Invalid/Expired Token or Validation Failure)
-
-```json
-{
-  "status": false,
-  "message": "This reset link has already been used.",
-  "data": null,
-  "errors": ["TOKEN_ALREADY_USED"]
-}
-```
+> **A used OTP reads as `INVALID_OTP`, not `OTP_EXPIRED`.** Verification clears the stored code, so
+> submitting the same code twice gives the generic invalid message.
 
 ---
 
-## 🤖 8. Voicebot Agent Authentication
+### 7. Reset Password (step 3)
 
-* **Description**: Programmatic API access for voicebot agents is secured using long-lived static tokens managed via the Django Admin interface.
-* **Authentication Scheme**: Bearer Token
-* **Header Format**: `Authorization: Bearer <agent_token_key>`
+- **Path**: `POST /api/v1/auth/reset-password/`
 
-### Usage Requirements
-- The user account associated with the token must have `user_type` set to `VB_AGENT`.
-- The user account must be active.
-- The `AgentToken` record must be active (`is_active=True`) and not expired (`expires_at` > now, if set).
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | The account being reset. | Required, valid email. Must match the token's owner. |
+| `token` * | string | The signed token from step 2. | Required. Valid signature, under 30 minutes old, and **not already used**. |
+| `password` * | string | The new password. | Required. **8–32 characters**. No spaces. At least one uppercase, one lowercase, one digit, and one of `!@#$%^&*(),.?":{}\|<>`. |
+| `confirm_password` * | string | Repeat of `password`. | Required. Must match exactly. |
 
-### Example Request
-```bash
-curl -X GET "https://api.example.com/api/v1/some-agent-endpoint/" \
-  -H "Authorization: Bearer <agent_token_key>"
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Password changed. | `Password reset successfully.` | `null` |
+| **400** | No active account for that email. | `Invalid email or user not found.` | `["USER_NOT_FOUND"]` |
+| **400** | The token is more than 30 minutes old. | `Reset token has expired.` | `["TOKEN_EXPIRED"]` |
+| **400** | The token was tampered with or is not ours. | `Invalid token signature.` | `["INVALID_TOKEN"]` |
+| **400** | The token belongs to a different account than `email`. | `Token is not associated with this user.` | `["INVALID_USER_TOKEN"]` |
+| **400** | The token was already used to change a password. | `This reset link has already been used.` | `["TOKEN_ALREADY_USED"]` |
+| **400** | Password too short/long, missing a character class, or containing a space. | e.g. `Password must contain at least one uppercase letter.` | `{"password": [...]}` |
+| **400** | `password` and `confirm_password` differ. | `Passwords do not match.` | `{"confirm_password": "…"}` |
+
+> **Single use is enforced by embedding the old password hash in the token.** Once the password
+> changes the hash no longer matches, so the token is spent. There is no separate revocation list.
+
+> **Resetting a password does NOT log other sessions out.** Existing access and refresh tokens stay
+> valid — see [Known gaps](#known-gaps). Revoke them explicitly via [Sessions](./sessions.md) if
+> the reset was prompted by a compromise.
+
+---
+
+## 8. Voicebot Agent Tokens
+
+Long-lived machine credentials for the voicebot runtime. Issued in the Django admin, never through
+this API.
+
+**Format:** `vb_<prefix>_<secret>` — e.g. `vb_a1b2c3_s3cr3tstring`.
+
+```http
+Authorization: Bearer vb_a1b2c3_s3cr3tstring
 ```
 
-### Responses
+Only the prefix is stored in plain text; the secret is hashed. **The secret is shown once at
+creation and cannot be recovered** — reissue the token if it is lost.
 
-All agent authentication failures return **HTTP 401 Unauthorized** (raised as `AuthenticationFailed`).
+**How a token is validated, in order:**
 
-#### 401 Unauthorized (Invalid Token)
-If no matching active token prefix is found (invalid or inactive token):
-```json
-{
-  "detail": "Invalid or inactive agent token."
-}
+1. The header must start with `Bearer` and the token with `vb_`. Anything else is passed to the JWT
+   authenticator rather than failing.
+2. The prefix must match an `is_active` token.
+3. The secret must match the stored hash.
+4. `expires_at`, if set, must be in the future.
+5. The owning user must be `is_active` and of type `VB_AGENT`.
+
+| Status | When | `message` |
+|---|---|---|
+| **401** | No token matches the prefix, or the token is inactive. | `Invalid or inactive agent token.` |
+| **401** | Prefix matched but the secret is wrong. | `Invalid agent token secret.` |
+| **401** | Past `expires_at`. | `Agent token has expired.` |
+| **401** | The owner is deactivated or is not a `VB_AGENT`. | `User is inactive or not an agent.` |
+
+> **Agent tokens carry no tenant.** Every endpoint they can reach requires an `X-Tenant-ID` header
+> naming the tenant, and that header is a **filter, not an authorisation boundary** — a valid token
+> can name any tenant. Treat these as high-value secrets: store them in a secret manager, rotate
+> them, and never expose one to a browser. Full rationale:
+> [Tenant scoping for VB_AGENT callers](../core/vb_agent_tenant_scoping.md).
+
+> **What an agent token may call is an explicit allowlist per endpoint**, closed by default. See the
+> same document for the current surface.
+
+> **`last_used_at` is written on every authenticated request**, so each agent call costs one extra
+> database write.
+
+---
+
+## 9. ETL System Token
+
+A single static bearer token for the knowledge-base ingestion service, configured as
+`ETL_SYSTEM_TOKEN`.
+
+```http
+Authorization: Bearer <ETL_SYSTEM_TOKEN>
 ```
 
-#### 401 Unauthorized (Invalid Secret)
-If the token prefix matches but the secret is wrong:
-```json
-{
-  "detail": "Invalid agent token secret."
-}
-```
+It resolves to the one active user of type `ETL` and reaches exactly one endpoint:
+[`update-etl-status`](../core/knowledge_base.md#13-update-etl-status-etl-service-only).
 
-#### 401 Unauthorized (Expired Token)
-```json
-{
-  "detail": "Agent token has expired."
-}
-```
+| Status | When | `message` |
+|---|---|---|
+| **401** | The token does not match `ETL_SYSTEM_TOKEN`. | `Invalid ETL system token.` |
+| **401** | No active `ETL` user exists in the database. | `System ETL user not found in database.` |
 
-#### 401 Unauthorized (Invalid User)
-If the user account is inactive or not of type `VB_AGENT`:
-```json
-{
-  "detail": "User is inactive or not an agent."
-}
-```
+> **ETL callers are not tenant-scoped**, by design — the service ingests every tenant's knowledge
+> bases. The token is as sensitive as an agent token.
+
+> **The default is a placeholder.** `ETL_SYSTEM_TOKEN` falls back to
+> `dummy_etl_system_token_for_local_dev` when unset, and that value authenticates successfully. Set
+> it explicitly in every deployed environment.
+
+---
+
+## How authentication is selected
+
+Both authenticators run in order on every request:
+
+1. **`AgentTokenAuthentication`** — claims the request only if the token starts with `vb_`.
+   Otherwise it returns `None` and passes it along.
+2. **`CachedJWTAuthentication`** — validates the JWT signature *and* checks the token's `jti`
+   against an active `UserSession`.
+
+> **A structurally valid JWT is still rejected if its session is gone.** Signature and expiry are
+> not enough: logout, an admin revoking the session, or session expiry all produce
+> `Session is invalid or logged out.` This is what makes revocation immediate.
+
+> **Session validation is cached in Redis and falls back to the database when Redis is down.**
+> A revoked token is cached as revoked for the remainder of its lifetime; an active session's
+> `last_used` is written at most once per 60 seconds to avoid a write on every request.
+
+## Known gaps
+
+| # | Gap | Impact |
+|---|---|---|
+| 1 | **A password reset does not revoke existing sessions.** | After a reset, previously issued access and refresh tokens keep working until they expire — including any an attacker holds. Revoke sessions manually if the reset followed a compromise. |
+| 2 | **The OTP cooldown leaks whether an email is registered.** Steps 4 and 5 return `200` for unknown addresses, but a registered address inside the 30-second window returns `400 OTP_COOLDOWN_ACTIVE`. Two quick requests distinguish the two. | Undermines the enumeration protection the identical success messages were written to provide. |
+| 3 | **`reset-password` returns `USER_NOT_FOUND` for unknown emails.** | The same leak, directly. |
+| 4 | **A login whose session row fails to save still returns tokens.** The failure is logged and swallowed, but `CachedJWTAuthentication` then rejects the access token because no session exists. | The client receives a `200` with tokens that fail on first use. |
+| 5 | **`never_expires` on an agent token is not honoured by the authenticator.** It checks only `expires_at`, so a token flagged never-expiring but carrying a date still expires. | Contradicts the field's own help text. |
+| 6 | **`IsWithinLoginWindow` calls `user.can_login_now()`, which is not defined on the model** — and the class is imported but never registered in any `permission_classes`. | Dead code today; enabling it would raise `AttributeError` and return `500` on every request. |
+
+## Related
+
+- [Users API](./users.md) — accounts, roles, `session_timeout_hours`
+- [Sessions API](./sessions.md) — listing and revoking active sessions
+- [Signup flow](../onboard/signup_flow.md) — where `onboarding_pending` sends the user
+- [Tenant scoping for VB_AGENT callers](../core/vb_agent_tenant_scoping.md)

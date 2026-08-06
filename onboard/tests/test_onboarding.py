@@ -118,6 +118,20 @@ class OnboardingTests(APITestCase):
         # Amount in Paisa: 4720.00 * 100 = 472000
         self.assertEqual(response.data["data"]["amount"], 472000)
 
+        # Step 4b: calling it again with the SAME phone number must still work.
+        # The first call saves the phone onto the TempUser, so the "already pending"
+        # check now matches the caller's own registration unless it is excluded — which
+        # is what happens whenever someone edits their billing address or retries a
+        # failed payment.
+        address_payload["billing_address"]["line1"] = "456 Corrected Street"
+        retry = self.client.post(self.create_order_url, data=address_payload, format="json")
+        self.assertEqual(
+            retry.status_code,
+            status.HTTP_200_OK,
+            f"re-submitting the same phone number was rejected: {retry.data}",
+        )
+        order_id = retry.data["data"]["razorpay_order_id"]
+
         # Step 5: POST verify
         verify_payload = {
             "razorpay_order_id": order_id,

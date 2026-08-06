@@ -751,11 +751,19 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             
         force = request.query_params.get("force", "").lower() == "true"
         if not force:
+            # Scoped to what this caller can see, not to the raw `ids` they sent.
+            # Filtering by `ids` answered an id from another tenant with "connected to
+            # an agent" instead of the "Some ids are invalid" every other unknown id
+            # gets, confirming both that the row exists and that it is in use.
+            visible_ids = list(
+                self.get_queryset().filter(id__in=ids, is_deleted=False)
+                .values_list("id", flat=True)
+            )
             used_kb_ids = Agent.objects.filter(
-                knowledge_bases__id__in=ids,
+                knowledge_bases__id__in=visible_ids,
                 is_deleted=False
             ).values_list('knowledge_bases__id', flat=True)
-            
+
             if used_kb_ids:
                 return Response(
                     {

@@ -67,7 +67,9 @@ audit fields are **not** included; use Retrieve for those.
           "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
           "name": "Wealth Advisory"
         },
-        "created_at": "2026-06-03T18:00:00Z"
+        "created_at": "2026-06-03T18:00:00Z",
+        "total_languages_count": 2,
+        "voice_name": "en-IN-Wavenet-B"
       }
     ],
     "errors": null,
@@ -80,6 +82,18 @@ audit fields are **not** included; use Retrieve for those.
     }
   }
   ```
+
+> **The list payload is not a subset of the detail payload.** `total_languages_count` appears
+> **only here** — it is a computed count, not a stored field, and there is no equivalent on
+> retrieve. Two fields are worth calling out:
+>
+> | Field | Meaning |
+> |---|---|
+> | `total_languages_count` | How many entries are in the agent's `languages` array. `0` when the array is empty or null — never absent. |
+> | `voice_name` | The TTS voice, so a list can show it without a per-row detail call. |
+>
+> Everything else omitted from the list — `languages` itself, `knowledge_bases`, `probing_questions`,
+> `transfer_destinations`, `timezone` — requires [retrieve](#2-retrieve-an-agent).
 
 ---
 

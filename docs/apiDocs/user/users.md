@@ -1,401 +1,369 @@
-# Users Management API
+# Users API Documentation
 
-This document covers endpoints related to user listing, details, creation, update, deletion, and retrieval of the currently authenticated user session.
+The people who can sign in to your workspace. Create colleagues, edit profiles, change passwords,
+and read the current user's own record.
+
+**Base path:** `/api/v1/auth/users/`
+
+Four things govern this API:
+
+- **Your visible set is your tenant.** You can see — and **edit** — every user mapped to the same
+  tenant as you, plus your own record. Superusers see everyone. See
+  [Who can see and change whom](#who-can-see-and-change-whom); it is broader than most people
+  expect.
+- **Creating a user maps them to your tenant automatically.** You do not pass a tenant; it comes
+  from your own mapping. Without a mapping, creation is refused.
+- **Roles are not settable here.** `user_type` is absent from the serializer, so every user created
+  through this API is an ordinary `USER`. Roles are an admin-side concern.
+- **`GET /users/me/` is the endpoint your app should call on load** — it returns the caller's
+  record along with their tenant and subscription.
+
+> **VB_AGENT access:** none. This viewset declares no `vb_agent_allowed_actions`, so agent tokens
+> get **403** on every action.
+
+## Endpoints Summary
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/auth/users/` | List users you can see (paginated) |
+| `GET` | `/auth/users/{id}/` | Retrieve one user |
+| `POST` | `/auth/users/` | Create a user in your tenant |
+| `PUT` / `PATCH` | `/auth/users/{id}/` | Update a user |
+| `DELETE` | `/auth/users/{id}/` | Soft-delete a user |
+| `GET` | `/auth/users/me/` | The authenticated user's own record |
+| `POST` | `/auth/users/change-password/` | Change your own password |
+| `GET` | `/auth/users/dropdown/` | Label/value picker options |
+| `POST` | `/auth/users/bulk_delete/` | Bulk soft-delete |
 
 ---
 
-## 🔍 1. List Users
+## Who can see and change whom
 
-* **Path**: `/api/v1/auth/users/`
-* **Method**: `GET`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Returns a paginated list of users.
+| Caller | Visible set |
+|---|---|
+| Django superuser | **Every user in every tenant.** |
+| User with a tenant mapping | Their own record **plus every user mapped to the same tenant**. |
+| User without a tenant mapping | Their own record only. |
 
-### Query Parameters
+> **Visibility and edit rights are the same thing here.** There is no role check on update or
+> delete — any user who can see a colleague can also change that colleague's email, password,
+> `is_active`, and `session_timeout_hours`, and can soft-delete them. An ordinary `USER` can do this
+> to an `ADMIN`. If your product needs "only admins may manage teammates", it must be enforced
+> before this API, because this API does not enforce it.
 
-| Parameter | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `is_active` | Boolean | No | Filter by active state. |
-| `is_verified` | Boolean | No | Filter by verification state. |
-| `created_at` | Date/DateTime | No | Filter by creation time. Supports lookups: `created_at__date`, `created_at__gte`, `created_at__lte`. |
-| `search` | String | No | Search text matching email, username, first_name, last_name, or phone_number. |
-| `ordering` | String | No | Order by `created_at`, `updated_at`, `email`, `first_name`, `last_name`. Prefix with `-` for descending. |
+> **Soft-deleting or deactivating a user does not sign them out.** Their existing sessions keep
+> working until the tokens expire — revoke them via [Sessions](./sessions.md) as a separate step.
 
-### Responses
+---
 
-#### 200 OK (Success)
+## Endpoint Details
 
-```json
-{
-  "status": true,
-  "message": "success",
-  "data": [
-    {
-      "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-      "email": "user@example.com",
-      "first_name": "John",
-      "last_name": "Doe",
-      "phone_number": "+1234567890",
+### 1. List Users
+
+- **Path**: `GET /api/v1/auth/users/`
+- **Headers**: `Authorization: Bearer <access_token>`
+
+| Parameter | Type | Description | Validation |
+|---|---|---|---|
+| `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
+| `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
+| `search` | string | Partial, case-insensitive match on `email`, `username`, `first_name`, `last_name`, `phone_number`. | Words split on spaces and **AND**ed. |
+| `ordering` | string | Sort. Default `-created_at`. | Only `created_at`, `updated_at`, `email`, `first_name`, `last_name`, optionally `-` prefixed. |
+| `is_active` | boolean | Exact match. | `true` / `false`. |
+| `is_verified` | boolean | Exact match. | `true` / `false`. |
+| `created_at__date` | date | Users created on an exact date. | `YYYY-MM-DD`. |
+| `created_at__gte` / `created_at__lte` | datetime | Created on or after / before. | ISO-8601. |
+
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "success",
+    "data": [
+      {
+        "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+        "email": "alex@acme.com",
+        "first_name": "Alex",
+        "last_name": "P",
+        "phone_number": "+14155552671",
+        "is_active": true,
+        "is_verified": true,
+        "session_timeout_hours": 168,
+        "created_at": "2026-06-03T18:00:00Z",
+        "timezone": { "id": "3fa8…", "timezone": "Asia/Kolkata" },
+        "language": { "id": "7bf2…", "name": "English" }
+      }
+    ],
+    "errors": null,
+    "meta": { "count": 1, "next": null, "previous": null, "page": 1, "page_size": 10 }
+  }
+  ```
+
+> **The list payload omits `tenant` and `subscription`** — both require extra queries per row. Use
+> retrieve (§2) or `me` (§6) when you need them.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Zero or more users. Always at least your own record. | `success` |
+| **400** | Non-boolean on a boolean filter, or a malformed date. | filter error |
+| **401** | Missing, expired, or revoked access token. | `Authentication credentials were not provided.` |
+| **403** | Agent token. | `This endpoint is not available to agent tokens.` |
+| **404** | `page` beyond the last page. | `Invalid page.` |
+
+---
+
+### 2. Retrieve a User
+
+- **Path**: `GET /api/v1/auth/users/{id}/`
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Retrieved successfully",
+    "data": {
+      "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
+      "email": "alex@acme.com",
+      "first_name": "Alex",
+      "last_name": "P",
+      "phone_number": "+14155552671",
       "is_active": true,
       "is_verified": true,
       "session_timeout_hours": 168,
-      "created_at": "2026-06-03T10:00:00Z",
-      "timezone": {
-        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-        "timezone": "Asia/Kolkata",
-        "offset": "UTC+05:30"
-      },
-      "language": {
-        "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
-        "name": "English (India)",
-        "code": "en-IN"
-      }
-    }
-  ],
-  "errors": null,
-  "meta": {
-    "count": 1,
-    "next": null,
-    "previous": null,
-    "page": 1,
-    "page_size": 10
+      "tenant": { "id": "7bf2…", "name": "Alpha Corp", "subdomain": "alpha-corp" },
+      "subscription": { "id": "9c7e…", "status": "active", "plan": { "id": "1a2b…", "name": "Growth" } },
+      "timezone": { "id": "3fa8…", "timezone": "Asia/Kolkata" },
+      "language": { "id": "7bf2…", "name": "English" }
+    },
+    "errors": null
   }
-}
-```
+  ```
 
-#### 401 Unauthorized
+| Status | When | `message` |
+|---|---|---|
+| **200** | Found. | `Retrieved successfully` |
+| **401** / **403** | As in §1. | — |
+| **404** | No such user, soft-deleted, or outside your visible set. | `Not found.` |
 
-```json
-{
-  "status": false,
-  "message": "Authentication credentials were not provided.",
-  "data": null,
-  "errors": ["AUTHENTICATION_FAILED"]
-}
-```
+> **The detail payload has no timestamps.** Unlike the list, `created_at` and `updated_at` are not
+> serialised here. If you need them, read them from the list.
 
----
-
-## 👤 2. Get Current User ("Me")
-
-* **Path**: `/api/v1/auth/users/me/`
-* **Method**: `GET`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Retrieve detailed profile of the currently logged-in user.
-
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "success",
-  "data": {
-    "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-    "email": "user@example.com",
-    "first_name": "John",
-    "last_name": "Doe",
-    "phone_number": "+1234567890",
-    "is_active": true,
-    "is_verified": true,
-    "session_timeout_hours": 168,
-    "timezone": {
-      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-      "timezone": "Asia/Kolkata",
-      "offset": "UTC+05:30"
-    },
-    "language": {
-      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
-      "name": "English (India)",
-      "code": "en-IN"
-    },
-    "tenant": {
-      "id": "b0a2c9f4-53c2-4091-9876-fa8b0c29f4a1",
-      "name": "Acme Corp",
-      "subdomain": "acme"
-    },
-    "subscription": {
-      "id": "e4f8d2b6-dc94-4ab2-b258-2945a0b7cb2a",
-      "status": "active",
-      "status_display": "Active",
-      "start_date": "2026-06-03T10:00:00Z",
-      "end_date": "2027-06-03T10:00:00Z",
-      "plan_snapshot": {
-        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-        "code": "premium-yearly",
-        "name": "Premium Plan",
-        "description": "Premium annual plan",
-        "base_price": "100.00",
-        "discount_percentage": "0.00",
-        "discount_amount": "0.00",
-        "net_base_price": "100.00",
-        "tax_percentage": "0.00",
-        "tax_amount": "0.00",
-        "total_price": "100.00",
-        "currency": "USD",
-        "billing_cycle": "yearly",
-        "plan_type": "paid"
-      },
-      "plan": {
-        "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-        "code": "premium-yearly",
-        "name": "Premium Plan",
-        "description": "Premium annual plan",
-        "base_price": "100.00",
-        "discount_percentage": "0.00",
-        "discount_amount": "0.00",
-        "net_base_price": "100.00",
-        "tax_percentage": "0.00",
-        "tax_amount": "0.00",
-        "total_price": "100.00",
-        "currency": "USD",
-        "currency_display": "USD",
-        "billing_cycle": "yearly",
-        "billing_cycle_display": "Yearly",
-        "plan_type": "paid",
-        "plan_type_display": "Paid",
-        "sort_order": 1,
-        "is_most_popular": false,
-        "is_active": true,
-        "created_at": "2026-06-03T09:00:00Z",
-        "updated_at": "2026-06-03T09:00:00Z"
-      },
-      "is_active": true,
-      "created_at": "2026-06-03T10:00:00Z",
-      "updated_at": "2026-06-03T10:00:00Z"
-    }
-  },
-  "errors": null
-}
-```
-
-#### 401 Unauthorized
-
-```json
-{
-  "status": false,
-  "message": "Authentication credentials were not provided.",
-  "data": null,
-  "errors": ["AUTHENTICATION_FAILED"]
-}
-```
+> **`tenant` and `subscription` are `null` for a user with no tenant mapping.** `subscription`
+> prefers the tenant's `active` subscription and falls back to whichever exists, so a `null` here
+> means the tenant has none at all.
 
 ---
 
-## ➕ 3. Create User
+### 3. Create a User
 
-* **Path**: `/api/v1/auth/users/`
-* **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Creates a new user in the system. Any authenticated user may create users; non-superusers create users scoped to their own tenant.
+Adds a colleague to **your** tenant.
 
-### Request Payload
-
-```json
-{
-  "email": "newuser@example.com",
-  "password": "SecurePassword123",
-  "first_name": "Jane",
-  "last_name": "Smith",
-  "phone_number": "+9876543210",
-  "session_timeout_hours": 24,
-  "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-  "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
-}
-```
-
-> **Notes**: `password` is **optional** (`required=False`); if omitted, the user is created without a usable password. `is_active` is writable and may be supplied in the payload.
-
-### Responses
-
-#### 201 Created (Success)
-
-```json
-{
-  "status": true,
-  "message": "Created successfully.",
-  "data": {
-    "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-    "email": "newuser@example.com",
-    "first_name": "Jane",
-    "last_name": "Smith",
-    "phone_number": "+9876543210",
-    "is_active": true,
-    "is_verified": false,
-    "session_timeout_hours": 24,
-    "timezone": {
-      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-      "timezone": "Asia/Kolkata",
-      "offset": "UTC+05:30"
-    },
-    "language": {
-      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
-      "name": "English (India)",
-      "code": "en-IN"
-    }
-  },
-  "errors": null
-}
-```
-
-#### 400 Bad Request (Validation Error)
-
-```json
-{
-  "status": false,
-  "message": "A user with that email already exists.",
-  "data": null,
-  "errors": {
-    "email": ["A user with that email already exists."]
+- **Path**: `POST /api/v1/auth/users/`
+- **Request Payload**:
+  ```json
+  {
+    "email": "sam@acme.com",
+    "password": "Str0ng!Passphrase",
+    "first_name": "Sam",
+    "last_name": "Rivera",
+    "phone_number": "+14155559876"
   }
-}
-```
+  ```
+
+### Request fields
+
+`*` marks required.
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `email` * | string | Sign-in identity. Also becomes `username` if none is set. | Required, valid email, **unique across all users**. Lower-cased on save. |
+| `password` | string | Initial password. **Write-only** — never returned. | Optional. Validated by Django's configured password validators (length, common-password, numeric-only, similarity to the email). **Not** the same rules as [change-password](#7-change-your-password). Omitting it creates an account that cannot log in until a password is set. |
+| `first_name` | string | Given name. | Optional. Max **150**. |
+| `last_name` | string | Family name. | Optional. Max **150**. |
+| `phone_number` | string | Contact number. Free text — **not** normalised or validated. | Optional, nullable. Max **15**. |
+| `is_active` | boolean | Whether the account may sign in. | Optional, default `true`. |
+| `session_timeout_hours` | integer | How long this user's refresh tokens live. See [auth](./auth.md#token-lifetimes). | Optional, default `168` (7 days). Values below 1 are clamped to 1 hour at token-issue time. |
+| `timezone` | UUID | Preferred timezone, for schedules and notifications. | Optional, nullable. Must be an existing [timezone](../onboard/timezones.md) id. |
+| `language` | UUID | Preferred language. | Optional, nullable. Must be an existing [language](../onboard/languages.md) id. |
+
+**Read-only — ignored if you send them:** `id`, `is_verified`, `tenant`, `subscription`.
+
+> **`user_type` cannot be set.** It is absent from the serializer, so every user created here gets
+> the model default `USER`. Promoting someone to `ADMIN` is a Django-admin action.
+
+> **The new user is mapped to your tenant automatically**, inside the same transaction as the
+> account itself — so if the mapping fails, no orphaned user is left behind. Superusers are the
+> exception: they create unmapped users.
+
+- **Success Response (201 Created)**: the object from §2, with `"message": "Created successfully"`.
+
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **201** | Created and mapped to your tenant. | `Created successfully` | `null` |
+| **400** | `email` already taken. | `custom user with this email already exists.` | `{"email": [...]}` |
+| **400** | `email` missing or malformed. | `This field is required.` | `{"email": [...]}` |
+| **400** | `password` rejected by a Django validator. | e.g. `This password is too common.` | `{"password": [...]}` |
+| **400** | `timezone` or `language` id does not exist. | `Invalid pk "…" - object does not exist.` | `{"<field>": [...]}` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **403** | You have no tenant mapping to add the user to. | `Your user account is not associated with any active tenant.` | `{"detail": …}` |
+| **403** | Agent token. | `This endpoint is not available to agent tokens.` | `{"detail": …}` |
+
+> **Password rules differ across this API.** Create and update run Django's validators;
+> [change-password](#7-change-your-password) and
+> [reset-password](./auth.md#7-reset-password-step-3) additionally require an uppercase, a
+> lowercase, a digit, a special character, no spaces, and a 8–32 length. A password acceptable here
+> may be rejected there.
 
 ---
 
-## 🔄 4. Update User (PUT / PATCH)
+### 4. Update a User
 
-* **Path**: `/api/v1/auth/users/{id}/`
-* **Method**: `PUT` or `PATCH`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Updates user profile parameters.
+- **Path**: `PUT` (full) or `PATCH` (partial) `/api/v1/auth/users/{id}/`
+- **Request Payload**: any subset of the writable fields from §3.
 
-### Request Payload (PATCH example)
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Updated. | `Updated successfully` | `null` |
+| **400** | Any validation error from §3, including the new email colliding. | as §3 | `{"<field>": [...]}` |
+| **401** / **403** | As in §1. | — | — |
+| **404** | No such user, or outside your visible set. | `Not found.` | `{"detail": …}` |
 
-```json
-{
-  "first_name": "Johnny",
-  "session_timeout_hours": 24,
-  "timezone": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-  "language": "f516a24b-9e4b-4b2a-88fa-10a905a96db2"
-}
-```
+> **Sending `password` here changes it, with no old-password check.** That is a genuine password
+> reset performed by whoever can see the record — and, per
+> [Who can see and change whom](#who-can-see-and-change-whom), that is any colleague in the tenant.
+> Use [change-password](#7-change-your-password) for the self-service flow, which does verify the
+> current password.
 
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Updated successfully.",
-  "data": {
-    "id": "c1f7b0f6-dc94-4ab2-b258-2945a0b7cb2a",
-    "email": "user@example.com",
-    "first_name": "Johnny",
-    "last_name": "Doe",
-    "phone_number": "+1234567890",
-    "is_active": true,
-    "is_verified": true,
-    "session_timeout_hours": 24,
-    "timezone": {
-      "id": "a9a3b8d4-53c2-4091-9876-fa8b0c29f4a1",
-      "timezone": "Asia/Kolkata",
-      "offset": "UTC+05:30"
-    },
-    "language": {
-      "id": "f516a24b-9e4b-4b2a-88fa-10a905a96db2",
-      "name": "English (India)",
-      "code": "en-IN"
-    }
-  },
-  "errors": null
-}
-```
-
-#### 404 Not Found
-
-```json
-{
-  "status": false,
-  "message": "User not found.",
-  "data": null,
-  "errors": ["NOT_FOUND"]
-}
-```
+> **Changing `email` changes the user's login identity immediately**, and their existing sessions
+> keep working. It does not send a verification email; `is_verified` is untouched.
 
 ---
 
-## ❌ 5. Delete User
+### 5. Delete a User
 
-* **Path**: `/api/v1/auth/users/{id}/`
-* **Method**: `DELETE`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Soft-deletes a user from the system. Any authenticated user may delete users within their tenant scope (results are tenant-scoped, not superuser-only).
+- **Path**: `DELETE /api/v1/auth/users/{id}/`
+- **Success Response (200 OK)**: `{ "status": true, "message": "Deleted successfully", "data": null, "errors": null }`
 
-### Responses
+| Status | When | `message` |
+|---|---|---|
+| **200** | Soft-deleted. | `Deleted successfully` |
+| **401** / **403** | As in §1. | — |
+| **404** | No such user, already deleted, or outside your visible set. | `Not found.` |
 
-#### 200 OK (Success)
+**Soft delete** — the row survives with `is_deleted: true` and drops out of every list.
 
-```json
-{
-  "status": true,
-  "message": "Deleted successfully",
-  "data": null,
-  "errors": null
-}
-```
+> **Their sessions are NOT revoked.** A deleted user's access token keeps working until it expires,
+> though [refresh](./auth.md#3-refresh) refuses with `User account is deleted.` To sign them out
+> now, revoke their sessions as well.
 
-#### 404 Not Found
+> **The email stays taken.** Uniqueness on `email` has no "not deleted" condition, so a
+> soft-deleted user's address cannot be reused for a new account.
 
-```json
-{
-  "status": false,
-  "message": "User not found.",
-  "data": null,
-  "errors": ["NOT_FOUND"]
-}
-```
+> **Nothing stops you deleting yourself.** There is no self-protection check and no
+> last-admin guard.
 
 ---
 
-## 🔒 6. Change Password
+### 6. Get the Current User
 
-* **Path**: `/api/v1/auth/users/change-password/`
-* **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated)
-* **Description**: Allows an authenticated user to change their current password.
+The endpoint your app calls on load.
 
-### Request Payload
+- **Path**: `GET /api/v1/auth/users/me/`
+- **Success Response (200 OK)**: the same object as §2, for the authenticated caller.
 
-```json
-{
-  "old_password": "SecurePassword123!",
-  "new_password": "NewSecurePassword123!",
-  "confirm_password": "NewSecurePassword123!"
-}
-```
+| Status | When | `message` |
+|---|---|---|
+| **200** | Always, for any authenticated user. | `success` |
+| **401** | Missing, expired, or revoked access token. | `Authentication credentials were not provided.` |
+| **403** | Agent token. | `This endpoint is not available to agent tokens.` |
 
-### Responses
+> **Never 404s.** It serialises the request's own user directly rather than looking one up, so it
+> works even for a user with no tenant mapping — `tenant` and `subscription` come back `null`.
 
-#### 200 OK (Success)
+---
 
-```json
-{
-  "status": true,
-  "message": "Password changed successfully.",
-  "data": null,
-  "errors": null
-}
-```
+### 7. Change Your Password
 
-#### 400 Bad Request (Validation Errors)
+Self-service change, verifying the current password.
 
-* **Edge Case 1**: Old password is incorrect.
-* **Edge Case 2**: `new_password` and `confirm_password` do not match.
-* **Edge Case 3**: New password is weak or invalid (e.g. contains spaces, missing numbers/uppercase/lowercase/special character).
+- **Path**: `POST /api/v1/auth/users/change-password/`
+- **Applies to the caller only** — there is no `id`; you cannot change someone else's password here.
 
-```json
-{
-  "status": false,
-  "message": "Validation failed.",
-  "data": null,
-  "errors": {
-    "confirm_password": [
-      "New passwords do not match."
-    ]
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `old_password` * | string | Your current password. | Required. Must match. |
+| `new_password` * | string | The replacement. | Required. **8–32 characters**, no spaces, at least one uppercase, one lowercase, one digit, and one of `!@#$%^&*(),.?":{}\|<>`. Also run through Django's validators. Must differ from `old_password`. |
+| `confirm_password` * | string | Repeat of `new_password`. | Required. Must match exactly. |
+
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Password changed. | `Password changed successfully.` | `null` |
+| **400** | `old_password` is wrong. | `Old password is incorrect.` | `{"old_password": "…"}` |
+| **400** | `new_password` and `confirm_password` differ. | `New passwords do not match.` | `{"confirm_password": "…"}` |
+| **400** | The new password equals the old one. | `New password cannot be the same as old password.` | `{"new_password": "…"}` |
+| **400** | A complexity rule failed. | e.g. `Password must contain at least one special character.` | `{"new_password": [...]}` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+
+> **Changing your password does not sign out your other devices.** Sessions survive — revoke them
+> from [Sessions](./sessions.md) if that is what you intend.
+
+---
+
+### 8. Dropdown
+
+- **Path**: `GET /api/v1/auth/users/dropdown/`
+- **Query Parameters**: `limit` (≤ **1000**; over that → **400 `Limit cannot exceed 1000`**), plus all List filters and `search`.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Dropdown options retrieved successfully",
+    "data": [ { "label": "Alex P", "value": "5fa85f64-…" } ],
+    "errors": null,
+    "meta": { "count": 1, "next": null, "previous": null, "page": 1, "page_size": 10 }
   }
-}
-```
+  ```
 
+`label` falls back in order: `"First Last"` → `First` → `username` → `email`. So a user with no
+name still renders as something identifiable.
+
+---
+
+### 9. Bulk Delete
+
+- **Path**: `POST /api/v1/auth/users/bulk_delete/`
+- **Request Payload**: `{ "ids": ["5fa85f64-…", "…"] }`
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `ids` * | UUID array | Users to soft-delete. | Non-empty list. Every id must exist, be undeleted, and be in your visible set. All-or-nothing. |
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | All soft-deleted. | `Bulk deleted successfully` |
+| **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
+| **400** | Any id unknown, already deleted, or outside your visible set — **nothing is deleted**. | `Some ids are invalid` |
+| **401** / **403** | As in §1. | — |
+
+> **Duplicate ids fail the whole request.** De-duplicate client-side.
+
+> **No session revocation here either**, and no guard against including yourself.
+
+---
+
+## Known gaps
+
+| # | Gap | Impact |
+|---|---|---|
+| 1 | **Visibility equals edit rights, with no role check.** Any user in a tenant can edit or delete any other user in that tenant, including admins, and can reset their password by `PATCH`ing `password`. | Privilege escalation within a tenant. Enforce roles upstream if you need them. |
+| 2 | **No session revocation on deactivate, delete, or password change.** | A removed or compromised account keeps working until its access token expires. |
+| 3 | **`user_type` is not exposed.** | Roles cannot be read or set through the API, so a client cannot tell an admin from an ordinary user. |
+| 4 | **Password rules differ between create/update and change/reset.** | A password accepted at creation may be rejected when the user later tries to change it. |
+| 5 | **`phone_number` is unvalidated free text**, unlike [Contacts](../core/contact.md), which normalises to E.164. | The same person's number can be stored in two different shapes across the system. |
+| 6 | **A soft-deleted user's email stays reserved.** | The address cannot be reused for a new account. |
+| 7 | **The detail payload omits timestamps** that the list includes. | Clients must call the list to learn when a user was created. |
+
+## Related
+
+- [Authentication API](./auth.md) — login, password reset, token lifetimes
+- [Sessions API](./sessions.md) — revoking access after a change here
+- [Timezones](../onboard/timezones.md) · [Languages](../onboard/languages.md) — the `timezone` and `language` ids

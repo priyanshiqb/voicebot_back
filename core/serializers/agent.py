@@ -344,6 +344,7 @@ class AgentSerializer(TenantBaseModelSerializer):
 
 class AgentListSerializer(serializers.ModelSerializer):
     agent_template = AgentTemplateRefSerializer(read_only=True)
+    total_languages_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Agent
@@ -354,7 +355,12 @@ class AgentListSerializer(serializers.ModelSerializer):
             "tone",
             "agent_template",
             "created_at",
+            "total_languages_count",
+            "voice_name",
         )
+
+    def get_total_languages_count(self, obj):
+        return len(obj.languages) if obj.languages else 0
 
 
 class AgentDropdownSerializer(serializers.Serializer):

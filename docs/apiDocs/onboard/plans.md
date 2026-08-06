@@ -1,366 +1,320 @@
-# Onboarding Plans API
+# Plans API Documentation
 
-This document covers endpoints related to listing, creating, retrieving, updating, deleting, bulk-deleting, and fetching dropdown pickers of subscription plans.
+The subscription plans a prospect chooses from during [signup](./signup_flow.md), and the pricing
+that flows through to the payment gateway.
+
+**Base path:** `/api/v1/onboard/plans/`
+
+Three things govern this API:
+
+- **Reads are public; writes are superuser-only.** `list`, `retrieve`, and `dropdown` require no
+  authentication at all — the pricing page needs them before anyone has an account. Everything else
+  demands a Django superuser.
+- **You set percentages; the server computes money.** `base_price`, `discount_percentage`, and
+  `tax_percentage` are yours to write. `discount_amount`, `net_base_price`, `tax_amount`, and
+  `total_price` are derived and read-only.
+- **`total_price` is what gets charged.** [create-order](./signup_flow.md#10-create-the-order)
+  multiplies it by 100 and hands that to the gateway, so a plan whose `total_price` is `0.00`
+  bypasses payment entirely and completes onboarding on the spot.
+
+## Endpoints Summary
+
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| `GET` | `/onboard/plans/` | List plans (paginated) | **None** |
+| `GET` | `/onboard/plans/{id}/` | Retrieve one plan | **None** |
+| `GET` | `/onboard/plans/dropdown/` | Label/value picker options | **None** |
+| `POST` | `/onboard/plans/` | Create a plan | Superuser |
+| `PUT` / `PATCH` | `/onboard/plans/{id}/` | Update a plan | Superuser |
+| `DELETE` | `/onboard/plans/{id}/` | Soft-delete a plan | Superuser |
+| `POST` | `/onboard/plans/bulk_delete/` | Bulk soft-delete | Superuser |
 
 ---
 
-## 🔍 1. List Plans
+## How pricing is calculated
 
-* **Path**: `/api/v1/onboard/plans/`
-* **Method**: `GET`
-* **Authentication**: None (Anonymous)
-* **Description**: Returns a paginated list of subscription plans.
+Given `base_price`, `discount_percentage`, and `tax_percentage`, every other figure is derived —
+each step rounded to 2 decimal places, half-up:
 
-### Query Parameters
+```
+discount_amount  = base_price × discount_percentage / 100
+net_base_price   = base_price − discount_amount
+tax_amount       = net_base_price × tax_percentage / 100
+total_price      = net_base_price + tax_amount
+```
 
-| Parameter | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `is_active` | Boolean | No | Filter by active state. |
-| `code` | String | No | Filter by exact plan code. |
-| `plan_type` | String | No | Filter by type (`paid`, `free`, `pay_as_you_go`). |
-| `currency` | String | No | Filter by currency code (only `INR` is supported). |
-| `billing_cycle` | String | No | Filter by billing cycle (`monthly`, `yearly`). |
-| `base_price__gte` / `base_price__lte` | Decimal | No | Filter by base price range. |
-| `tax_percentage__gte` / `tax_percentage__lte` | Decimal | No | Filter by tax percentage range. |
-| `discount_percentage__gte` / `discount_percentage__lte` | Decimal | No | Filter by discount percentage range. |
-| `created_at__date` / `created_at__gte` / `created_at__lte` | Date | No | Filter by creation date. |
-| `search` | String | No | Search text matching plan `name`, `code`, or `description`. |
-| `ordering` | String | No | Order by `name`, `base_price`, `sort_order`, or `created_at` (prefix `-` for descending). |
+Worked example — `base_price: 4000.00`, `discount_percentage: 0.00`, `tax_percentage: 18.00`:
 
-### Responses
+| Field | Value |
+|---|---|
+| `discount_amount` | `0.00` |
+| `net_base_price` | `4000.00` |
+| `tax_amount` | `720.00` |
+| `total_price` | `4720.00` |
 
-#### 200 OK (Success)
+> **Tax is charged on the discounted price, not the list price.** Discount is applied first, then
+> tax on what remains.
 
-```json
-{
-  "status": true,
-  "message": "success",
-  "data": [
-    {
-      "id": "efb14afc-00dc-45c4-ba74-fa9018b0ebb0",
-      "code": "starter_inr",
-      "name": "Starter Plan",
-      "base_price": "2000.00",
-      "discount_percentage": "10.00",
-      "discount_amount": "200.00",
-      "net_base_price": "1800.00",
-      "tax_percentage": "18.00",
-      "tax_amount": "324.00",
-      "total_price": "2124.00",
-      "currency": "INR",
-      "billing_cycle": "monthly",
-      "billing_cycle_display": "Monthly",
-      "plan_type": "paid",
-      "plan_type_display": "Paid",
-      "sort_order": 0,
-      "is_most_popular": false,
-      "is_active": true,
-      "created_at": "2026-06-05T10:14:00.000000Z"
-    }
-  ],
-  "errors": null,
-  "meta": {
-    "count": 3,
-    "next": null,
-    "previous": null,
-    "page": 1,
-    "page_size": 10
+> **All money is returned as a string**, e.g. `"4720.00"`, so no float rounding can occur in
+> transit. Parse as a decimal, never as a float.
+
+> **`plan_type` does not determine price.** A plan typed `free` with a non-zero `base_price` will
+> still be charged, and a `paid` plan priced at zero will skip the gateway. What matters is
+> `total_price`.
+
+---
+
+## Endpoint Details
+
+### 1. List Plans
+
+The pricing page. **Public** — no token required.
+
+- **Path**: `GET /api/v1/onboard/plans/`
+
+| Parameter | Type | Description | Validation |
+|---|---|---|---|
+| `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
+| `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
+| `search` | string | Partial, case-insensitive match on `code`, `name`, `description`. | Words split on spaces and **AND**ed. |
+| `ordering` | string | Sort. Default `sort_order`, then newest first. | Only `name`, `base_price`, `sort_order`, `created_at`, optionally `-` prefixed. |
+| `is_active` | boolean | **Use `?is_active=true` on a public pricing page** — inactive plans are otherwise included. | `true` / `false`. |
+| `code` | string | Exact match on the machine code. | — |
+| `plan_type` | enum | Exact match. | `paid`, `free`, `pay_as_you_go`. |
+| `currency` | enum | Exact match. | `INR` is the only supported value. |
+| `billing_cycle` | enum | Exact match. | `monthly`, `yearly`. |
+| `base_price__gte` / `base_price__lte` | decimal | Price range. | — |
+| `tax_percentage__gte` / `__lte` | decimal | Tax range. | — |
+| `discount_percentage__gte` / `__lte` | decimal | Discount range. | — |
+| `created_at__date` / `__gte` / `__lte` | date / datetime | Creation window. | — |
+
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "success",
+    "data": [
+      {
+        "id": "1a2b3c4d-…",
+        "code": "PRO",
+        "name": "Pro",
+        "base_price": "4000.00",
+        "discount_percentage": "0.00",
+        "discount_amount": "0.00",
+        "net_base_price": "4000.00",
+        "tax_percentage": "18.00",
+        "tax_amount": "720.00",
+        "total_price": "4720.00",
+        "currency": "INR",
+        "billing_cycle": "monthly",
+        "billing_cycle_display": "Monthly",
+        "plan_type": "paid",
+        "plan_type_display": "Paid",
+        "sort_order": 2,
+        "is_most_popular": true,
+        "is_active": true,
+        "created_at": "2026-06-03T18:00:00Z"
+      }
+    ],
+    "errors": null,
+    "meta": { "count": 1, "next": null, "previous": null, "page": 1, "page_size": 10 }
   }
-}
-```
+  ```
+
+> **Deleted plans are excluded automatically, but inactive ones are not.** Always filter with
+> `?is_active=true` for anything customer-facing, or you will advertise a retired plan.
+
+> **Order by `sort_order` is the default and is what the pricing page wants** — it is the
+> deliberate display order, unlike `created_at`.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Zero or more plans. | `success` |
+| **400** | Unknown enum value, or a malformed number or date in a filter. | filter error |
+| **404** | `page` beyond the last page. | `Invalid page.` |
 
 ---
 
-## ➕ 2. Create Plan
+### 2. Retrieve a Plan
 
-* **Path**: `/api/v1/onboard/plans/`
-* **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Creates a new subscription plan. `discount_amount`, `net_base_price`, `tax_amount`, and `total_price` are computed server-side and returned read-only.
+- **Path**: `GET /api/v1/onboard/plans/{id}/` — **public**.
+- **Success Response (200 OK)**: as §1, plus `description`, `currency_display`, and `updated_at`.
 
-### Request Payload
+| Status | When | `message` |
+|---|---|---|
+| **200** | Found — **including inactive plans**. | `Retrieved successfully` |
+| **404** | No such plan, or soft-deleted. | `Not found.` |
 
-Writable fields: `name`, `description`, `base_price`, `discount_percentage`, `tax_percentage`, `billing_cycle`, `plan_type`, `currency`, `sort_order`, `is_most_popular`, `is_active`, `code`.
+> **An inactive plan retrieves successfully.** Only soft-deleted ones 404. Check `is_active`
+> yourself before offering it, and note that [register-pending](./signup_flow.md#3-start-the-signup)
+> rejects inactive plans with `"Selected plan is invalid or inactive."`
 
-```json
-{
-  "code": "pro_inr",
-  "name": "Pro Plan",
-  "description": "Advanced plan for growing teams.",
-  "base_price": "5000.00",
-  "discount_percentage": "0.00",
-  "tax_percentage": "18.00",
-  "currency": "INR",
-  "billing_cycle": "monthly",
-  "plan_type": "paid",
-  "sort_order": 1,
-  "is_most_popular": true,
-  "is_active": true
-}
-```
+---
 
-### Responses
+### 3. Create a Plan
 
-#### 201 Created (Success)
+**Superuser only.**
 
-```json
-{
-  "status": true,
-  "message": "Created successfully",
-  "data": {
-    "id": "c01824ef-912f-410a-b289-fac0e1a2f4ab",
-    "code": "pro_inr",
-    "name": "Pro Plan",
-    "description": "Advanced plan for growing teams.",
-    "base_price": "5000.00",
+- **Path**: `POST /api/v1/onboard/plans/`
+- **Request Payload**:
+  ```json
+  {
+    "code": "PRO",
+    "name": "Pro",
+    "description": "For growing teams.",
+    "base_price": "4000.00",
     "discount_percentage": "0.00",
-    "discount_amount": "0.00",
-    "net_base_price": "5000.00",
     "tax_percentage": "18.00",
-    "tax_amount": "900.00",
-    "total_price": "5900.00",
     "currency": "INR",
-    "currency_display": "Indian Rupee",
     "billing_cycle": "monthly",
-    "billing_cycle_display": "Monthly",
     "plan_type": "paid",
-    "plan_type_display": "Paid",
-    "sort_order": 1,
-    "is_most_popular": true,
-    "is_active": true,
-    "created_at": "2026-06-05T10:14:00.000000Z",
-    "updated_at": "2026-06-05T10:14:00.000000Z"
-  },
-  "errors": null
-}
-```
-
-#### 400 Bad Request
-
-```json
-{
-  "status": false,
-  "message": "Validation failed.",
-  "data": null,
-  "errors": {
-    "code": ["plan with this code already exists."]
+    "sort_order": 2,
+    "is_most_popular": true
   }
-}
-```
+  ```
 
-#### 403 Forbidden
+### Request fields
 
-```json
-{
-  "status": false,
-  "message": "You do not have permission to perform this action.",
-  "data": null,
-  "errors": ["PERMISSION_DENIED"]
-}
-```
+`*` marks required.
 
----
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `code` * | string | Machine-readable identifier, e.g. `PRO`. Used by integrations and reporting. | Required. Max **50**. **Unique across all plans**, including soft-deleted ones. |
+| `name` * | string | Display name on the pricing page. | Required. Max **100**. **Unique**, including soft-deleted ones. |
+| `description` | string | Feature blurb. No length limit. | Optional, nullable. |
+| `base_price` | decimal | List price before discount and tax. | Optional, default `0.00`. Max 10 digits, 2 decimal places. **Negatives are not rejected.** |
+| `discount_percentage` | decimal | Percentage off, e.g. `10.00` for 10%. | Optional, default `0.00`. Max 5 digits, 2 decimals — so up to `999.99`. **Not capped at 100**, which would make `net_base_price` negative. |
+| `tax_percentage` | decimal | Tax rate, e.g. `18.00` for 18%. | Optional, default `0.00`. Same limits as above. |
+| `currency` | enum | ISO currency code. | Optional, default `INR`. **`INR` is the only permitted value.** |
+| `billing_cycle` | enum | How often it renews. | Optional, default `monthly`. `monthly` or `yearly`. |
+| `plan_type` | enum | Classification, for display and reporting. | Optional, default `free`. `paid`, `free`, or `pay_as_you_go`. Does **not** affect what is charged. |
+| `sort_order` | integer | Display position. Lower comes first. | Optional, default `0`. Must be ≥ 0. |
+| `is_most_popular` | boolean | Renders the "most popular" badge. | Optional, default `false`. **Not exclusive** — you can flag several plans at once. |
+| `is_active` | boolean | Whether the plan may be listed and selected. | Optional, default `true`. |
 
-## 👤 3. Get Plan Details
+**Read-only — computed:** `discount_amount`, `net_base_price`, `tax_amount`, `total_price`, plus
+`id`, `created_at`, `updated_at`, and the three `*_display` fields.
 
-* **Path**: `/api/v1/onboard/plans/{id}/`
-* **Method**: `GET`
-* **Authentication**: None (Anonymous)
-* **Description**: Retrieve detailed profile of a plan by ID.
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **201** | Created. | `Created successfully` | `null` |
+| **400** | `code` or `name` already used. | `plan with this code already exists.` | `{"code": [...]}` |
+| **400** | `code` or `name` missing. | `This field is required.` | `{"<field>": [...]}` |
+| **400** | A price or percentage exceeds its digit limits. | `Ensure that there are no more than 10 digits in total.` | `{"<field>": [...]}` |
+| **400** | Unknown `currency`, `billing_cycle`, or `plan_type`. | `"x" is not a valid choice.` | `{"<field>": [...]}` |
+| **401** | Not authenticated. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **403** | Authenticated but not a superuser. | permission denied | `{"detail": …}` |
 
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Retrieved successfully",
-  "data": {
-    "id": "efb14afc-00dc-45c4-ba74-fa9018b0ebb0",
-    "code": "starter_inr",
-    "name": "Starter Plan",
-    "description": "Entry-level plan.",
-    "base_price": "2000.00",
-    "discount_percentage": "10.00",
-    "discount_amount": "200.00",
-    "net_base_price": "1800.00",
-    "tax_percentage": "18.00",
-    "tax_amount": "324.00",
-    "total_price": "2124.00",
-    "currency": "INR",
-    "currency_display": "Indian Rupee",
-    "billing_cycle": "monthly",
-    "billing_cycle_display": "Monthly",
-    "plan_type": "paid",
-    "plan_type_display": "Paid",
-    "sort_order": 0,
-    "is_most_popular": false,
-    "is_active": true,
-    "created_at": "2026-06-05T10:14:00.000000Z",
-    "updated_at": "2026-06-05T10:14:00.000000Z"
-  },
-  "errors": null
-}
-```
-
-#### 404 Not Found
-
-```json
-{
-  "status": false,
-  "message": "Plan not found.",
-  "data": null,
-  "errors": ["NOT_FOUND"]
-}
-```
+> **Uniqueness ignores soft deletion.** A deleted plan keeps its `code` and `name` reserved
+> forever, so retiring `PRO` means you can never create another `PRO`. Rename before deleting if
+> you may want the code back.
 
 ---
 
-## 🔄 4. Update Plan (PUT / PATCH)
+### 4. Update a Plan
 
-* **Path**: `/api/v1/onboard/plans/{id}/`
-* **Method**: `PUT` or `PATCH`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Updates plan parameters. Only writable fields are accepted; computed financial fields are recalculated and returned read-only.
+- **Path**: `PUT` / `PATCH /api/v1/onboard/plans/{id}/` — **superuser only**.
+- **Request Payload**: any subset of the writable fields from §3.
 
-### Request Payload (PATCH example)
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Updated. | `Updated successfully` | `null` |
+| **400** | Any validation error from §3. | as §3 | `{"<field>": [...]}` |
+| **401** / **403** | As in §3. | — | — |
+| **404** | No such plan, or soft-deleted. | `Not found.` | `{"detail": …}` |
 
-```json
-{
-  "base_price": "2500.00"
-}
-```
+> **Changing a price does not change what existing subscribers pay.** A `Subscription` created at
+> signup points at the plan, so an edit here affects **new** orders — and, dangerously, any
+> in-flight signup that has an order created but unpaid. Prefer creating a new plan and
+> deactivating the old one over editing a live plan's price.
 
-### Responses
-
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Updated successfully",
-  "data": {
-    "id": "efb14afc-00dc-45c4-ba74-fa9018b0ebb0",
-    "code": "starter_inr",
-    "name": "Starter Plan",
-    "description": "Entry-level plan.",
-    "base_price": "2500.00",
-    "discount_percentage": "10.00",
-    "discount_amount": "250.00",
-    "net_base_price": "2250.00",
-    "tax_percentage": "18.00",
-    "tax_amount": "405.00",
-    "total_price": "2655.00",
-    "currency": "INR",
-    "currency_display": "Indian Rupee",
-    "billing_cycle": "monthly",
-    "billing_cycle_display": "Monthly",
-    "plan_type": "paid",
-    "plan_type_display": "Paid",
-    "sort_order": 0,
-    "is_most_popular": false,
-    "is_active": true,
-    "created_at": "2026-06-05T10:14:00.000000Z",
-    "updated_at": "2026-06-05T10:15:30.000000Z"
-  },
-  "errors": null
-}
-```
+> **Deactivating a plan mid-signup strands anyone who selected it.**
+> [update-plan](./signup_flow.md#8-update-the-plan) and
+> [register-pending](./signup_flow.md#3-start-the-signup) both reject inactive plans, so a user who
+> resumes will be unable to proceed until they choose another.
 
 ---
 
-## ❌ 5. Delete Plan
+### 5. Delete a Plan
 
-* **Path**: `/api/v1/onboard/plans/{id}/`
-* **Method**: `DELETE`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Soft-deletes a subscription plan.
+- **Path**: `DELETE /api/v1/onboard/plans/{id}/` — **superuser only**.
+- **Success Response (200 OK)**: `{ "status": true, "message": "Deleted successfully", "data": null, "errors": null }`
 
-### Responses
+| Status | When | `message` |
+|---|---|---|
+| **200** | Soft-deleted; it disappears from every list. | `Deleted successfully` |
+| **401** / **403** | As in §3. | — |
+| **404** | No such plan, or already deleted. | `Not found.` |
 
-#### 200 OK (Success)
+> **There is no in-use guard.** Deleting a plan that pending registrations or active subscriptions
+> point at is allowed. `TempUser.selected_plan` and `Subscription.plan` both survive as references
+> to the deleted row, so existing subscribers are not broken — but a resuming signup will show a
+> plan nobody can select. Deactivate rather than delete for anything that has been sold.
 
-```json
-{
-  "status": true,
-  "message": "Deleted successfully",
-  "data": null,
-  "errors": null
-}
-```
+> **`code` and `name` stay reserved.** See §3.
 
 ---
 
-## 🔌 6. Get Dropdown Options
+### 6. Dropdown
 
-* **Path**: `/api/v1/onboard/plans/dropdown/`
-* **Method**: `GET`
-* **Authentication**: None (Anonymous)
-* **Description**: Returns lightweight label/value selection pairs representing all active plans to populate picker lists. Each row also returns `is_most_popular`.
+- **Path**: `GET /api/v1/onboard/plans/dropdown/` — **public**.
+- **Query Parameters**: `limit` (≤ **1000**; over that → **400 `Limit cannot exceed 1000`**), plus all List filters and `search`.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Dropdown options retrieved successfully",
+    "data": [
+      {
+        "label": "Pro (Paid - 4720.00 INR/Monthly)",
+        "value": "1a2b3c4d-…",
+        "is_most_popular": true
+      }
+    ],
+    "errors": null,
+    "meta": { "count": 1, "next": null, "previous": null, "page": 1, "page_size": 10 }
+  }
+  ```
 
-### Responses
+`label` is built as `"<name> (<Type> - <total_price> <currency>/<Cycle>)"`, so it is already
+human-readable. This dropdown uniquely also returns **`is_most_popular`**, letting you badge an
+option without a second call.
 
-#### 200 OK (Success)
-
-```json
-{
-  "status": true,
-  "message": "Dropdown options retrieved successfully",
-  "data": [
-    {
-      "label": "Starter Plan (Paid - 2124.00 INR/Monthly)",
-      "value": "efb14afc-00dc-45c4-ba74-fa9018b0ebb0",
-      "is_most_popular": false
-    },
-    {
-      "label": "Pro Plan (Paid - 5900.00 INR/Monthly)",
-      "value": "c01824ef-912f-410a-b289-fac0e1a2f4ab",
-      "is_most_popular": true
-    }
-  ],
-  "errors": null
-}
-```
+> **Filter with `?is_active=true`.** The dropdown does not exclude inactive plans on your behalf.
 
 ---
 
-## 🗑️ 7. Bulk Delete Plans
+### 7. Bulk Delete
 
-* **Path**: `/api/v1/onboard/plans/bulk_delete/`
-* **Method**: `POST`
-* **Authentication**: Bearer JWT (IsAuthenticated + Superuser permissions)
-* **Description**: Bulk soft-deletes the listed plans.
-* **Behaviour**: Soft-deletes listed rows; if any id is invalid the whole request fails with 400 and nothing is deleted.
+- **Path**: `POST /api/v1/onboard/plans/bulk_delete/` — **superuser only**.
+- **Request Payload**: `{ "ids": ["1a2b…", "…"] }`
 
-### Request Payload
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `ids` * | UUID array | Plans to soft-delete. | Non-empty list. Every id must exist and be undeleted. All-or-nothing. |
 
-```json
-{
-  "ids": ["efb14afc-00dc-45c4-ba74-fa9018b0ebb0", "c01824ef-912f-410a-b289-fac0e1a2f4ab"]
-}
-```
+| Status | When | `message` |
+|---|---|---|
+| **200** | All soft-deleted. | `Bulk deleted successfully` |
+| **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
+| **400** | Any id unknown or already deleted — **nothing is deleted**. | `Some ids are invalid` |
+| **401** / **403** | As in §3. | — |
 
-### Responses
+> **Duplicate ids fail the whole request.** De-duplicate client-side.
 
-#### 200 OK (Success)
+---
 
-```json
-{
-  "status": true,
-  "message": "Bulk deleted successfully",
-  "data": null,
-  "errors": null
-}
-```
+## Known gaps
 
-#### 400 Bad Request (Invalid IDs)
+| # | Gap | Impact |
+|---|---|---|
+| 1 | **`discount_percentage` is not capped at 100**, and `base_price` may be negative. | A misconfigured plan can compute a negative `total_price`, which becomes a negative gateway amount. |
+| 2 | **`plan_type` is decorative.** What gets charged is `total_price`, not the type. | A plan labelled `free` with a price still charges; one labelled `paid` at zero skips payment silently. |
+| 3 | **Deleting a plan has no in-use guard**, and its `code` and `name` stay reserved permanently. | Retired codes cannot be reused, and in-flight signups can be left pointing at an unselectable plan. |
+| 4 | **`is_most_popular` is not exclusive.** | Several plans can carry the badge at once. |
+| 5 | **Editing a live plan's price affects unpaid in-flight orders.** | A user who created an order and then paid could be charged an amount that differs from what they were shown. |
 
-```json
-{
-  "status": false,
-  "message": "Some ids are invalid",
-  "data": null,
-  "errors": null
-}
-```
+## Related
+
+- [Signup flow](./signup_flow.md) — where a plan is selected and charged
+- [Razorpay webhook](./webhooks.md) — how payment completion is confirmed

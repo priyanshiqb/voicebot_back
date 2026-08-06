@@ -50,7 +50,15 @@ class CreateOrderJustInTimeView(ResponseMixin, APIView):
             )
 
         # Validate and save Billing Address and phone_number
-        serializer = CreateOrderJustInTimeSerializer(data=request.data)
+        # `context` is required, not optional: validate_phone_number excludes the
+        # CURRENT registration from the "already pending" check, and it identifies that
+        # registration through request.user. Without the context the exclusion silently
+        # does nothing, so the second call to this endpoint rejects the caller's own
+        # phone number — which is exactly what happens when someone edits their billing
+        # address or retries after a failed payment.
+        serializer = CreateOrderJustInTimeSerializer(
+            data=request.data, context={"request": request}
+        )
         if not serializer.is_valid():
             return self.error(
                 message="Validation failed",
