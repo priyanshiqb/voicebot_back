@@ -28,11 +28,21 @@ def _parse_rfc3339(value):
 
 
 def _event_body(booking):
-    return {
+    body = {
         "summary": booking.title,
         "start": {"dateTime": booking.start_time.astimezone(dt_timezone.utc).isoformat()},
         "end": {"dateTime": booking.end_time.astimezone(dt_timezone.utc).isoformat()},
     }
+    
+    attendees = []
+    for participant in booking.participants.filter(is_deleted=False):
+        if participant.email:
+            attendees.append({"email": participant.email, "displayName": participant.name})
+            
+    if attendees:
+        body["attendees"] = attendees
+        
+    return body
 
 
 def _parse_event_dt(node):
@@ -164,7 +174,7 @@ class GoogleCalendarProvider(CalendarProvider):
             created = (
                 self._service(integration)
                 .events()
-                .insert(calendarId="primary", body=body)
+                .insert(calendarId="primary", body=body, sendUpdates="all")
                 .execute()
             )
             return created.get("id", "")
@@ -180,6 +190,7 @@ class GoogleCalendarProvider(CalendarProvider):
             calendarId="primary",
             eventId=booking.external_event_id,
             body=_event_body(booking),
+            sendUpdates="all"
         ).execute()
 
     def delete_event(self, integration, external_event_id):
@@ -187,7 +198,7 @@ class GoogleCalendarProvider(CalendarProvider):
             return
         try:
             self._service(integration).events().delete(
-                calendarId="primary", eventId=external_event_id
+                calendarId="primary", eventId=external_event_id, sendUpdates="all"
             ).execute()
         except Exception as exc:  # noqa: BLE001 — 404/410 means already gone
             logger.warning("Google delete_event ignored: %s", exc)
