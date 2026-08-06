@@ -50,7 +50,7 @@ These apply to **every** geography endpoint, and differ from the rest of the API
 |---|---|---|---|
 | `code` | string | Exact match on the ISO country code, e.g. `IN`. | Case-sensitive. |
 | `name` | string | **Exact** match on the country name. | Case-sensitive, whole-value. For partial matching use `search`. |
-| `search` | string | Partial, case-insensitive match on `name`. | Substring, matched anywhere in the name. |
+| `search` | string | Partial, case-insensitive match on `name` or `dial_code` (e.g. `+91` or `91`). | Substring, matched anywhere in the name or dial code. |
 | `page` | integer | Page number. Default `1`. | — |
 | `page_size` | integer | Results per page. Default `10`. | **Capped at 25.** |
 

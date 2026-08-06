@@ -85,6 +85,7 @@ means *try the same time again in a moment*.
       "start_time": "2026-07-05T14:00:00Z",
       "end_time": "2026-07-05T14:30:00Z",
       "status": "SCHEDULED",
+      "meeting_url": "https://meet.google.com/abc-defg-hij",
       "created_at": "2026-07-01T10:00:00Z"
     }
   ],
@@ -110,6 +111,7 @@ hosts can define overnight shifts, so a booking may legitimately straddle midnig
 | `hold_expires_at` | Set only while `HELD`; the instant the reservation lapses. |
 | `reschedule_token` | Present only once the booking is flagged `REQUIRES_RESCHEDULE`. Members of a collective group **share one token**. |
 | `external_event_id` / `external_provider` | The mirrored calendar event, if the host has one connected. |
+| `meeting_url` | Join URL for video meetings (e.g., Google Meet). Generated when mirrored to the external calendar. |
 | `group_id` | Non-null for collective bookings; identifies the sibling rows booked together. |
 | `cancellation_reason` | Free text captured at cancellation. |
 | `participants[]` | Host and attendees. `role` is `HOST`, `ATTENDEE`, or `GUEST`. |

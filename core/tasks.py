@@ -296,11 +296,15 @@ def push_booking_to_calendar(self, booking_id):
     try:
         provider = calendars.get_provider_for(integration)
         if booking.external_event_id:
-            provider.update_event(integration, booking)
+            meeting_url = provider.update_event(integration, booking)
+            if meeting_url:
+                Booking.objects.filter(pk=booking.pk).update(meeting_url=meeting_url)
         else:
-            external_id = provider.push_event(integration, booking)
+            external_id, meeting_url = provider.push_event(integration, booking)
             Booking.objects.filter(pk=booking.pk).update(
-                external_event_id=external_id, external_provider=integration.provider
+                external_event_id=external_id, 
+                external_provider=integration.provider,
+                meeting_url=meeting_url
             )
         event_log.log_event(booking, BookingEvent.EventType.EXTERNAL_SYNCED)
         

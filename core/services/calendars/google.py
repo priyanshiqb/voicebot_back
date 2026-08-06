@@ -42,6 +42,14 @@ def _event_body(booking):
     if attendees:
         body["attendees"] = attendees
         
+    if booking.event_template.location_type == "VIDEO":
+        body["conferenceData"] = {
+            "createRequest": {
+                "requestId": booking.id.hex,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"}
+            }
+        }
+        
     return body
 
 
@@ -170,28 +178,38 @@ class GoogleCalendarProvider(CalendarProvider):
         body = _event_body(booking)
         body["id"] = booking.id.hex
         
+        kwargs = {"calendarId": "primary", "body": body, "sendUpdates": "all"}
+        if "conferenceData" in body:
+            kwargs["conferenceDataVersion"] = 1
+
         try:
             created = (
                 self._service(integration)
                 .events()
-                .insert(calendarId="primary", body=body, sendUpdates="all")
+                .insert(**kwargs)
                 .execute()
             )
-            return created.get("id", "")
+            return created.get("id", ""), created.get("hangoutLink", "")
         except HttpError as exc:
             if getattr(exc, "resp", None) is not None and exc.resp.status == 409:
-                return booking.id.hex
+                return booking.id.hex, ""
             raise
 
     def update_event(self, integration, booking):
         if not booking.external_event_id:
             return
-        self._service(integration).events().update(
-            calendarId="primary",
-            eventId=booking.external_event_id,
-            body=_event_body(booking),
-            sendUpdates="all"
-        ).execute()
+        body = _event_body(booking)
+        kwargs = {
+            "calendarId": "primary",
+            "eventId": booking.external_event_id,
+            "body": body,
+            "sendUpdates": "all"
+        }
+        if "conferenceData" in body:
+            kwargs["conferenceDataVersion"] = 1
+
+        updated = self._service(integration).events().update(**kwargs).execute()
+        return updated.get("hangoutLink", "")
 
     def delete_event(self, integration, external_event_id):
         if not external_event_id:

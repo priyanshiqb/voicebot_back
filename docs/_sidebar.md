@@ -72,5 +72,8 @@
   * [Users](apiDocs/user/users.md)
   * [Forgot Password Resend](apiDocs/user/forgot_password_resend.md)
 
+* **🏢 Tenant APIs**
+  * [Email Configuration](apiDocs/tenant/email_configuration.md)
+
 <!-- * **📐 Architecture**
   * [S3 Storage Service](architecture/s3-storage-service.md) -->

@@ -20,20 +20,25 @@ REQUIRES_PG = skipUnless(
 
 
 class FakeProvider:
-    def __init__(self, busy=None, push_id="ext-123"):
+    def __init__(self, busy=None, push_id="ext-123", meeting_url="https://meet.example/abc"):
         self.busy = busy or []
         self.push_id = push_id
+        self.meeting_url = meeting_url
         self.pushed, self.updated, self.deleted = [], [], []
 
     def get_busy(self, integration, window_start, window_end):
         return list(self.busy)
 
     def push_event(self, integration, booking):
+        # Matches CalendarProvider.push_event: (external_id, meeting_url). A bare
+        # string here unpacks character-by-character at the call site, which is a
+        # confusing ValueError rather than an obvious contract mismatch.
         self.pushed.append(booking.id)
-        return self.push_id
+        return self.push_id, self.meeting_url
 
     def update_event(self, integration, booking):
         self.updated.append(booking.id)
+        return self.meeting_url
 
     def delete_event(self, integration, external_event_id):
         self.deleted.append(external_event_id)

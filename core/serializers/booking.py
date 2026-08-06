@@ -53,6 +53,7 @@ class BookingSerializer(TenantBaseModelSerializer):
             "external_event_id",
             "external_provider",
             "group_id",
+            "meeting_url",
             "cancellation_reason",
             "participants",
             "created_by",
@@ -79,6 +80,7 @@ class BookingListSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "status",
+            "meeting_url",
             "created_at",
         )
 

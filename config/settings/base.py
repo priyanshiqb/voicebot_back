@@ -408,6 +408,38 @@ EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", "")
 EMAIL_SENDER_NAME = env.str("EMAIL_SENDER_NAME", "VoiceBot")
 
+# --- Tenant-owned SMTP ------------------------------------------------------
+# The EMAIL_* settings above are the PLATFORM sender. A tenant may store its own
+# credentials (tenant.TenantEmailConfiguration); these bound what it may point at.
+#
+# Platform authentication mail — signup OTP, email verification, password reset —
+# must always use the platform sender, never a tenant's. A tenant does not exist
+# yet at signup, and a tenant whose SMTP breaks must not be locked out of the
+# reset flow that would let them fix it.
+
+# Master switch. Off means every tenant falls back to the platform sender.
+TENANT_SMTP_ENABLED = env.bool("TENANT_SMTP_ENABLED", default=True)
+
+# Django's SMTP backend defaults to timeout=None, which blocks forever. A host
+# that accepts the connection and goes silent would hang a worker permanently.
+TENANT_SMTP_TIMEOUT_SECONDS = env.int("TENANT_SMTP_TIMEOUT_SECONDS", default=10)
+
+# 25 is deliberately excluded: AWS, GCP and Azure block it outbound by default,
+# so permitting it buys a timeout instead of an accurate field error. 587 is
+# STARTTLS submission, 465 implicit TLS, 2525 the usual fallback.
+TENANT_SMTP_ALLOWED_PORTS = env.list(
+    "TENANT_SMTP_ALLOWED_PORTS", cast=int, default=[465, 587, 2525]
+)
+
+# Tenants supply the hostname we dial, which is SSRF by design. Hosts resolving to
+# private, loopback, link-local, reserved or multicast addresses are rejected.
+# Turn this on ONLY for local development against MailHog/Mailpit on localhost —
+# production pins it False in production.py, because a control that can be flipped
+# by environment in production is not a control.
+TENANT_SMTP_ALLOW_PRIVATE_HOSTS = env.bool(
+    "TENANT_SMTP_ALLOW_PRIVATE_HOSTS", default=False
+)
+
 # Razorpay Credentials
 RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID", "rzp_test_dummykey")
 RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET", "dummysecret")

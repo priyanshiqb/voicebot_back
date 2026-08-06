@@ -101,10 +101,11 @@ class CalendarProvider:
         raise NotImplementedError
 
     def push_event(self, integration, booking):
-        """Create the mirrored event; return its external id."""
+        """Create the mirrored event; return a tuple (external_id, meeting_url)."""
         raise NotImplementedError
 
     def update_event(self, integration, booking):
+        """Update the mirrored event; return the meeting_url (if any)."""
         raise NotImplementedError
 
     def delete_event(self, integration, external_event_id):

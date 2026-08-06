@@ -128,6 +128,12 @@ class Booking(TenantBaseModel):
         db_index=True,
         help_text="Ties the per-host rows of a COLLECTIVE booking together as one meeting.",
     )
+    meeting_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Join URL for video meetings (e.g., Google Meet).",
+    )
     cancellation_reason = models.CharField(
         max_length=255,
         blank=True,

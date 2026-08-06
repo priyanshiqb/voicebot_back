@@ -18,6 +18,12 @@ X_FRAME_OPTIONS = "DENY"
 SECURE_REFERRER_POLICY = "same-origin"
 USE_X_FORWARDED_HOST = True
 
+# Hard-coded, not env-driven. Tenants supply the hostname our workers dial, and
+# permitting private addresses turns that into an SSRF probe against cloud
+# metadata endpoints and internal services. A control that can be flipped by an
+# environment variable in production is not a control.
+TENANT_SMTP_ALLOW_PRIVATE_HOSTS = False
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
