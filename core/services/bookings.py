@@ -294,11 +294,17 @@ def hold_slot(
     participants=None,
     actor=None,
     target_host_id=None,
+    source=Booking.Source.CUSTOMER,
     hold_ttl_seconds=None,
     now=None,
 ):
     """Reserve a slot temporarily (status HELD). The hold occupies the exclusion
-    constraint, so nobody else can take the slot until it is confirmed or lapses."""
+    constraint, so nobody else can take the slot until it is confirmed or lapses.
+
+    ``source`` defaults to CUSTOMER — a hold is normally someone picking a slot —
+    but is overridable so a hold and the booking it becomes carry the same
+    provenance. An agent that holds and then confirms would otherwise leave two
+    rows disagreeing about who made the appointment."""
     return create_booking(
         tenant=tenant,
         event_template=event_template,
@@ -306,7 +312,7 @@ def hold_slot(
         participants=participants,
         actor=actor,
         target_host_id=target_host_id,
-        source=Booking.Source.CUSTOMER,
+        source=source,
         status=Booking.Status.HELD,
         hold_ttl_seconds=hold_ttl_seconds,
         now=now,

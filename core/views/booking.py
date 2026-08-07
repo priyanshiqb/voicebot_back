@@ -2,7 +2,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 
-from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
+from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin, is_vb_agent
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.booking import Booking
 from core.models.event_template import EventTemplate
@@ -70,6 +70,25 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         if scoped is not None:
             return scoped
         return super().get_queryset()
+
+    def _source(self, request, default):
+        """Provenance for a booking, derived from the authenticated caller.
+
+        Deliberately NOT read from the request body. `source` answers "how did
+        this booking come to exist", and a value the caller asserts about itself
+        is not provenance — any human JWT could post `source: "AI"` and quietly
+        inflate "the agent booked X% of appointments".
+
+        The caller is already identified: a `VB_AGENT` token is the voicebot, so
+        anything it books through REST is `AI`. Everyone else keeps the default
+        for the endpoint they called, which differs — a create is `INTERNAL`, a
+        hold is `CUSTOMER`.
+
+        Bookings made by the in-process AI bridge (`core.services.agent_scheduling`,
+        used during a live call) already tag themselves `AI`. This closes the same
+        gap for the REST surface, which the agent also reaches.
+        """
+        return Booking.Source.AI if is_vb_agent(request.user) else default
 
     def _tenant(self, request):
         # Machine callers resolve their tenant from the header; everyone else from
@@ -146,7 +165,7 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                     start_time=data["start_time"],
                     participants=data["participants"],
                     actor=request.user,
-                    source=Booking.Source.INTERNAL,
+                    source=self._source(request, Booking.Source.INTERNAL),
                 )
             )
             if err:
@@ -169,6 +188,7 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                     participants=data["participants"],
                     actor=request.user,
                     target_host_id=target_host_id,
+                    source=self._source(request, Booking.Source.CUSTOMER),
                 )
             )
             message = "Slot held successfully"
@@ -181,7 +201,7 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                     participants=data["participants"],
                     actor=request.user,
                     target_host_id=target_host_id,
-                    source=Booking.Source.INTERNAL,
+                    source=self._source(request, Booking.Source.INTERNAL),
                 )
             )
             message = "Booked successfully"
