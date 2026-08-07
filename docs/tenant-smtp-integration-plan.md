@@ -209,12 +209,18 @@ Rules the application layer owns:
 - **When nothing connected is left to promote, the disconnected default is kept** rather than
   demoted: it is still the tenant's stated choice, reconnecting restores service with no further
   action, and demoting would leave the row set with no default at all.
-- **Zero configurations means no default**, and the tenant falls back to the platform sender. That is
+- **Zero configurations means no default**, and the tenant sends no booking email at all. That is
   the correct resting state, not an error.
 
-> **Losing the default is a silent failure, which is what makes it worth this much care.** Mail keeps
-> flowing — on the platform sender, from the wrong address — until a customer asks why the booking
-> confirmation came from someone else.
+> **Losing a usable sender is a silent failure, which is what makes it worth this much care.** Every
+> endpoint keeps returning 2xx, bookings keep being created, calendars keep syncing — and no customer
+> receives anything. Each unsent message leaves a `FAILED` `NotificationLog` row, which is the only
+> thing standing between this and a mystery.
+
+> **`is_default` is not the same as the booking sender.** The default is this model's own idea of a
+> primary connection, used for display and for promotion when one is removed. What actually sends is
+> `TenantSettings.booking_email_configuration` (§3.3). They are usually the same row, and nothing
+> requires it.
 
 > **`last_used_at` must not be written on every send.** A tenant sending 500 reminders would issue
 > 500 UPDATEs against one row and serialise the whole batch on a single lock. Write it only when the
@@ -325,6 +331,44 @@ Two caveats to handle, not ignore:
    Introduce `APP_ENCRYPTION_KEY` that falls back to the old name, so nothing breaks and new deploys
    get a sane name. Do not rename the env var in place — that silently bricks decryption of every
    stored calendar token.
+
+---
+
+### 3.3 `TenantSettings` — which configuration actually sends
+
+`tenant/models/TenantSettings.py`, `TenantBaseModel`, one row per tenant (partial unique on `tenant`),
+created on demand by `TenantSettings.for_tenant()`. Migration `tenant/0008`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `booking_email_configuration` | FK → `TenantEmailConfiguration`, null | Which configuration carries booking mail. **Null means booking mail is not sent.** |
+
+This is a second model rather than a flag on `TenantEmailConfiguration` because it answers a different
+question. `is_default` is *"which of my connections is the primary one"* — a property of the
+connection set. This is *"what sends my booking email"* — a property of the tenant, and the place the
+next such setting will go without a new table.
+
+**`TenantSettings.booking_sender(tenant_id)` is the only correct way to ask whether mail can be
+sent.** It re-checks four things rather than trusting the stored pointer: assigned, not deleted,
+connected, `VERIFIED`. The pointer is written once and read for months; in between, the configuration
+can be disconnected, or a credential edit can reset it to `UNVERIFIED`. Returning `None` means **do
+not send** — never "use the platform sender".
+
+Three protections around it, each closing a way the assignment could quietly become wrong:
+
+| Protection | Where | Stops |
+|---|---|---|
+| Queryset scoped to the tenant on the serializer field, plus a tenant check in `clean()` | `TenantSettingsSerializer.__init__` | A tenant naming another tenant's configuration id and routing their customer mail through a stranger's credentials |
+| Only `VERIFIED` + connected may be assigned | `validate_booking_email_configuration` | Assigning a sender that cannot send, which is indistinguishable from assigning nothing |
+| The assigned configuration cannot be disconnected or deleted | `_booking_sender_block` in the configuration viewset | Silently stopping booking mail by taking its sender out of service |
+
+The escape hatch from that last one is clearing or reassigning the setting, so a leaked credential is
+still two calls from being out of service — the guard is a speed bump, not a trap.
+
+`release_from_settings()` clears a dangling pointer on delete, because `on_delete=SET_NULL` **never
+fires here**: rows are soft-deleted, so the database sees no delete and the id survives. Reads are
+safe regardless (the soft-delete-aware manager returns nothing), but a stale id makes the settings row
+claim to be configured when it is not.
 
 ---
 

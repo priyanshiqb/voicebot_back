@@ -486,6 +486,19 @@ BOOKING_RESCHEDULE_TOKEN_TTL_HOURS = env.int(
     "BOOKING_RESCHEDULE_TOKEN_TTL_HOURS", default=72
 )
 
+# NotificationLog retention. Rows hold customer email addresses and nothing else
+# prunes them, so this is a privacy obligation as much as a disk one. Failures are
+# kept longer: a FAILED row is the only trace of a message that never arrived, and
+# is what someone goes looking for when a customer complains weeks later.
+#
+# Rows attached to a booking that has not happened yet are never purged regardless
+# of these values — deleting one frees its dedup key and re-arms the notification.
+NOTIFICATION_LOG_RETENTION_DAYS = env.int("NOTIFICATION_LOG_RETENTION_DAYS", default=90)
+NOTIFICATION_LOG_FAILED_RETENTION_DAYS = env.int(
+    "NOTIFICATION_LOG_FAILED_RETENTION_DAYS", default=180
+)
+NOTIFICATION_LOG_PURGE_BATCH = env.int("NOTIFICATION_LOG_PURGE_BATCH", default=5000)
+
 # Contacts & Contact Import
 # Primary market, used to parse phone numbers that are not already in international
 # form (ISO-3166 alpha-2). Numbers written as "+..." ignore this and parse on their own.
@@ -531,6 +544,10 @@ CELERY_BEAT_SCHEDULE = {
     "scheduling-send-due-reminders": {
         "task": "core.tasks.send_due_reminders",
         "schedule": 300.0,  # every 5 minutes
+    },
+    "scheduling-purge-notification-logs": {
+        "task": "core.tasks.purge_notification_logs",
+        "schedule": 86400.0,  # daily
     },
     "scheduling-cleanup-expired-holds": {
         "task": "core.tasks.cleanup_expired_holds",

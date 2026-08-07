@@ -43,12 +43,17 @@ def _default_from_email():
     return f"{sender_name} <{address}>"
 
 
-def _mark_notification(notification_log_id, status, error=""):
+def _mark_notification(notification_log_id, status, error="", configuration=None):
     """Record the real delivery outcome on the NotificationLog row.
 
     Written from the task, not from the enqueue site: the enqueue only knows the
     message was handed to the broker. A targeted UPDATE (rather than load-modify-
     save) keeps this safe to call from a retrying task.
+
+    ``configuration`` records which SMTP connection carried the attempt. Without
+    it, a tenant holding several configurations has no way to tell which one a
+    given message went through — which is exactly the question worth asking when
+    deliverability changes after a provider switch.
     """
     if not notification_log_id:
         return
@@ -61,6 +66,8 @@ def _mark_notification(notification_log_id, status, error=""):
         fields["sent_at"] = timezone.now()
     if error:
         fields["error"] = error[:2000]
+    if configuration is not None:
+        fields["email_configuration_id"] = configuration.pk
     NotificationLog.objects.filter(pk=notification_log_id).update(**fields)
 
 
@@ -139,7 +146,9 @@ def send_scheduling_email_task(
         if ics_content:
             message.attach(ics_filename, ics_content, "text/calendar; method=REQUEST")
         message.send()
-        _mark_notification(notification_log_id, NotificationLog.Status.SENT)
+        _mark_notification(
+            notification_log_id, NotificationLog.Status.SENT, configuration=config
+        )
         _touch_configuration_use(config)
         logger.info("Scheduling email sent to %s", recipient_list)
     except Exception as exc:  # noqa: BLE001 — retry on any send failure
@@ -155,6 +164,7 @@ def send_scheduling_email_task(
                 notification_log_id,
                 NotificationLog.Status.FAILED,
                 error=mail_connection.describe_failure(config, exc),
+                configuration=config,
             )
             if permanent:
                 return
@@ -215,6 +225,81 @@ def reschedule_on_leave(self, tenant_id, exception_id):
     except Exception as exc:  # noqa: BLE001
         logger.exception("reschedule_on_leave failed for exception %s", exception_id)
         raise self.retry(exc=exc)
+
+
+@shared_task(base=ReportedTask)
+def purge_notification_logs():
+    """Beat task: delete notification rows past their retention window.
+
+    Nothing else prunes this table. Every booking produces a confirmation row plus
+    one per reminder offset per participant, none of them are ever removed, and
+    each holds customer email addresses — so this is a privacy obligation before it
+    is a disk one.
+
+    **Hard delete, via ``all_objects``.** A soft delete would leave the addresses in
+    place, which defeats the point, and ``objects`` returns a queryset whose
+    ``delete()`` deliberately raises.
+
+    Two rules make it safe:
+
+    * **A row is the idempotency mechanism, not a record of it.** Deleting one frees
+      its ``dedup_key`` and re-arms that notification. Rows attached to a booking
+      that has not happened yet are therefore never touched, however old they are —
+      a confirmation written today for a booking eleven months out must outlive the
+      retention window.
+    * **Failures are kept longer.** A ``FAILED`` row is the only trace of a message
+      that never arrived, and is the thing someone goes looking for when a customer
+      complains weeks later.
+    """
+    from datetime import timedelta
+
+    from django.db.models import Q
+    from django.utils import timezone
+
+    from core.models.notification_log import NotificationLog
+
+    now = timezone.now()
+    sent_days = int(getattr(settings, "NOTIFICATION_LOG_RETENTION_DAYS", 90))
+    failed_days = int(
+        getattr(settings, "NOTIFICATION_LOG_FAILED_RETENTION_DAYS", 180)
+    )
+    batch = int(getattr(settings, "NOTIFICATION_LOG_PURGE_BATCH", 5000))
+
+    deleted = 0
+    for status_value, days in (
+        (NotificationLog.Status.FAILED, failed_days),
+        (None, sent_days),
+    ):
+        queryset = NotificationLog.all_objects.filter(
+            created_at__lt=now - timedelta(days=days)
+        )
+        if status_value is None:
+            queryset = queryset.exclude(status=NotificationLog.Status.FAILED)
+        else:
+            queryset = queryset.filter(status=status_value)
+
+        # The safety rule above, spelled out as a positive condition rather than
+        # an exclude(): what may be deleted is "no booking, or a booking that has
+        # already happened". Written this way because the reader has to be able to
+        # see the rule without first working out how a nullable join behaves under
+        # negation.
+        queryset = queryset.filter(
+            Q(booking__isnull=True) | Q(booking__start_time__lt=now)
+        )
+
+        # Chunked so one run cannot take a table-wide lock or build a delete
+        # statement with a million ids in it.
+        while True:
+            ids = list(queryset.values_list("pk", flat=True)[:batch])
+            if not ids:
+                break
+            removed, _ = NotificationLog.all_objects.filter(pk__in=ids).delete()
+            deleted += removed
+            if len(ids) < batch:
+                break
+
+    logger.info("purged %s notification log rows", deleted)
+    return deleted
 
 
 @shared_task(base=ReportedTask)

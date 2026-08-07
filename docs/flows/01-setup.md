@@ -73,6 +73,22 @@ Body highlights: `name`, `duration_minutes`, `buffer_before_minutes` /
 Once connected, the host's Google busy times are subtracted from availability and new
 bookings are mirrored to their calendar.
 
+## Step 4b — **(Required for email)** Configure a mail sender
+
+Booking email sends through the tenant's own SMTP server, or **not at all** — there is no fallback to
+a platform sender. Skip this and bookings still work perfectly, but no customer ever receives a
+confirmation, reminder, cancellation, or reschedule link.
+
+Two calls, and both are needed:
+
+1. `POST /api/v1/tenant/email-configurations/` → then `POST /{id}/test/` until it reads `VERIFIED`.
+   See [Email Configuration](../apiDocs/tenant/email_configuration.md).
+2. `PATCH /api/v1/tenant/settings/` with `{"booking_email_configuration": "<id>"}`.
+   See [Tenant Settings](../apiDocs/tenant/settings.md).
+
+Confirm with `booking_email.will_send` on the settings response. **A `VERIFIED` configuration that
+has not been assigned still sends nothing** — that is the step people miss.
+
 ## Step 5 — (Optional) Register a device for push
 `POST /device-tokens/` (body: `token`, `platform`) → see **Flow 5**.
 
@@ -82,3 +98,4 @@ the same token reactivates it.
 ---
 
 **Where this leads:** with Steps 1–3 done, proceed to **[Flow 2 — Booking lifecycle](02-booking-lifecycle.md)**.
+Add Step 4b before going live, or the lifecycle in Flow 2 will run silently.

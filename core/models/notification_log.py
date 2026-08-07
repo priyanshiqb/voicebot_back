@@ -8,6 +8,17 @@ class NotificationLog(TenantBaseModelCore):
     Idempotency ledger for outbound notifications. A unique ``dedup_key`` per
     tenant guarantees a given logical notification is sent at most once, even
     across Celery retries or duplicate service calls. Tier 1 Core.
+
+    **These rows are the idempotency mechanism, not merely a record of it.**
+    Deleting one re-arms the notification it represents, which is why the retention
+    task (``core.tasks.purge_notification_logs``) never touches a row belonging to a
+    booking that has not happened yet.
+
+    Rows hold customer email addresses and are never pruned by any other path, so
+    retention is a privacy obligation as much as a disk one. Message bodies are
+    deliberately **not** stored: they add nothing a ``notification_type`` does not
+    already say, and for authentication mail they would be a credential store
+    nobody meant to build.
     """
 
     class Channel(models.TextChoices):
@@ -61,6 +72,18 @@ class NotificationLog(TenantBaseModelCore):
     )
     sent_at = models.DateTimeField(null=True, blank=True, help_text="When the send completed.")
     error = models.TextField(blank=True, default="", help_text="Last failure detail, if any.")
+    email_configuration = models.ForeignKey(
+        "tenant.TenantEmailConfiguration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notification_logs",
+        help_text=(
+            "Which SMTP configuration carried this message. Null for FCM, for "
+            "messages sent before this was recorded, and for messages that were "
+            "never sent because no sender was configured."
+        ),
+    )
 
     class Meta:
         db_table = "core_notification_logs"

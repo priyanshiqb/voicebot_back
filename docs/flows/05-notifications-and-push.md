@@ -8,6 +8,18 @@
 > emitted **explicitly from services** (not from a blanket signal), so internal saves
 > like audit stamping don't spuriously fire them.
 
+> ## ⚠️ Prerequisite: the tenant must have configured a mail sender
+>
+> **Email in this flow sends through the tenant's own SMTP server, or not at all.** There is no
+> fallback to a platform sender. A tenant with no verified, assigned configuration gets **none** of
+> the four emails below.
+>
+> Push (FCM) is unaffected — it does not go through SMTP.
+>
+> Setup: [Email Configuration](../apiDocs/tenant/email_configuration.md) to create and verify, then
+> [Tenant Settings](../apiDocs/tenant/settings.md) to assign. This belongs in
+> [Flow 1 — Tenant Setup](./01-setup.md), alongside availability and event templates.
+
 ```mermaid
 flowchart LR
     subgraph EMAIL["Email to customer and host"]
@@ -30,7 +42,18 @@ flowchart LR
 | Cancellation | 2 | attendees + host | Cancellation + `.ics` cancel |
 | Reschedule request | 3 | customer (attendees) | link to `public/reschedule/{token}/` |
 
-Emails send via a Celery task (async, retrying) with the `.ics` attached.
+Emails send via a Celery task (async, retrying) with the `.ics` attached. The task resolves the
+tenant's sender **at send time**, not at enqueue time — a message can wait through a retry backoff
+while the configuration behind it is disconnected or edited, and the state that matters is the one at
+the moment of sending.
+
+**When no sender is configured**, nothing is sent and the `NotificationLog` row is written `FAILED`
+with the reason. Because `FAILED` rows are re-enqueueable, configuring a sender later lets the *same*
+logical notification go out rather than producing a duplicate.
+
+`NotificationLog` also records which configuration carried each message (`email_configuration`), and
+is pruned daily — 90 days for sent, 180 for failed, and **never** for a booking that has not happened
+yet, since deleting a row re-arms its notification.
 
 ### Reminders (automatic)
 `send_due_reminders` (Beat, every 5 min) scans upcoming `SCHEDULED`/`CONFIRMED`

@@ -128,7 +128,7 @@ Ordered **default first**, then newest. Paginated (`page`, `page_size`, max 100)
 
 | Status | When | `message` |
 |---|---|---|
-| **200** | Zero or more rows. An empty `data` array is normal — it means "using the platform sender". | `success` |
+| **200** | Zero or more rows. An empty `data` array is the starting state for every tenant — and it means **booking email is not being sent**, not that a fallback is in use. | `success` |
 | **401** | No valid JWT. | `Authentication credentials were not provided.` |
 | **403** | The user has no active tenant mapping. | `Your user account is not associated with any active tenant.` |
 
@@ -156,6 +156,7 @@ saved as `UNVERIFIED` — [test it](#6-send-a-test-message) before relying on it
 | `from_email` | string | **\*** | The `From:` address recipients see. | Valid email address. **Most providers additionally require this address or its domain to be verified in their own dashboard** — validation here cannot check that; the [test send](#6-send-a-test-message) can. |
 | `from_name` | string | | Sender display name. | Max 255. Falls back to the tenant's name when blank. |
 | `reply_to` | string | | Where replies go, when that is not `from_email`. | Valid email address. |
+
 > **`is_default`, `is_active`, and every lifecycle field (`status`, `verified_at`, `last_tested_at`,
 > `last_used_at`, `last_error`) are read-only.** Sending them is ignored. Use `set-default/`,
 > `disconnect/`, and `reconnect/`. New configurations are created connected.
@@ -508,10 +509,15 @@ would hand the tenant a default that cannot send.
 | Status | When | `message` |
 |---|---|---|
 | **200** | Deleted. Refetch the list — the default may have moved. | `Deleted successfully` |
+| **400** | This configuration is the [assigned booking sender](#the-assigned-booking-sender-is-locked). | `This configuration is currently sending your booking email…`; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **404** | Not this tenant's configuration. | `Not found.` |
 
-Deleting the **last** configuration leaves the tenant with no default, which reverts them to the
-platform sender. That is a valid state, not an error.
+Deleting the **last** configuration leaves the tenant with nothing to send booking email through.
+That is a valid state — it is where every tenant starts — but it is not a fallback: booking email
+simply stops.
+
+> **Prefer [disconnect](#5b-disconnect-and-reconnect) when the credentials might be needed again.**
+> Delete is for credentials that should be gone.
 
 ### Bulk delete
 
@@ -522,7 +528,15 @@ afterwards exactly as it does for a single delete.
 |---|---|---|
 | **200** | All ids deleted. | `Bulk deleted successfully` |
 | **400** | `ids` missing, empty, or not a list. | `ids must be a non-empty list` |
+| **400** | Any id is the assigned booking sender. **Nothing is deleted.** | `This configuration is currently sending your booking email…`; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **400** | Any id is not this tenant's. **Nothing is deleted** — the check is all-or-nothing. | `Some ids are invalid` |
+
+### Dropdown
+
+`GET /api/v1/tenant/email-configurations/dropdown/` — `{value, label}` pairs for a picker, where
+`label` is the configuration's `name`, falling back to `host:port` when it has none. Honours the same
+filters as the list. Inherited from the shared viewset base; there is nothing configuration-specific
+about it.
 
 ---
 

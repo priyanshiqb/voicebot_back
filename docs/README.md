@@ -17,6 +17,12 @@ Use the sidebar navigation to explore the developer resources.
 * **[Authentication APIs](/#/apiDocs/user/auth.md)**: JWT session lifetimes and refresh tokens.
 * **[Signup & Onboarding Flows](/#/apiDocs/onboard/signup_flow.md)**: Onboarding steps, parameters, and verification requirements.
 * **[Agent Management](/#/apiDocs/core/agent.md)**: CRUD operations for voice agents and templates.
+* **[Email Configuration](/#/apiDocs/tenant/email_configuration.md)**: a tenant's own SMTP credentials.
+
+> ⚠️ **Booking email does not send until a tenant configures SMTP.** There is no fallback to a
+> platform sender — an unconfigured tenant's customers receive no confirmations, reminders or
+> cancellations. Setup is two steps: create and verify a configuration, then **assign** it in
+> [Tenant Settings](/#/apiDocs/tenant/settings.md).
 
 ---
 

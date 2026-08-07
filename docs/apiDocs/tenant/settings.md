@@ -124,11 +124,12 @@ Returns the full settings object, including a recomputed `booking_email` block �
 | **400** | The id is not one of this tenant's configurations, or is not a valid UUID. | `Invalid pk "…" - object does not exist.` |
 | **401** | No valid JWT. | `Authentication credentials were not provided.` |
 | **403** | No active tenant mapping. | `Your user account is not associated with any active tenant.` |
+| **405** | `PUT`, `POST` or `DELETE`. | `Method "POST" not allowed.` |
 
 Every error is wrapped by the global exception handler — `{status, message, data, errors, request_id}`.
 
-> **There is no `PUT`, `POST`, or `DELETE`.** The row is a singleton that always exists; settings are
-> cleared by setting fields to `null`, not by removing the row.
+> **`GET` and `PATCH` are the only methods.** The row is a singleton that always exists, so there is
+> nothing to create or destroy; settings are cleared by setting fields to `null`.
 
 ---
 
@@ -163,6 +164,7 @@ and this is the single field that tells you the truth.
 
 | # | Gap | Impact |
 |---|---|---|
+| 0 | **Platform mail is not logged at all.** OTP, verification and password reset write no `NotificationLog` row. | "Did the customer receive their OTP?" is answerable only from worker logs. Note that logging it must never capture the body — OTP codes and reset links in a table are a credential store. |
 | 1 | **Only booking email is configurable.** Campaign and platform mail are not covered. | A tenant cannot separate transactional from bulk sending reputation yet. |
 | 2 | **No notification when the assigned sender breaks.** | A configuration that goes `FAILED` mid-flight stops booking mail, and the tenant finds out from a customer unless something is watching `booking_email.will_send`. |
 | 3 | **No audit trail of assignment changes** beyond `updated_at` and a log line. | "Who turned our booking email off?" is answerable from application logs, not from the API. |

@@ -377,6 +377,27 @@ calendar clients accept updates rather than ignoring them.
 > **If a customer reports a missing confirmation, check that first** — before the notification log,
 > before the worker, before the provider.
 
+### Notification history and retention
+
+Every attempt writes a `NotificationLog` row: type, recipient, status, `sent_at`, the failure reason,
+and **which SMTP configuration carried it** (`email_configuration`) — the field to check when
+deliverability changes after a provider switch.
+
+Message bodies are deliberately **not** stored. They add nothing a `notification_type` does not
+already say, and for authentication mail they would be a credential store nobody meant to build.
+
+Rows are purged daily by `core.tasks.purge_notification_logs`:
+
+| Rows | Kept for | Setting |
+|---|---|---|
+| Sent / pending | **90 days** | `NOTIFICATION_LOG_RETENTION_DAYS` |
+| Failed | **180 days** — the only trace of a message that never arrived | `NOTIFICATION_LOG_FAILED_RETENTION_DAYS` |
+
+> **Rows for bookings that have not happened yet are never purged, at any age.** The row *is* the
+> idempotency mechanism, not a record of it — deleting one frees its `dedup_key` and re-arms that
+> notification. A confirmation written today for a booking eleven months out has to outlive the
+> retention window, or the customer gets a second copy.
+
 ## Common scenarios
 
 | Goal | Sequence |
