@@ -182,7 +182,7 @@ Adds a colleague to **your** tenant.
 | `phone_number` | string | Contact number. Free text — **not** normalised or validated. | Optional, nullable. Max **15**. |
 | `is_active` | boolean | Whether the account may sign in. | Optional, default `true`. |
 | `session_timeout_hours` | integer | How long this user's refresh tokens live. See [auth](./auth.md#token-lifetimes). | Optional, default `168` (7 days). Values below 1 are clamped to 1 hour at token-issue time. |
-| `timezone` | UUID | Preferred timezone, for schedules and notifications. | Optional, nullable. Must be an existing [timezone](../onboard/timezones.md) id. |
+| `timezone` | UUID | Preferred timezone, for schedules and notifications. **Changing it also moves this user's [availability profile](../core/availability_profile.md#the-profile-timezone-follows-the-hosts-when-the-two-were-in-step) onto the new zone**, if they have one and it was in step with their old timezone. | Optional, nullable. Must be an existing [timezone](../onboard/timezones.md) id. |
 | `language` | UUID | Preferred language. | Optional, nullable. Must be an existing [language](../onboard/languages.md) id. |
 
 **Read-only — ignored if you send them:** `id`, `is_verified`, `tenant`, `subscription`.

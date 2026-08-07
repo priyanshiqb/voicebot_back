@@ -276,6 +276,37 @@ Practical consequences:
 
 ---
 
+### The profile timezone follows the host's, when the two were in step
+
+Changing a **user's** timezone — through the users API, the admin, onboarding, or the shell — moves
+their availability profile onto the same zone and rebuilds its windows. A host who relocates means
+"9 to 5 where I am now", not "9 to 5 where I used to live".
+
+**The wall-clock rules are never rewritten.** `09:00` still reads `09:00`; it simply resolves against
+a different zone, which is the whole point.
+
+> **A profile whose timezone already differed from the user's is left alone.** A host in Kolkata
+> keeping New York hours for US customers is a deliberate configuration, and re-anchoring it would
+> move every slot they offer by nine and a half hours without anyone asking. The comparison is against
+> the user's **previous** timezone: same → they were in step, so follow; different → they were not, so
+> don't touch.
+
+| Situation | Profile timezone |
+|---|---|
+| User's zone changes, profile matched the old one | **Follows** the user; windows rebuilt |
+| User's zone changes, profile was already different | Unchanged |
+| User had no timezone and sets one | Unchanged — nothing to have been in step with |
+| User's timezone is cleared to `null` | Unchanged — the profile's is non-nullable, and rules need a zone |
+| User has no profile | Nothing happens |
+
+> **Existing bookings are never moved.** They are absolute instants already agreed with a customer.
+> Only future availability shifts.
+
+To change a profile's timezone independently of the host's, `PATCH` the profile directly — that path
+has no such guard and always re-materializes.
+
+---
+
 ## 5. Delete (Soft Delete)
 
 **`DELETE /api/v1/core/availability-profiles/{id}/`**

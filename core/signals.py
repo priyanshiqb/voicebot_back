@@ -5,6 +5,11 @@ Kept intentionally thin: the AvailabilityException post_save handler does no
 queries and no notifications — it only enqueues the reschedule task on commit,
 so the heavy, idempotent work runs off the request path and never on a rolled-back
 transaction.
+
+The CustomUser timezone pair is a signal rather than serializer logic on purpose:
+a user's timezone is written from the users API, the admin, onboarding and the
+shell, and a host whose working hours silently stopped following them because the
+change came in through the wrong door is not a bug anyone would find quickly.
 """
 
 from django.db import transaction
@@ -14,6 +19,12 @@ from django.dispatch import receiver
 from core.models.agent_call_log import AgentCallLog
 from core.models.availability_exception import AvailabilityException
 from core.models.booking_participant import BookingParticipant
+from user.models import CustomUser
+
+# Stashed on the instance between pre_save and post_save. An attribute rather than
+# a module-level dict because concurrent requests share the module but not the
+# instance.
+_PREVIOUS_TIMEZONE_ATTR = "_previous_timezone_id"
 
 
 @receiver(post_save, sender=AvailabilityException)
@@ -30,6 +41,55 @@ def enqueue_reschedule_on_leave(sender, instance, created, **kwargs):
         reschedule_on_leave.delay(tenant_id, exception_id)
 
     transaction.on_commit(_enqueue)
+
+
+@receiver(pre_save, sender=CustomUser)
+def remember_previous_timezone(sender, instance, **kwargs):
+    """Capture the timezone about to be overwritten.
+
+    ``post_save`` can see the new value but not the old one, and the old one is
+    what decides whether the user's zone and their profile's were in step. Stashed
+    on the instance so the read happens once, on the save that matters.
+    """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "timezone" not in update_fields:
+        # Saves that name their fields and do not touch timezone — `last_login`,
+        # OTP stamps — skip the lookup entirely. This runs on every user write.
+        setattr(instance, _PREVIOUS_TIMEZONE_ATTR, None)
+        return
+    if instance.pk is None:
+        setattr(instance, _PREVIOUS_TIMEZONE_ATTR, None)
+        return
+
+    previous = (
+        sender.all_objects.filter(pk=instance.pk)
+        .values_list("timezone_id", flat=True)
+        .first()
+    )
+    setattr(instance, _PREVIOUS_TIMEZONE_ATTR, previous)
+
+
+@receiver(post_save, sender=CustomUser)
+def sync_availability_profile_timezone(sender, instance, created, **kwargs):
+    """Move the host's availability profile to their new timezone.
+
+    A relocating host means "9 to 5" now, not "9 to 5 where I used to live". The
+    wall-clock rules are untouched; only the zone they resolve against changes, and
+    the profile is re-materialized so future slots follow.
+
+    Existing bookings are unaffected — they are absolute instants, already agreed
+    with a customer, and moving them because the host changed a preference would be
+    a very unwelcome surprise.
+    """
+    if created:
+        return
+    previous = getattr(instance, _PREVIOUS_TIMEZONE_ATTR, None)
+    if previous is None or previous == instance.timezone_id:
+        return
+
+    from core.services.profile_sync import sync_profile_timezone
+
+    sync_profile_timezone(instance, previous)
 
 
 @receiver(pre_save, sender=AgentCallLog)
