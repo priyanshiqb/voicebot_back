@@ -1,11 +1,12 @@
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import django_filters
 from django.db.models import Count
 from django.db.models.functions import TruncDate
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin, is_vb_agent
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
@@ -30,6 +31,159 @@ from core.services.exceptions import (
 
 from drf_spectacular.utils import extend_schema
 
+# Alias for "the calendar date this booking's start_time falls on, locally".
+# Shared, because both the list filter and daily-count need it and re-annotating
+# the same name is a ValueError.
+LOCAL_DATE_ALIAS = "local_date"
+
+
+def resolve_booking_zone(request, requested=None):
+    """The zone booking dates are resolved in, as ``(ZoneInfo, iana_name)``.
+
+    Unlike the display zone on available-slots, this is **not** presentational.
+    `start_time` is a UTC instant, and which calendar date it belongs to depends
+    entirely on where you stand: a 21:00 Asia/Kolkata appointment is 15:30 UTC the
+    same day, but a 02:00 one is the *previous* UTC day. Resolving dates in UTC
+    would quietly move a slice of every tenant's evening bookings to the day
+    before, and nothing about the response would look wrong.
+
+    Order, most specific first: the caller's explicit `timezone`, then the user's
+    own preference, then the tenant's base zone, then UTC.
+    """
+    if requested:
+        try:
+            return ZoneInfo(requested), requested
+        except Exception as exc:  # noqa: BLE001 — any unusable key is the same 400
+            # 400 rather than falling back to UTC. A silent fallback would return
+            # a well-formed set of bookings for the wrong days.
+            raise ValidationError(
+                {"timezone": f"{requested!r} is not a valid IANA timezone identifier."}
+            ) from exc
+
+    user_tz = getattr(getattr(request, "user", None), "timezone", None)
+    if user_tz is not None:
+        return user_tz.zone, user_tz.timezone
+
+    try:
+        tenant_tz = request.user.tenant_mapping.tenant.timezone
+    except Exception:  # noqa: BLE001 — superusers have no mapping; UTC is fine
+        tenant_tz = None
+    if tenant_tz is not None:
+        return tenant_tz.zone, tenant_tz.timezone
+
+    return ZoneInfo("UTC"), "UTC"
+
+
+def filter_local_date_range(queryset, zone, start_date=None, end_date=None):
+    """Narrow to bookings whose LOCAL start date falls in ``[start_date, end_date]``.
+
+    Both bounds inclusive, either may be None.
+
+    Shared by the list filter and daily-count so that a day's count and that day's
+    list can never disagree. Converting the local dates to UTC instants instead
+    would be simpler and index-friendly, but the two would drift on the handful of
+    zones whose DST transition happens at midnight (America/Santiago,
+    America/Havana): there local midnight does not exist twice a year, and the
+    boundary lands an hour off. Deriving both from the same TruncDate makes them
+    equal by construction rather than by agreement.
+    """
+    if start_date is None and end_date is None:
+        return queryset
+
+    # Index-friendly pre-filter on the raw column so this can use
+    # core_booking_status_start_idx instead of scanning the tenant's history.
+    # Deliberately sloppy — no zone is more than 14 hours off UTC, and the
+    # LOCAL_DATE_ALIAS comparison below is what actually decides membership, so
+    # the margin only has to be generous.
+    if start_date is not None:
+        queryset = queryset.filter(
+            start_time__gte=datetime.combine(start_date, time.min, tzinfo=zone)
+            - timedelta(days=1)
+        )
+    if end_date is not None:
+        queryset = queryset.filter(
+            start_time__lt=datetime.combine(end_date, time.min, tzinfo=zone)
+            + timedelta(days=2)
+        )
+
+    if LOCAL_DATE_ALIAS not in queryset.query.annotations:
+        queryset = queryset.annotate(
+            **{LOCAL_DATE_ALIAS: TruncDate("start_time", tzinfo=zone)}
+        )
+    if start_date is not None:
+        queryset = queryset.filter(**{f"{LOCAL_DATE_ALIAS}__gte": start_date})
+    if end_date is not None:
+        queryset = queryset.filter(**{f"{LOCAL_DATE_ALIAS}__lte": end_date})
+    return queryset
+
+
+class BookingFilter(django_filters.FilterSet):
+    """List filters for bookings.
+
+    The date filters work on **local calendar dates** — the day a human would say
+    the appointment is on — while `start_time_after`/`start_time_before` take UTC
+    instants for sub-day precision. Both are offered because "show me Tuesday" and
+    "show me 14:00–17:00" are different questions and answering the first with
+    instants makes every client reimplement timezone maths.
+    """
+
+    date = django_filters.DateFilter(
+        method="filter_on_date",
+        label="Bookings on this local date (YYYY-MM-DD).",
+    )
+    start_date = django_filters.DateFilter(
+        method="filter_from_date",
+        label="Local date to start from, inclusive (YYYY-MM-DD).",
+    )
+    end_date = django_filters.DateFilter(
+        method="filter_to_date",
+        label="Local date to end at, INCLUSIVE (YYYY-MM-DD).",
+    )
+    start_time_after = django_filters.IsoDateTimeFilter(
+        field_name="start_time",
+        lookup_expr="gte",
+        label="Starts at or after this UTC instant (ISO-8601).",
+    )
+    start_time_before = django_filters.IsoDateTimeFilter(
+        field_name="start_time",
+        lookup_expr="lt",
+        label="Starts strictly before this UTC instant (ISO-8601).",
+    )
+    timezone = django_filters.CharFilter(
+        method="filter_noop",
+        label=(
+            "IANA zone the date filters are read in, e.g. Asia/Kolkata. Defaults "
+            "to the caller's timezone, then the tenant's, then UTC."
+        ),
+    )
+
+    class Meta:
+        model = Booking
+        fields = ["status", "primary_host", "event_template", "source"]
+
+    @property
+    def local_zone(self):
+        zone, _ = resolve_booking_zone(self.request, self.data.get("timezone"))
+        return zone
+
+    def filter_noop(self, queryset, name, value):
+        """`timezone` is an input to the other filters, not a filter itself.
+
+        Declared anyway so it appears in the schema — an undeclared param is
+        accepted silently, which is indistinguishable from being ignored.
+        """
+        return queryset
+
+    def filter_on_date(self, queryset, name, value):
+        return filter_local_date_range(queryset, self.local_zone, value, value)
+
+    def filter_from_date(self, queryset, name, value):
+        return filter_local_date_range(queryset, self.local_zone, start_date=value)
+
+    def filter_to_date(self, queryset, name, value):
+        return filter_local_date_range(queryset, self.local_zone, end_date=value)
+
+
 @extend_schema(tags=["Booking"])
 class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
@@ -47,7 +201,7 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     list_serializer_class = BookingListSerializer
     http_method_names = ["get", "post", "delete", "head", "options"]
 
-    filterset_fields = ["status", "primary_host", "event_template", "source"]
+    filterset_class = BookingFilter
     ordering_fields = [
         "start_time", "end_time", "created_at", "updated_at", "status", 
         "source", "title", "event_template", "event_template__name", 
@@ -282,36 +436,6 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             data=self._serialized(result), message="Booking marked as no-show"
         )
 
-    def _count_zone(self, request, requested):
-        """The zone dates are resolved in, as ``(ZoneInfo, iana_name)``.
-
-        Unlike the display zone on available-slots, this is **not** presentational.
-        `start_time` is a UTC instant, and which calendar date it belongs to depends
-        entirely on where you stand: a 21:00 Asia/Kolkata appointment is 15:30 UTC
-        the same day, but a 02:00 one is the *previous* UTC day. Bucketing in UTC
-        would quietly move a slice of every tenant's evening bookings to the day
-        before, and nothing about the response would look wrong.
-
-        Order, most specific first: the caller's explicit `timezone`, then the
-        user's own preference, then the tenant's base zone, then UTC.
-        """
-        if requested:
-            # Already checked by the serializer, so ZoneInfo cannot raise here.
-            return ZoneInfo(requested), requested
-
-        user_tz = getattr(request.user, "timezone", None)
-        if user_tz is not None:
-            return user_tz.zone, user_tz.timezone
-
-        try:
-            tenant_tz = request.user.tenant_mapping.tenant.timezone
-        except Exception:  # noqa: BLE001 — superusers have no mapping; UTC is fine
-            tenant_tz = None
-        if tenant_tz is not None:
-            return tenant_tz.zone, tenant_tz.timezone
-
-        return ZoneInfo("UTC"), "UTC"
-
     @extend_schema(
         parameters=[BookingDailyCountQuerySerializer],
         responses={200: BookingDailyCountResponseSerializer},
@@ -335,30 +459,27 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         query.is_valid(raise_exception=True)
         data = query.validated_data
         start_date, end_date = data["start_date"], data["end_date"]
-        zone, zone_name = self._count_zone(request, data.get("timezone"))
+        zone, zone_name = resolve_booking_zone(request, data.get("timezone"))
 
-        queryset = self.filter_queryset(self.get_queryset())
-
-        # A day either side, so the comparison can use core_booking_status_start_idx
-        # rather than scanning the tenant's whole history. Deliberately sloppy — no
-        # zone is more than 14 hours off UTC, and the TruncDate filter below is what
-        # actually decides membership, so the margin only has to be generous.
-        window_start = datetime.combine(start_date, time.min, tzinfo=zone) - timedelta(days=1)
-        window_end = datetime.combine(end_date, time.min, tzinfo=zone) + timedelta(days=2)
+        # BookingFilter reads start_date/end_date too, so the range is usually
+        # already applied by the time this runs. Applying it again is a no-op —
+        # same helper, same zone, and the annotation is only added once — and it
+        # keeps this action correct on its own terms rather than depending on the
+        # filter backend having recognised the same parameters.
+        queryset = filter_local_date_range(
+            self.filter_queryset(self.get_queryset()), zone, start_date, end_date
+        )
 
         rows = (
             queryset
-            .filter(start_time__gte=window_start, start_time__lt=window_end)
-            .annotate(day=TruncDate("start_time", tzinfo=zone))
-            .filter(day__gte=start_date, day__lte=end_date)
             # Clears Meta.ordering. Without it `-start_time` survives into the
             # GROUP BY and the query returns one row per booking, not per day —
             # every count would be 1 and the response would still look plausible.
             .order_by()
-            .values("day")
+            .values(LOCAL_DATE_ALIAS)
             .annotate(count=Count("id"))
         )
-        counts = {row["day"]: row["count"] for row in rows}
+        counts = {row[LOCAL_DATE_ALIAS]: row["count"] for row in rows}
 
         days = []
         for offset in range((end_date - start_date).days + 1):

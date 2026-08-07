@@ -71,6 +71,38 @@ means *try the same time again in a moment*.
 | `event_template` | UUID | Only bookings of this meeting type. |
 | `source` | enum | Where it came from: `CUSTOMER`, `INTERNAL`, `PUBLIC_LINK`, `AI`. |
 | `ordering` | string | `start_time` or `created_at`; prefix `-` to reverse. Default `-start_time`. |
+| `date` | date | Bookings on this **local** date. `YYYY-MM-DD`. |
+| `start_date` | date | Local date to start from, **inclusive**. |
+| `end_date` | date | Local date to end at, **inclusive**. |
+| `start_time_after` | datetime | Starts at or after this **UTC instant**, ISO-8601. |
+| `start_time_before` | datetime | Starts strictly **before** this UTC instant, so consecutive windows tile. |
+| `timezone` | string | IANA zone the three date filters are read in. Defaults to the caller's, then the tenant's, then UTC. Unknown zone is a **400**. |
+
+All filters combine with `AND`, so `?date=2026-08-05&status=CONFIRMED&primary_host=<id>` is one host's
+confirmed bookings that day.
+
+### Dates or instants — pick the one that matches the question
+
+**Local dates** (`date`, `start_date`, `end_date`) answer *"show me Tuesday"*. The day a booking
+belongs to depends on where you stand — a `20:00 UTC` appointment is **the next day** in Kolkata —
+so these are resolved in `timezone`, and a client never has to do timezone maths to render a day
+view.
+
+**UTC instants** (`start_time_after`, `start_time_before`) answer *"show me 14:00–17:00"*, for
+sub-day windows. `_before` is exclusive so adjacent windows tile without double-counting.
+
+```
+GET /api/v1/core/bookings/?date=2026-08-05&timezone=Asia/Kolkata
+GET /api/v1/core/bookings/?start_date=2026-08-01&end_date=2026-08-31&timezone=Asia/Kolkata
+GET /api/v1/core/bookings/?start_time_after=2026-08-05T09:00:00Z&start_time_before=2026-08-05T12:00:00Z
+```
+
+> **These are the same dates [daily-count](#11-date-wise-booking-count) uses.** Both go through one
+> code path, so a day showing `count: 4` returns exactly those 4 rows when you drill into it with
+> `?date=` and the same `timezone`. Send the same zone to both or the two will legitimately disagree.
+
+Unlike daily-count there is **no 61-day cap** here — that limit exists because the count response is
+zero-filled, and this one is paginated.
 
 ### Response — `200 OK`
 
@@ -413,6 +445,10 @@ Exactly the same rows [List](#1-list-bookings) would return: your tenant, exclud
 **All statuses are counted** unless you narrow them, so `CANCELED` and lapsed `HELD` rows are in the
 total. Pass `?status=CONFIRMED` for confirmed bookings only. Pass `?primary_host=<user id>` for one
 host's calendar rather than the whole tenant's.
+
+To fetch the bookings behind a day's number, call [List](#1-list-bookings) with `?date=<that date>`
+and **the same `timezone`**. Both endpoints resolve dates through one shared code path, so the
+results match exactly.
 
 | Status | When | `message` / `errors` |
 |---|---|---|
