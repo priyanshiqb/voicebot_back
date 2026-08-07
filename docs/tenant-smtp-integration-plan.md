@@ -6,10 +6,15 @@
 > `tenant/tests/test_email_configuration.py`. API reference:
 > [`apiDocs/tenant/email_configuration.md`](apiDocs/tenant/email_configuration.md).
 >
-> **Way 4 is NOT built and is deliberately deferred.** There is no resolver and no `utils/mail/service.py`.
-> **No product code sends through a tenant's credentials** — every existing email path still uses the
-> platform `EMAIL_*` settings, unchanged. A tenant can configure and verify SMTP today and see no
-> difference in delivered mail. The open questions in §11 are the ones to answer before wiring it.
+> **Way 4 is IMPLEMENTED for booking email**, with a design decision that supersedes §11.2 below:
+> **there is no platform fallback.** A tenant with no verified, assigned sender receives **no booking
+> email at all**. `TenantSettings.booking_email_configuration` names the sender;
+> `TenantSettings.booking_sender()` re-checks it at send time; `send_scheduling_email_task` resolves
+> it inside the worker and refuses rather than falling back. Reference:
+> [`apiDocs/tenant/settings.md`](apiDocs/tenant/settings.md).
+>
+> Platform authentication mail (signup OTP, verification, password reset) still uses the platform
+> `EMAIL_*` settings and always will. Campaign mail does not exist yet.
 >
 > **Audience:** the engineer/agent implementing this.
 > **Scope rule:** this document delivers a **project-wide mail capability**, not a booking feature.
@@ -789,11 +794,16 @@ Deliberately unresolved. Each needs a product answer, not a technical one.
 
 1. **Which mail becomes tenant-sent?** Booking notifications are the obvious first. Campaign mail,
    contact-import summaries, and in-app notifications are separate calls.
-2. **When a tenant's SMTP fails permanently mid-send, does the message fall back to platform creds?**
-   Falling back means the customer gets their booking confirmation but the tenant's branding silently
-   didn't apply, and the shared Gmail cap quietly comes back. Not falling back means a real customer
-   misses a real confirmation. My lean: **fall back, and notify the tenant admins loudly** — a missed
-   confirmation is worse than a branding lapse, but only if they find out.
+2. ~~**When a tenant's SMTP fails permanently mid-send, does the message fall back to platform
+   creds?**~~ **RESOLVED: no fallback, ever.** The message is not sent, the configuration is marked
+   `FAILED`, and the `NotificationLog` row records why. A confirmation from an address the customer
+   has never heard of was judged worse for the tenant than a missing one, and the shared-cap problem
+   that started this whole effort comes straight back the moment fallback exists.
+
+   **The gap this leaves is #2 in [`settings.md`](apiDocs/tenant/settings.md#known-gaps): nothing
+   tells the tenant their sender broke.** Today they find out from a customer. Alerting on the
+   transition to `FAILED` — push to tenant admins, reusing `core.services.push.notify_tenant_admins` —
+   is the obvious next piece of work and is not built.
 3. **Should `.ics` `ORGANIZER` follow the tenant's `from_email`?** It should — problem #2 in §0 is
    exactly this mismatch — but changing `ORGANIZER` on an existing `UID` mid-flight affects bookings
    already sitting in customers' calendars. Needs a cutover plan.

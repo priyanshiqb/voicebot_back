@@ -21,6 +21,18 @@ logger = logging.getLogger(__name__)
 
 SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 
+
+def backend_path():
+    """Which Django mail backend carries tenant SMTP.
+
+    Always the real SMTP backend in production. The setting exists so tests can
+    point it at locmem and assert on what was sent — otherwise every test touching
+    a booking notification would try to open a socket, and the alternative (mocking
+    the send at each call site) leaves the code between here and the outbox
+    untested.
+    """
+    return getattr(settings, "TENANT_SMTP_BACKEND", SMTP_BACKEND)
+
 # Django's SMTP backend defaults to timeout=None, which blocks forever. A host
 # that accepts the TCP connection and then goes silent would hang a worker
 # permanently, so this is passed on every connection, never left to the default.
@@ -57,7 +69,7 @@ def build_connection(config):
     """
     validators.validate_host(config.host)
     return get_connection(
-        backend=SMTP_BACKEND,
+        backend=backend_path(),
         host=config.host,
         port=config.port,
         username=config.username or None,
@@ -110,9 +122,13 @@ def describe_failure(config, exc):
         )
 
     if isinstance(exc, (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, OSError)):
+        # The underlying error is carried through, not replaced by the advice. A
+        # connection failure is the one case where the raw cause ("Connection
+        # refused" vs "certificate verify failed" vs a timeout) is what actually
+        # tells you which of the three suggestions applies.
         return (
-            f"Could not connect to {config.host}:{config.port}. Check the host, "
-            "the port, and whether encryption should be STARTTLS or SSL."
+            f"Could not connect to {config.host}:{config.port} ({exc}). Check the "
+            "host, the port, and whether encryption should be STARTTLS or SSL."
         )
 
     return str(exc) or "The mail server rejected the message."

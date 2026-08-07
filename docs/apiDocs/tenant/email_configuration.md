@@ -11,14 +11,24 @@ one that will be used to reach their customers.
 - **Scope**: every response is filtered to the caller's tenant. Another tenant's configuration is
   **404**, never 403.
 
-> **Nothing in the product sends through these credentials yet.** Saving and verifying a
-> configuration works end to end, but the booking notifications documented in
-> [booking.md](../core/booking.md) still leave from the platform sender. Wiring the send path is a
-> separate change. A tenant who configures SMTP today sees no difference in delivered mail.
+> ## Booking email does not send until this is set up
+>
+> **There is no platform fallback.** A tenant with no configured, assigned, verified sender receives
+> **no booking email at all** — no confirmations, no reminders, no cancellations, no reschedule
+> requests. Bookings are still created; the messages are simply not sent, and each one leaves a
+> `FAILED` row in `NotificationLog` explaining why.
+>
+> That is deliberate. A confirmation arriving from an address the customer has never heard of hurts
+> the tenant's brand more than a missing one, and quietly lending the platform's sending reputation to
+> a tenant's customer mail is what this whole feature exists to stop.
+>
+> Setup is two steps, not one: **create and verify a configuration here**, then **assign it** at
+> [`/api/v1/tenant/settings/`](./settings.md). A verified configuration that has not been assigned
+> sends nothing.
 
-> **Platform authentication email will never use a tenant's server.** Signup OTP, email verification,
-> and password reset always send on platform credentials — a tenant does not exist yet at signup, and
-> a tenant whose SMTP breaks must not be locked out of the reset flow that would let them fix it.
+> **Platform authentication email is unaffected.** Signup OTP, email verification, and password reset
+> always send on platform credentials — a tenant does not exist yet at signup, and a tenant whose SMTP
+> breaks must not be locked out of the reset flow that would let them fix it.
 
 ## Endpoints Summary
 
@@ -51,7 +61,12 @@ one that will be used to reach their customers.
 | Promoting one | `set-default/` promotes it **and** demotes the previous default, atomically |
 | Deleting the default | Another is promoted automatically, preferring a `VERIFIED`, connected one |
 | **Disconnecting the default** | Same promotion — a connected replacement takes over |
-| Deleting or disconnecting the last one | No usable default remains; the tenant falls back to the platform sender |
+| Deleting or disconnecting the last one | No usable default remains |
+
+> **`is_default` is not what decides who sends your booking email.** That is the separate assignment
+> at [`/tenant/settings/`](./settings.md). `is_default` marks the tenant's primary connection for
+> display and for promotion when one is removed; the settings pointer is what the send path reads.
+> They are usually the same configuration, and nothing requires them to be.
 
 > **`is_default` and `is_active` are read-only in `POST` and `PATCH` bodies.** Sending them is
 > silently ignored, not rejected. They move only through `set-default/`, `disconnect/`, and
@@ -300,8 +315,7 @@ progress.
 
 > **If nothing connected is left to promote, the disconnected configuration stays the default** —
 > `is_default: true, is_active: false`. It is still the tenant's stated choice, and reconnecting it
-> restores service with no further action. Display this state as *"no active sender"*, because it is:
-> mail falls back to the platform address until something is reconnected.
+> restores service with no further action. Display this state as *"no active sender"*, because it is.
 
 > **A disconnected configuration can still be [tested](#6-send-a-test-message).** Proving a fix works
 > before putting it back into service is the point.
@@ -310,10 +324,36 @@ progress.
 **becomes** the default — restoring your only working sender should not also require remembering to
 promote it. An already-connected default is left alone.
 
+### The assigned booking sender is locked
+
+**A configuration assigned as the booking sender cannot be disconnected or deleted.**
+
+| Attempt | Result |
+|---|---|
+| `disconnect/` on the assigned sender | **400**, `errors.code = "BOOKING_SENDER_IN_USE"` |
+| `DELETE /{id}/` on the assigned sender | **400**, same code |
+| `bulk_delete` including the assigned sender | **400** — all-or-nothing, nothing is deleted |
+
+The message names the way out:
+
+> `This configuration is currently sending your booking email. Assign a different one at
+> /api/v1/tenant/settings/ first, or clear the setting to stop sending booking email.`
+
+Booking mail has no fallback, so taking the assigned sender out of service **stops those messages
+entirely** rather than rerouting them. The tenant has to say what should carry them instead, or state
+explicitly that nothing should.
+
+> **A leaked credential is still an immediate fix.** Clear or reassign the setting, then disconnect —
+> two calls, no waiting, and nothing forces you to delete credentials you may want to keep for
+> investigation.
+
+**Configurations that are not assigned are unrestricted.** Disconnect and delete spares freely.
+
 | Status | When | `message` |
 |---|---|---|
 | **200** | Disconnected. Idempotent — disconnecting twice is fine. | `Email configuration disconnected` |
 | **200** | Reconnected. | `Email configuration reconnected` |
+| **400** | This configuration is the assigned booking sender. | See above; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **404** | Not this tenant's configuration. | `Not found.` |
 
 ---
@@ -495,16 +535,22 @@ afterwards exactly as it does for a single delete.
 4. `POST /{id}/test/` → a message lands in their inbox and the status flips to `VERIFIED`.
 5. On failure, show `errors.detail` verbatim. It is written for the tenant, and it goes only to the
    tenant that owns the credentials.
+6. **`PATCH /api/v1/tenant/settings/` with `{"booking_email_configuration": "<id>"}`.** Until this
+   step, booking email is still not sending. Confirm with `booking_email.will_send` in the response.
 
-To swap providers later: create the new one, test it, then `POST /{id}/set-default/`. The old one
-keeps serving live mail throughout, and can be `disconnect/`ed once you are satisfied — keeping its
-credentials in case you need to switch back.
+> **Step 4 is not the finish line.** A tenant who stops at `VERIFIED` has a green badge and no booking
+> email. Steps 4 and 6 are one flow — do not present them as separate screens.
+
+To swap providers later: create the new one, test it, assign it at
+[`/tenant/settings/`](./settings.md), *then* disconnect the old one. That order matters — the assigned
+sender is locked until it is released, and disconnecting keeps its credentials in case you need to
+switch back.
 
 ## Known gaps
 
 | # | Gap | Impact |
 |---|---|---|
-| 1 | **Nothing sends through these credentials yet.** The send path still uses the platform account. | A tenant can complete setup and see `VERIFIED`, and their customers still receive mail from the platform address. |
+| 1 | **A verified configuration does nothing until it is assigned** at [`/tenant/settings/`](./settings.md). | Setup looks complete — green `VERIFIED` badge — while booking email is still not sending. Show the assignment state, not the configuration status. |
 | 2 | **Provider-side sender verification cannot be checked at save time.** | `from_email` passes validation and the provider rejects it at send. Only the test send catches it. |
 | 3 | **SES sandbox mode is invisible to the test send.** | The test succeeds against the admin's own verified address; customer mail then fails. |
 | 4 | **No per-tenant send rate limit.** | Once tenants use their own credentials, our shared cap no longer bounds how much mail leaves through our infrastructure. |

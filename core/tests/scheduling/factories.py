@@ -10,6 +10,8 @@ from django.core.cache import cache
 
 from onboard.models.timezone import Timezone
 from tenant.models.Tenant import Tenant
+from tenant.models.TenantEmailConfiguration import TenantEmailConfiguration
+from tenant.models.TenantSettings import TenantSettings
 from tenant.models.TenantUserMapping import TenantUserMapping
 from core.models.availability_exception import AvailabilityException
 from core.models.availability_profile import AvailabilityProfile
@@ -60,11 +62,53 @@ def local_day(day, tz, days=1):
     return start.astimezone(UTC), end.astimezone(UTC)
 
 
-def make_tenant(name=None, subdomain=None):
+def make_email_sender(tenant, from_email=None):
+    """Give a tenant a verified, connected booking sender.
+
+    Created VERIFIED directly rather than through a test send: these fixtures are
+    about scheduling, and the verification flow has its own coverage in
+    ``tenant/tests/test_email_configuration.py``.
+    """
     n = _uid()
-    return Tenant.objects.create(
+    config = TenantEmailConfiguration.objects.create(
+        tenant=tenant,
+        name=f"Test sender {n}",
+        provider=TenantEmailConfiguration.Provider.CUSTOM,
+        host="smtp.test.invalid",
+        port=587,
+        username="tester",
+        from_email=from_email or f"bookings{n}@example.com",
+        from_name="Test Bookings",
+        status=TenantEmailConfiguration.Status.VERIFIED,
+    )
+    # Promoted rather than created with is_default=True: a tenant that already has
+    # a default would otherwise hit the partial unique index, which is exactly what
+    # make_default() exists to handle.
+    config.make_default()
+    TenantSettings.objects.update_or_create(
+        tenant=tenant, defaults={"booking_email_configuration": config}
+    )
+    return config
+
+
+def make_tenant(name=None, subdomain=None, with_email_sender=True):
+    """A tenant that can send booking mail.
+
+    The sender is set up by default because booking email has **no platform
+    fallback** — a tenant without one sends nothing at all. Without this, every
+    notification assertion in the suite would silently be testing the refusal path
+    rather than the feature.
+
+    Pass ``with_email_sender=False`` to get a tenant that cannot send, which is
+    what the tests covering that refusal actually want.
+    """
+    n = _uid()
+    tenant = Tenant.objects.create(
         name=name or f"Tenant {n}", subdomain=subdomain or f"tenant-{n}"
     )
+    if with_email_sender:
+        make_email_sender(tenant)
+    return tenant
 
 
 def make_user(tenant, email=None, password="password"):

@@ -7,4 +7,5 @@ app_name = "tenant"
 # `websocket_routing.py` and is wired through the ASGI application, not here.
 urlpatterns = [
     path("", include("tenant.urls.tenant_email_configuration")),
+    path("", include("tenant.urls.tenant_settings")),
 ]

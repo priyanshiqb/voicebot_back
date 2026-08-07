@@ -167,6 +167,10 @@ class NotificationLogTruthfulnessTests(TestCase):
                 "body": "b",
                 "recipient_list": ["c@example.com"],
                 "notification_log_id": str(log.id),
+                # Required now that booking mail resolves the tenant's own sender.
+                # Without it the task takes the no-configuration branch and never
+                # reaches the send this test is about.
+                "tenant_id": str(self.tenant.id),
             },
             retries=send_scheduling_email_task.max_retries,
             throw=False,

@@ -36,6 +36,16 @@ CHANNEL_LAYERS = {
 # Capture emails in an in-memory outbox so notification tests can assert on them.
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
+# Booking mail goes through the tenant's own SMTP configuration, which builds its
+# own connection and so would bypass EMAIL_BACKEND entirely and open a real socket.
+# Pointing it at the same outbox keeps the whole send path — sender resolution,
+# From: formatting, .ics attachment — under test instead of mocked at the seam.
+TENANT_SMTP_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+
+# Test fixtures use hostnames that do not resolve. Host validation has its own
+# dedicated tests that switch this back off.
+TENANT_SMTP_ALLOW_PRIVATE_HOSTS = True
+
 # Execute Celery tasks synchronously in-process during tests.
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True

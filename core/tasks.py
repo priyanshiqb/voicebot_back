@@ -64,6 +64,15 @@ def _mark_notification(notification_log_id, status, error=""):
     NotificationLog.objects.filter(pk=notification_log_id).update(**fields)
 
 
+# Recorded verbatim on the NotificationLog when a tenant has no usable booking
+# sender, so "why did no confirmation go out?" is answerable from the row rather
+# than from a worker log.
+NO_BOOKING_SENDER = (
+    "No verified, connected booking email configuration for this tenant; "
+    "message not sent. Booking email does not fall back to the platform sender."
+)
+
+
 @shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=30)
 def send_scheduling_email_task(
     self,
@@ -75,10 +84,21 @@ def send_scheduling_email_task(
     ics_filename="invite.ics",
     from_email=None,
     notification_log_id=None,
+    tenant_id=None,
 ):
     """
     Send a booking-related email, optionally with an .ics calendar invite.
     Retries with backoff on transient failures.
+
+    **Sends through the tenant's own SMTP configuration, or not at all.** There is
+    no platform fallback for booking mail: a confirmation arriving from an address
+    the customer has never heard of damages the tenant's brand more than a missing
+    one, and quietly lending the platform's sending reputation to a tenant's
+    customer mail is the thing tenant SMTP exists to stop.
+
+    The sender is resolved **here**, not at enqueue time. A message can sit in the
+    queue through a retry backoff while the configuration behind it is disconnected
+    or edited, and the state that matters is the one at the moment of sending.
 
     Marks its NotificationLog row SENT on success, or FAILED with the error once
     retries are exhausted. Until this existed, the row was marked SENT at enqueue
@@ -89,14 +109,30 @@ def send_scheduling_email_task(
         return
 
     from core.models.notification_log import NotificationLog
+    from tenant.models.TenantSettings import TenantSettings
+    from utils.mail import connection as mail_connection
 
-    from_email = from_email or _default_from_email()
+    config = TenantSettings.booking_sender(tenant_id) if tenant_id else None
+    if config is None:
+        # Not an exception: nothing is broken, the tenant simply has not set up a
+        # sender. Retrying would burn the budget and end in the same place, so this
+        # is terminal and visible instead.
+        logger.warning(
+            "booking email skipped for tenant %s: no usable sender", tenant_id
+        )
+        _mark_notification(
+            notification_log_id, NotificationLog.Status.FAILED, error=NO_BOOKING_SENDER
+        )
+        return
+
     try:
         message = EmailMultiAlternatives(
             subject=subject,
             body=body,
-            from_email=from_email,
+            from_email=from_email or mail_connection.format_from(config),
             to=list(recipient_list),
+            reply_to=[config.reply_to] if config.reply_to else None,
+            connection=mail_connection.build_connection(config),
         )
         if html_body:
             message.attach_alternative(html_body, "text/html")
@@ -104,17 +140,61 @@ def send_scheduling_email_task(
             message.attach(ics_filename, ics_content, "text/calendar; method=REQUEST")
         message.send()
         _mark_notification(notification_log_id, NotificationLog.Status.SENT)
+        _touch_configuration_use(config)
         logger.info("Scheduling email sent to %s", recipient_list)
     except Exception as exc:  # noqa: BLE001 — retry on any send failure
         logger.exception("Scheduling email failed for %s", recipient_list)
-        if self.request.retries >= self.max_retries:
-            # Out of retries: record the failure so it is visible and re-sendable
-            # rather than sitting as a permanently PENDING row.
+        permanent = mail_connection.is_permanent(exc)
+        if permanent:
+            _mark_configuration_failed(config, exc)
+        if permanent or self.request.retries >= self.max_retries:
+            # Out of retries, or retrying cannot help: record the failure so it is
+            # visible and re-sendable rather than sitting as a permanently PENDING
+            # row.
             _mark_notification(
-                notification_log_id, NotificationLog.Status.FAILED, error=str(exc)
+                notification_log_id,
+                NotificationLog.Status.FAILED,
+                error=mail_connection.describe_failure(config, exc),
             )
+            if permanent:
+                return
             raise
         raise self.retry(exc=exc)
+
+
+def _touch_configuration_use(config):
+    """Stamp last_used_at, at most once a minute.
+
+    A targeted UPDATE and a time guard, because a tenant sending 500 reminders
+    would otherwise issue 500 writes against one row and serialise the whole batch
+    on a single lock.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from tenant.models.TenantEmailConfiguration import TenantEmailConfiguration
+
+    now = timezone.now()
+    if config.last_used_at and config.last_used_at > now - timedelta(minutes=1):
+        return
+    TenantEmailConfiguration.objects.filter(pk=config.pk).update(last_used_at=now)
+
+
+def _mark_configuration_failed(config, exc):
+    """Flag a configuration whose credentials or sender are permanently rejected.
+
+    Without this the tenant sees messages disappear with nothing on the
+    configuration to explain it — the status would still read VERIFIED from a test
+    send that passed weeks ago.
+    """
+    from tenant.models.TenantEmailConfiguration import TenantEmailConfiguration
+    from utils.mail import connection as mail_connection
+
+    TenantEmailConfiguration.objects.filter(pk=config.pk).update(
+        status=TenantEmailConfiguration.Status.FAILED,
+        last_error=mail_connection.describe_failure(config, exc)[:2000],
+    )
 
 
 @shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=30)

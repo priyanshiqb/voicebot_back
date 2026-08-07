@@ -109,6 +109,37 @@ def _ics_for(booking, method, ics_status, sequence=None):
 PENDING_IN_FLIGHT_GRACE = timedelta(minutes=15)
 
 
+# Written onto the NotificationLog when a tenant has no usable booking sender, so
+# "why did no confirmation go out?" is answerable from the row rather than only
+# from a worker log line nobody is watching.
+NO_BOOKING_SENDER = (
+    "No verified, connected booking email configuration for this tenant; "
+    "message not sent. Booking email does not fall back to the platform sender."
+)
+
+
+def _record_unsent(booking, notification_type, dedup_key, recipients):
+    """Leave a FAILED row explaining why nothing was sent.
+
+    Not skipping silently: a missing confirmation with no trace is indistinguishable
+    from a bug, and the row is what makes the message re-sendable once the tenant
+    configures a sender — FAILED is re-enqueueable, and the dedup key means the
+    retry is the same logical notification rather than a duplicate.
+    """
+    NotificationLog.objects.update_or_create(
+        tenant=booking.tenant,
+        dedup_key=dedup_key,
+        defaults={
+            "booking": booking,
+            "channel": NotificationLog.Channel.EMAIL,
+            "notification_type": notification_type,
+            "recipient": ",".join(recipients),
+            "status": NotificationLog.Status.FAILED,
+            "error": NO_BOOKING_SENDER,
+        },
+    )
+
+
 def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_content=None):
     """Enqueue an email once for the given dedup_key. Returns True iff enqueued this call.
 
@@ -119,6 +150,21 @@ def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_
     could ever write.
     """
     if not recipients:
+        return False
+
+    # Checked before enqueueing as well as inside the task. The task check is the
+    # one that decides — the sender can change while a message waits in the queue —
+    # but stopping here keeps a tenant who has configured nothing from filling the
+    # broker with messages that will each resolve to the same refusal.
+    from tenant.models.TenantSettings import TenantSettings
+
+    if TenantSettings.booking_sender(booking.tenant_id) is None:
+        _record_unsent(booking, notification_type, dedup_key, recipients)
+        logger.warning(
+            "booking notification %s skipped for tenant %s: no usable sender",
+            notification_type,
+            booking.tenant_id,
+        )
         return False
 
     now = timezone.now()
@@ -158,6 +204,10 @@ def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_
         ics_content=ics_content,
         ics_filename="invite.ics",
         notification_log_id=str(log.id),
+        # The task resolves the tenant's sender itself. An SMTP connection is not
+        # JSON-serialisable and cannot cross the broker, and resolving here would
+        # bake in a sender that may be disconnected by the time the message runs.
+        tenant_id=str(booking.tenant_id),
     )
     events.log_event(
         booking,

@@ -420,6 +420,36 @@ class TenantEmailConfiguration(TenantBaseModel):
         fallback = existing.first()
         return fallback.make_default() if fallback else None
 
+    def is_booking_sender(self):
+        """Whether this configuration is the one assigned to carry booking mail.
+
+        Booking mail has no platform fallback: taking this configuration out of
+        service stops those messages entirely rather than rerouting them. That is
+        why disconnecting and deleting are blocked while the assignment stands —
+        the tenant has to say what should carry the mail instead, or state
+        explicitly that nothing should.
+        """
+        from tenant.models.TenantSettings import TenantSettings
+
+        return TenantSettings.objects.filter(
+            tenant_id=self.tenant_id, booking_email_configuration_id=self.pk
+        ).exists()
+
+    def release_from_settings(self):
+        """Drop any assignment pointing at this configuration.
+
+        ``on_delete=SET_NULL`` never fires for us: rows are soft-deleted, so the
+        database sees no delete and the pointer survives as a dangling id. Reads go
+        through the soft-delete-aware manager and so return ``None`` anyway, but
+        leaving the stale id in place makes the settings row lie about what is
+        configured.
+        """
+        from tenant.models.TenantSettings import TenantSettings
+
+        TenantSettings.objects.filter(
+            tenant_id=self.tenant_id, booking_email_configuration_id=self.pk
+        ).update(booking_email_configuration=None)
+
     # --- connect / disconnect -------------------------------------------------
 
     def disconnect(self):

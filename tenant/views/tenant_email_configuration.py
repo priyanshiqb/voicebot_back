@@ -66,9 +66,31 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
     # whatever was edited most recently makes the important row hard to find.
     ordering = ["-is_default", "-created_at"]
 
+    # Refusing rather than warning, because booking mail has no platform fallback:
+    # taking the assigned sender out of service stops those messages entirely. The
+    # tenant has to name a replacement, or say explicitly that booking mail should
+    # stop — both of which are one PATCH away, so this is a speed bump, not a trap.
+    # A leaked credential can still be dealt with immediately by pointing the
+    # setting elsewhere or clearing it.
+    BOOKING_SENDER_LOCKED = (
+        "This configuration is currently sending your booking email. Assign a "
+        "different one at /api/v1/tenant/settings/ first, or clear the setting to "
+        "stop sending booking email."
+    )
+
     def _tenant_id(self):
         mapping = getattr(self.request.user, "tenant_mapping", None)
         return getattr(mapping, "tenant_id", None)
+
+    def _booking_sender_block(self, config):
+        """A 400 when this configuration cannot be taken out of service, else None."""
+        if not config.is_booking_sender():
+            return None
+        return self.error(
+            message=self.BOOKING_SENDER_LOCKED,
+            errors={"code": "BOOKING_SENDER_IN_USE"},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     # --- write paths that maintain the single-default invariant ---------------
 
@@ -95,8 +117,21 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
     def perform_destroy(self, instance):
         tenant_id = instance.tenant_id
         with transaction.atomic():
+            # Belt and braces: destroy() refuses an assigned sender before reaching
+            # here, but bulk paths and future callers land in this method directly,
+            # and a settings row pointing at a deleted configuration reads as
+            # configured when it is not.
+            instance.release_from_settings()
             instance.soft_delete(user=self.request.user)
             TenantEmailConfiguration.ensure_default(tenant_id)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        blocked = self._booking_sender_block(instance)
+        if blocked is not None:
+            return blocked
+        self.perform_destroy(instance)
+        return self.success(message="Deleted successfully")
 
     @extend_schema(request=None, responses={200: TenantEmailConfigurationSerializer})
     @action(detail=True, methods=["post"], url_path="set-default")
@@ -126,6 +161,9 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         unused.
         """
         config = self.get_object()
+        blocked = self._booking_sender_block(config)
+        if blocked is not None:
+            return blocked
         config.disconnect()
         config.refresh_from_db()
         return self.success(
@@ -240,6 +278,16 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         looking for the `mapping` attribute `@action` attaches, so overriding with
         a bare method silently unregisters the route inherited from BaseViewSet.
         """
+        ids = request.data.get("ids") or []
+        if isinstance(ids, list) and ids:
+            assigned = self.get_queryset().filter(id__in=ids, booking_settings__isnull=False)
+            if assigned.exists():
+                return self.error(
+                    message=self.BOOKING_SENDER_LOCKED,
+                    errors={"code": "BOOKING_SENDER_IN_USE"},
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
         tenant_id = self._tenant_id()
         response = super().bulk_delete(request)
         if response.status_code == status.HTTP_200_OK and tenant_id:

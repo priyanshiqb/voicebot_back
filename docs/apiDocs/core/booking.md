@@ -343,14 +343,39 @@ window**, for operators acting on the customer's behalf.
 
 | Action | Email + `.ics` | External calendar |
 |---|---|---|
-| Create / Confirm | confirmation to every participant | event created on the host's calendar |
-| Cancel / `DELETE` | cancellation notice | event removed |
+| Create / Confirm | confirmation to every participant\* | event created on the host's calendar |
+| Cancel / `DELETE` | cancellation notice\* | event removed |
 | Bulk delete | **none** | **left in place** |
+
+\* Only if the tenant has configured a booking email sender — see below. Calendar sync is unaffected
+either way.
 
 Notifications are queued after the transaction commits, so a rolled-back booking never emails
 anyone. Each logical notification is sent **at most once**, enforced by a unique dedup key — a
 retry cannot produce a duplicate email. The `.ics` `SEQUENCE` increments on every revision, so
 calendar clients accept updates rather than ignoring them.
+
+> ### Email requires the tenant to have configured a sender
+>
+> **Booking email sends through the tenant's own SMTP server, or not at all.** There is no fallback to
+> the platform sender. A tenant with no verified, assigned configuration gets **none** of the emails
+> in the table above — confirmations, cancellations, reminders and reschedule requests are all
+> silently absent from the customer's inbox.
+>
+> Everything else still works: the booking is created, the status transitions happen, the calendar
+> event is mirrored, push notifications fire, and every endpoint returns its normal 2xx. Only the mail
+> stops.
+>
+> Each unsent message leaves a `NotificationLog` row with `status: FAILED` and an `error` saying why,
+> so this is diagnosable rather than mysterious — and because `FAILED` rows are re-enqueueable,
+> configuring a sender later lets the same logical notification go out rather than being lost.
+>
+> Set it up: [Email Configuration](../tenant/email_configuration.md) to create and verify a
+> configuration, then [Tenant Settings](../tenant/settings.md) to assign it. Check
+> `booking_email.will_send` to confirm mail is actually flowing.
+>
+> **If a customer reports a missing confirmation, check that first** — before the notification log,
+> before the worker, before the provider.
 
 ## Common scenarios
 
