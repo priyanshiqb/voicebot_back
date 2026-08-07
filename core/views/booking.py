@@ -1,3 +1,8 @@
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -9,6 +14,8 @@ from core.models.event_template import EventTemplate
 from core.serializers.booking import (
     BookingCancelSerializer,
     BookingCreateSerializer,
+    BookingDailyCountQuerySerializer,
+    BookingDailyCountResponseSerializer,
     BookingListSerializer,
     BookingSerializer,
 )
@@ -51,8 +58,10 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     select_related_fields = ["event_template", "primary_host"]
     prefetch_related_fields = ["participants"]
 
-    # Every action this viewset exposes. `destroy` is included: DELETE here is a
-    # cancellation, not a data deletion — see perform_destroy.
+    # Every booking action a machine caller needs. `destroy` is included: DELETE
+    # here is a cancellation, not a data deletion — see perform_destroy.
+    # `daily_count` is deliberately absent: it is dashboard reporting, and the
+    # voicebot books appointments rather than reads statistics about them.
     vb_agent_allowed_actions = frozenset({
         "list",
         "retrieve",
@@ -271,6 +280,102 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             return err
         return self.success(
             data=self._serialized(result), message="Booking marked as no-show"
+        )
+
+    def _count_zone(self, request, requested):
+        """The zone dates are resolved in, as ``(ZoneInfo, iana_name)``.
+
+        Unlike the display zone on available-slots, this is **not** presentational.
+        `start_time` is a UTC instant, and which calendar date it belongs to depends
+        entirely on where you stand: a 21:00 Asia/Kolkata appointment is 15:30 UTC
+        the same day, but a 02:00 one is the *previous* UTC day. Bucketing in UTC
+        would quietly move a slice of every tenant's evening bookings to the day
+        before, and nothing about the response would look wrong.
+
+        Order, most specific first: the caller's explicit `timezone`, then the
+        user's own preference, then the tenant's base zone, then UTC.
+        """
+        if requested:
+            # Already checked by the serializer, so ZoneInfo cannot raise here.
+            return ZoneInfo(requested), requested
+
+        user_tz = getattr(request.user, "timezone", None)
+        if user_tz is not None:
+            return user_tz.zone, user_tz.timezone
+
+        try:
+            tenant_tz = request.user.tenant_mapping.tenant.timezone
+        except Exception:  # noqa: BLE001 — superusers have no mapping; UTC is fine
+            tenant_tz = None
+        if tenant_tz is not None:
+            return tenant_tz.zone, tenant_tz.timezone
+
+        return ZoneInfo("UTC"), "UTC"
+
+    @extend_schema(
+        parameters=[BookingDailyCountQuerySerializer],
+        responses={200: BookingDailyCountResponseSerializer},
+        summary="Date-wise booking counts",
+        description=(
+            "How many bookings fall on each date in a range — one number per day, "
+            "for a calendar heat map or a volume chart.\n\n"
+            "Counts by **`start_time`** (when the appointment happens), not when it "
+            "was created. Both bounds are **inclusive** dates and the range may span "
+            "at most **61 days**.\n\n"
+            "Every date in the range is returned, including empty ones as `count: 0`.\n\n"
+            "Scoped exactly like `GET /bookings/` — same tenant, and the same "
+            "`status`, `primary_host`, `event_template` and `source` filters apply. "
+            "All statuses count unless you narrow them: pass `?status=CONFIRMED` for "
+            "confirmed only, or `?primary_host=<user id>` for one host's calendar."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="daily-count")
+    def daily_count(self, request):
+        query = BookingDailyCountQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        start_date, end_date = data["start_date"], data["end_date"]
+        zone, zone_name = self._count_zone(request, data.get("timezone"))
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # A day either side, so the comparison can use core_booking_status_start_idx
+        # rather than scanning the tenant's whole history. Deliberately sloppy — no
+        # zone is more than 14 hours off UTC, and the TruncDate filter below is what
+        # actually decides membership, so the margin only has to be generous.
+        window_start = datetime.combine(start_date, time.min, tzinfo=zone) - timedelta(days=1)
+        window_end = datetime.combine(end_date, time.min, tzinfo=zone) + timedelta(days=2)
+
+        rows = (
+            queryset
+            .filter(start_time__gte=window_start, start_time__lt=window_end)
+            .annotate(day=TruncDate("start_time", tzinfo=zone))
+            .filter(day__gte=start_date, day__lte=end_date)
+            # Clears Meta.ordering. Without it `-start_time` survives into the
+            # GROUP BY and the query returns one row per booking, not per day —
+            # every count would be 1 and the response would still look plausible.
+            .order_by()
+            .values("day")
+            .annotate(count=Count("id"))
+        )
+        counts = {row["day"]: row["count"] for row in rows}
+
+        days = []
+        for offset in range((end_date - start_date).days + 1):
+            day = start_date + timedelta(days=offset)
+            days.append({"date": day, "count": counts.get(day, 0)})
+
+        payload = BookingDailyCountResponseSerializer(
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "timezone": zone_name,
+                "total": sum(counts.values()),
+                "days": days,
+            }
+        )
+        return self.success(
+            data=payload.data, message="Booking counts retrieved successfully"
         )
 
     def perform_destroy(self, instance):

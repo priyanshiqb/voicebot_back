@@ -14,7 +14,8 @@ producing two bookings.
 **Statuses:** `HELD` · `SCHEDULED` · `CONFIRMED` · `COMPLETED` · `CANCELED` · `NO_SHOW` ·
 `REQUIRES_RESCHEDULE` · `RESCHEDULED`
 
-> **VB_AGENT access:** full — every action here, including `DELETE` (which cancels). Agent tokens
+> **VB_AGENT access:** every booking action, including `DELETE` (which cancels). The one exception
+> is [`daily-count`](#11-date-wise-booking-count), which is reporting rather than booking. Agent tokens
 > **must** send `X-Tenant-ID: <tenant uuid>`: they have no tenant mapping and a booking has to land
 > somewhere. Omitting it is **400**; a booking in another tenant is **404**.
 > See [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md).
@@ -32,6 +33,7 @@ producing two bookings.
 | `POST` | `/api/v1/core/bookings/{id}/complete/` | Mark the meeting as having happened |
 | `POST` | `/api/v1/core/bookings/{id}/no-show/` | Mark the customer as absent |
 | `DELETE` | `/api/v1/core/bookings/{id}/` | Cancel, **bypassing** the notice window |
+| `GET` | `/api/v1/core/bookings/daily-count/` | Date-wise booking counts over a range (max 61 days) |
 | `GET` | `/api/v1/core/bookings/dropdown/` | Compact list (see caveat) |
 | `POST` | `/api/v1/core/bookings/bulk_delete/` | Raw soft-delete — **no notifications** (see caveat) |
 
@@ -336,6 +338,93 @@ window**, for operators acting on the customer's behalf.
 | **200** | All soft-deleted. | `Bulk deleted successfully` |
 | **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
 | **400** | Any id unknown, already deleted, or in another tenant; **nothing deleted**. | `Some ids are invalid` |
+
+---
+
+## 11. Date-wise Booking Count
+
+**`GET /api/v1/core/bookings/daily-count/`** — how many bookings fall on each date in a range. One
+number per day, for a calendar heat map or a volume chart.
+
+Counts by **`start_time`** — when the appointment happens, not when the row was created.
+
+### Query parameters
+
+| Parameter | Type | Description | Validation |
+|---|---|---|---|
+| `start_date` * | date | First date to count, **inclusive**. `YYYY-MM-DD`. | Required. |
+| `end_date` * | date | Last date to count, **inclusive**. | Required. On or after `start_date`, and at most **61 days** of range. |
+| `timezone` | string | IANA zone the dates are resolved in, e.g. `Asia/Kolkata`. | Must be a real zone — an unknown one is a **400**. |
+| `status`, `primary_host`, `event_template`, `source` | — | Same filters as [List](#1-list-bookings). | — |
+
+Both bounds are **inclusive**, unlike the instant bounds on
+[available-slots](./availability_slots.md) — these are dates a human picked on a calendar, and an
+exclusive `end_date` would drop the day they clicked. So `2026-08-01 → 2026-08-31` is 31 days, and
+the widest legal range is 61 days (`start_date + 60`).
+
+### Response — `200 OK`
+
+```json
+{
+  "status": true,
+  "message": "Booking counts retrieved successfully",
+  "data": {
+    "start_date": "2026-08-01",
+    "end_date": "2026-08-05",
+    "timezone": "Asia/Kolkata",
+    "total": 9,
+    "days": [
+      { "date": "2026-08-01", "count": 4 },
+      { "date": "2026-08-02", "count": 0 },
+      { "date": "2026-08-03", "count": 2 },
+      { "date": "2026-08-04", "count": 0 },
+      { "date": "2026-08-05", "count": 3 }
+    ]
+  },
+  "errors": null
+}
+```
+
+**Every date in the range is returned, empty ones as `count: 0`.** Leaving the client to fill the
+gaps is how a chart ends up with unequal buckets. This is also why the range is capped: the payload
+size is the length of the range, not the number of bookings.
+
+### `timezone` changes the numbers
+
+This is the one parameter to get right. `start_time` is a UTC instant, and which calendar date it
+belongs to depends on where you stand — a `20:00 UTC` appointment is **the next day** in Kolkata.
+Reading counts in UTC for a tenant in IST silently moves every evening booking to the day before,
+and nothing in the response looks wrong.
+
+Resolution order when you omit it:
+
+1. The caller's own `timezone` (from their user profile)
+2. The tenant's base timezone
+3. UTC
+
+The resolved zone is always echoed back in `timezone`, so a client can label the chart without a
+second request. An unrecognised zone is rejected rather than falling back — a silent fallback would
+return a well-formed set of wrong numbers.
+
+### Scope
+
+Exactly the same rows [List](#1-list-bookings) would return: your tenant, excluding soft-deleted.
+
+**All statuses are counted** unless you narrow them, so `CANCELED` and lapsed `HELD` rows are in the
+total. Pass `?status=CONFIRMED` for confirmed bookings only. Pass `?primary_host=<user id>` for one
+host's calendar rather than the whole tenant's.
+
+| Status | When | `message` / `errors` |
+|---|---|---|
+| **200** | Counts returned. | `Booking counts retrieved successfully` |
+| **400** | `start_date` or `end_date` missing or malformed. | Field errors under `errors` |
+| **400** | `end_date` before `start_date`. | `end_date must be on or after start_date.` |
+| **400** | Range wider than 61 days. | `Range covers 92 days; the maximum is 61.` |
+| **400** | Unknown `timezone`. | `'Mars/Olympus' is not a valid IANA timezone identifier.` |
+| **403** | Caller has no tenant mapping, **or** is a `VB_AGENT` token — see below. | — |
+
+> **VB_AGENT callers are refused here.** This is the one action on this viewset they cannot reach.
+> Reporting is not the voicebot's job; it books appointments rather than reads statistics about them.
 
 ---
 

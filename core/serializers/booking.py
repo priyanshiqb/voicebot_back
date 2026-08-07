@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from tenant.common import TenantBaseModelSerializer
@@ -8,6 +9,7 @@ from core.models.booking_participant import BookingParticipant
 from core.models.event_template import EventTemplate
 from core.models.user_event_skill import UserEventSkill
 from core.serializers.event_template import EventTemplateRefSerializer
+from onboard.models.timezone import validate_iana_timezone
 from utils.serializers.hybrid_related_field import HybridRelatedField
 from user.serializers.custom_user import UserRefSerializer
 
@@ -193,3 +195,88 @@ class BookingCreateSerializer(serializers.Serializer):
 
 class BookingCancelSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+# The range is capped because the response is zero-filled — every date in it is
+# returned whether or not anything is booked — so the payload size is the range
+# length, not the result count. 61 days covers the widest thing a calendar UI
+# asks for (two full months either side of a boundary) in one request.
+MAX_DAILY_COUNT_RANGE_DAYS = 61
+
+
+class BookingDailyCountQuerySerializer(serializers.Serializer):
+    """Query params for the date-wise booking count."""
+
+    start_date = serializers.DateField(
+        help_text="First date to count, inclusive. `YYYY-MM-DD`, read in `timezone`."
+    )
+    end_date = serializers.DateField(
+        help_text=(
+            "Last date to count, INCLUSIVE — unlike the instant bounds on "
+            "available-slots, because this parameter is a date a human picked on a "
+            f"calendar. At most {MAX_DAILY_COUNT_RANGE_DAYS} days from `start_date`."
+        )
+    )
+    timezone = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "IANA zone that decides which date a booking falls on, e.g. "
+            "Asia/Kolkata. NOT presentational: a 21:00 IST appointment is the "
+            "previous day in UTC, so this changes the counts. Defaults to the "
+            "caller's own timezone, then the tenant's, then UTC."
+        ),
+    )
+
+    def validate_timezone(self, value):
+        """Reject an unknown zone rather than falling back to UTC.
+
+        Same reasoning as available-slots, but with more at stake: there the zone
+        only spells a time, here it decides which bucket a booking lands in. A
+        silent fallback would return a well-formed set of wrong numbers.
+        """
+        if not value:
+            return value
+        try:
+            validate_iana_timezone(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0]) from exc
+        return value
+
+    def validate(self, attrs):
+        start_date, end_date = attrs["start_date"], attrs["end_date"]
+        if end_date < start_date:
+            raise serializers.ValidationError(
+                {"end_date": "end_date must be on or after start_date."}
+            )
+        # Inclusive on both ends, so a single day is a span of 1 — a caller asking
+        # for exactly MAX days must not be told it is MAX + 1.
+        span = (end_date - start_date).days + 1
+        if span > MAX_DAILY_COUNT_RANGE_DAYS:
+            raise serializers.ValidationError(
+                f"Range covers {span} days; the maximum is "
+                f"{MAX_DAILY_COUNT_RANGE_DAYS}."
+            )
+        return attrs
+
+
+class BookingDayCountSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    count = serializers.IntegerField()
+
+
+class BookingDailyCountResponseSerializer(serializers.Serializer):
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    timezone = serializers.CharField(
+        help_text="The zone the dates were resolved in — echoed back because it may have been defaulted."
+    )
+    total = serializers.IntegerField(help_text="Sum of `days[].count`.")
+    days = BookingDayCountSerializer(
+        many=True,
+        help_text=(
+            "One entry per date in the range, in order, INCLUDING dates with no "
+            "bookings (`count: 0`). Leaving the caller to fill the gaps is how a "
+            "chart ends up with unequal buckets."
+        ),
+    )
