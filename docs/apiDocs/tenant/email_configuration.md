@@ -346,36 +346,85 @@ remembering to promote it. An already-connected default is left alone.
 > sender](./settings.md#2-update-settings) until it has proved it still works. Sequence for resuming
 > a paused sender: `reconnect/` → `test/` → `PATCH /tenant/settings/`.
 
-### The assigned booking sender is locked
+### Removing the assigned booking sender needs confirmation
 
-**A configuration assigned as the booking sender cannot be disconnected or deleted.**
+**Removing the configuration that carries booking email is allowed, but not on the first attempt.**
+It returns **409** describing what will be lost; repeating the request with **`force=true`** goes
+through and clears the assignment.
 
-| Attempt | Result |
+| Attempt | Without `force` | With `force=true` |
+|---|---|---|
+| `disconnect/` on the assigned sender | **409** | **200** — assignment cleared, booking email stops |
+| `DELETE /{id}/` on the assigned sender | **409** | **200** — same |
+| `bulk_delete` including the assigned sender | **409**, nothing deleted | **200** — same |
+
+Unassigned configurations are unaffected. Disconnect and delete spares freely; no `force`, no 409.
+
+**409 response**
+```json
+{
+  "status": false,
+  "message": "Are you sure you want to disconnect this email integration? It is currently used for demo booking emails, so those emails will stop until you connect another one.",
+  "data": null,
+  "errors": { "code": "BOOKING_SENDER_IN_USE", "requires_force": true }
+}
+```
+
+### `message` is the confirmation dialog
+
+Render it verbatim. It is a question followed by the consequence, and it deliberately contains **no
+endpoint paths, no field names and no mention of `force`** — how to proceed is a machine concern,
+carried by `errors.requires_force`. A tenant reading *"repeat the request with force=true"* learns
+nothing they can act on.
+
+| Action | `message` |
 |---|---|
-| `disconnect/` on the assigned sender | **400**, `errors.code = "BOOKING_SENDER_IN_USE"` |
-| `DELETE /{id}/` on the assigned sender | **400**, same code |
-| `bulk_delete` including the assigned sender | **400** — all-or-nothing, nothing is deleted |
+| `disconnect/` | *Are you sure you want to disconnect this email integration?* |
+| `DELETE /{id}/` | *Are you sure you want to delete this email integration?* |
+| `bulk_delete` | *Are you sure you want to delete the selected email integrations?* |
 
-The message names the way out:
+When the integration carries demo booking mail, one sentence is appended:
 
-> `This configuration is currently sending your booking email. Assign a different one at
-> /api/v1/tenant/settings/ first, or clear the setting to stop sending booking email.`
+> *It is currently used for demo booking emails, so those emails will stop until you connect another
+> one.*
 
-Booking mail has no fallback, so taking the assigned sender out of service **stops those messages
-entirely** rather than rerouting them. The tenant has to say what should carry them instead, or state
-explicitly that nothing should.
+…and for `bulk_delete`, *"One of them is currently used…"* — only one configuration per tenant can be
+the booking sender, so a selection contains at most one.
 
-> **A leaked credential is still an immediate fix.** Clear or reassign the setting, then disconnect —
-> two calls, no waiting, and nothing forces you to delete credentials you may want to keep for
-> investigation.
+Branch on the **status code**: 409 means *ask the user*, and it cannot be confused with a validation
+failure or a permission problem. On confirm, repeat the identical request with `force`.
 
-**Configurations that are not assigned are unrestricted.** Disconnect and delete spares freely.
+**Sending `force`**
+
+| Endpoint | Where |
+|---|---|
+| `POST .../disconnect/` | body — `{"force": true}` |
+| `DELETE .../{id}/` | query string — `?force=true` (most HTTP clients drop a DELETE body) |
+| `POST .../bulk_delete/` | body — `{"ids": [...], "force": true}` |
+
+Either location works on any of them. `true`, `1`, `yes` and `on` are all accepted.
+
+> ## Booking email stops, and does not resume on its own
+>
+> There is no platform fallback to inherit it. After forcing, confirmations, reminders,
+> cancellations and reschedule requests are **not sent** until a new configuration is assigned at
+> [`/tenant/settings/`](./settings.md). Bookings still work; only the mail stops.
+
+Clearing the pointer is the part that matters afterwards. A settings row still naming a disconnected
+or deleted configuration reports a sender that cannot send, which is indistinguishable from a
+misconfiguration when someone is trying to work out why nothing arrived. Once forced,
+`booking_email.will_send` is `false` with reason *"No email configuration is assigned"* — the honest
+description of the state.
+
+> **This was previously a hard `400` with no way through.** The error code is unchanged, but the
+> status is now `409` and the operation succeeds on retry with `force`. A client that treated
+> `BOOKING_SENDER_IN_USE` as terminal should now show a confirm dialog and retry.
 
 | Status | When | `message` |
 |---|---|---|
 | **200** | Disconnected. Idempotent — disconnecting twice is fine. | `Email configuration disconnected` |
 | **200** | Reconnected. | `Email configuration reconnected` |
-| **400** | This configuration is the assigned booking sender. | See above; `errors.code = "BOOKING_SENDER_IN_USE"` |
+| **409** | This is the assigned booking sender and `force` was not sent. | See above; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **404** | Not this tenant's configuration. | `Not found.` |
 
 ---
@@ -545,8 +594,11 @@ would hand the tenant a default that cannot send.
 | Status | When | `message` |
 |---|---|---|
 | **200** | Deleted. Refetch the list — the default may have moved. | `Deleted successfully` |
-| **400** | This configuration is the [assigned booking sender](#the-assigned-booking-sender-is-locked). | `This configuration is currently sending your booking email…`; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **404** | Not this tenant's configuration. | `Not found.` |
+
+> **Deleting the [assigned booking sender](#removing-the-assigned-booking-sender-needs-confirmation)
+> returns 409 until you retry with `?force=true`**, which clears the assignment and stops booking
+> email.
 
 Deleting the **last** configuration leaves the tenant with nothing to send booking email through.
 That is a valid state — it is where every tenant starts — but it is not a fallback: booking email
@@ -564,8 +616,11 @@ afterwards exactly as it does for a single delete.
 |---|---|---|
 | **200** | All ids deleted. | `Bulk deleted successfully` |
 | **400** | `ids` missing, empty, or not a list. | `ids must be a non-empty list` |
-| **400** | Any id is the assigned booking sender. **Nothing is deleted.** | `This configuration is currently sending your booking email…`; `errors.code = "BOOKING_SENDER_IN_USE"` |
 | **400** | Any id is not this tenant's. **Nothing is deleted** — the check is all-or-nothing. | `Some ids are invalid` |
+
+> **A set containing the assigned booking sender returns 409 until `force` is sent**, then deletes
+> and releases the assignment. Bulk delete does not run through the single-delete code path, so the
+> release lives on the model rather than the view — every delete path clears the pointer.
 
 ### Dropdown
 
@@ -592,9 +647,10 @@ about it.
 > email. Steps 4 and 6 are one flow — do not present them as separate screens.
 
 To swap providers later: create the new one, test it, assign it at
-[`/tenant/settings/`](./settings.md), *then* disconnect the old one. That order matters — the assigned
-sender is locked until it is released, and disconnecting keeps its credentials in case you need to
-switch back.
+[`/tenant/settings/`](./settings.md), *then* disconnect the old one. In that order the old
+configuration is no longer assigned by the time you remove it, so no confirmation is needed and mail
+never stops. Going the other way works too — it just costs a 409, a `force`, and a gap in booking
+email. Disconnecting rather than deleting keeps the old credentials in case you need to switch back.
 
 ## Known gaps
 

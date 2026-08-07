@@ -112,9 +112,13 @@ Returns the full settings object, including a recomputed `booking_email` block �
 > id is a validation error, not a 403 — it is simply not in the choices.
 
 > **Clearing is always allowed.** `null` is the escape hatch: a tenant with a leaked credential can
-> stop sending immediately, accepting that booking email stops with it. It is also the prerequisite
-> for [disconnecting or deleting](./email_configuration.md#the-assigned-booking-sender-is-locked) the
-> assigned configuration, which is otherwise blocked.
+> stop sending immediately, accepting that booking email stops with it.
+
+> **The assignment can clear itself.** [Disconnecting or
+> deleting](./email_configuration.md#removing-the-assigned-booking-sender-needs-confirmation) the
+> assigned configuration is permitted — it returns `409` once, then succeeds with `force=true` and
+> releases the pointer as it goes. So this field can become `null` without anyone having PATCHed it.
+> Read `booking_email.will_send` rather than caching what you last assigned.
 
 | Status | When | `message` / `errors` |
 |---|---|---|

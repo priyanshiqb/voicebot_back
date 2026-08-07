@@ -3,7 +3,7 @@ import logging
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle
@@ -77,30 +77,96 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
     # whatever was edited most recently makes the important row hard to find.
     ordering = ["-is_default", "-created_at"]
 
-    # Refusing rather than warning, because booking mail has no platform fallback:
-    # taking the assigned sender out of service stops those messages entirely. The
-    # tenant has to name a replacement, or say explicitly that booking mail should
-    # stop — both of which are one PATCH away, so this is a speed bump, not a trap.
-    # A leaked credential can still be dealt with immediately by pointing the
-    # setting elsewhere or clearing it.
-    BOOKING_SENDER_LOCKED = (
-        "This configuration is currently sending your booking email. Assign a "
-        "different one at /api/v1/tenant/settings/ first, or clear the setting to "
-        "stop sending booking email."
+    # Removing the assigned booking sender asks for confirmation rather than
+    # refusing outright: the first attempt returns 409, and repeating it with
+    # `force=true` goes through, clearing the assignment on the way
+    # (`release_from_settings`). Booking email then stops — there is no platform
+    # fallback to inherit it.
+    #
+    # A hard refusal was worse in both directions. It never prevented the outcome —
+    # a tenant who wants a configuration gone edits settings and comes back — while
+    # making the leaked-credential case slower. But allowing it silently is worse
+    # still: switching off one connection among several stops every booking
+    # confirmation, and nothing about the request says so. 409-then-force is the
+    # only shape that puts the consequence in front of the person deciding.
+    # `message` is popup copy — the frontend renders it verbatim in the confirm
+    # dialog, so it carries no endpoint paths, no field names and no mention of
+    # `force`. How to proceed is a machine concern and lives in
+    # `errors.requires_force`; a tenant reading "repeat the request with force=true"
+    # learns nothing they can act on.
+    CONFIRM_DISCONNECT = "Are you sure you want to disconnect this email integration?"
+    CONFIRM_DELETE = "Are you sure you want to delete this email integration?"
+    CONFIRM_BULK_DELETE = (
+        "Are you sure you want to delete the selected email integrations?"
     )
+
+    # Appended when the integration carries demo booking mail. States the
+    # consequence rather than the mechanism: what stops, and what makes it start
+    # again.
+    #
+    # Two variants because the subject differs. Only one configuration per tenant
+    # can be the booking sender, so a bulk selection contains at most one — "It is
+    # currently used" after "the selected integrations?" reads as though all of
+    # them are.
+    BOOKING_SENDER_NOTE = (
+        "It is currently used for demo booking emails, so those emails will stop "
+        "until you connect another one."
+    )
+    BOOKING_SENDER_NOTE_BULK = (
+        "One of them is currently used for demo booking emails, so those emails "
+        "will stop until you connect another one."
+    )
+
+    #: Accepted spellings of "yes". `force=1` is what a query string usually
+    #: carries, `true` what JSON does, and a client that sends the wrong one and is
+    #: silently ignored would look like the confirmation simply does not work.
+    _TRUTHY = frozenset({"true", "1", "yes", "on"})
 
     def _tenant_id(self):
         mapping = getattr(self.request.user, "tenant_mapping", None)
         return getattr(mapping, "tenant_id", None)
 
-    def _booking_sender_block(self, config):
-        """A 400 when this configuration cannot be taken out of service, else None."""
-        if not config.is_booking_sender():
+    def _force_requested(self, request):
+        """Whether the caller confirmed, from `?force=` or a `force` body field.
+
+        Both, because the three endpoints this guards do not share a shape: DELETE
+        carries no body in most HTTP clients, while `disconnect/` and `bulk_delete`
+        are POSTs where a query string would be the odd one out.
+        """
+        raw = request.query_params.get("force")
+        if raw is None and isinstance(request.data, dict):
+            raw = request.data.get("force")
+        if raw is None:
+            return False
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in self._TRUTHY
+
+    def _needs_confirmation(self, request, prompt, is_booking_sender, note=None):
+        """A 409 carrying confirm-dialog copy, or None to proceed.
+
+        The message is assembled as a generic prompt plus whatever consequences
+        apply — today only the booking-sender one. Composing it here rather than
+        writing three fixed strings means a second consequence added later appears
+        in every dialog at once instead of in whichever call site someone
+        remembered.
+
+        409 rather than 400: the request is well formed and the caller is
+        permitted; what is missing is a decision. A frontend can branch on the
+        status alone to raise the dialog, with no risk of confusing this with a
+        validation failure.
+        """
+        notes = []
+        if is_booking_sender:
+            notes.append(note or self.BOOKING_SENDER_NOTE)
+
+        if not notes or self._force_requested(request):
             return None
+
         return self.error(
-            message=self.BOOKING_SENDER_LOCKED,
-            errors={"code": "BOOKING_SENDER_IN_USE"},
-            status_code=status.HTTP_400_BAD_REQUEST,
+            message=" ".join([prompt, *notes]),
+            errors={"code": "BOOKING_SENDER_IN_USE", "requires_force": True},
+            status_code=status.HTTP_409_CONFLICT,
         )
 
     # --- write paths that maintain the single-default invariant ---------------
@@ -128,19 +194,22 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
     def perform_destroy(self, instance):
         tenant_id = instance.tenant_id
         with transaction.atomic():
-            # Belt and braces: destroy() refuses an assigned sender before reaching
-            # here, but bulk paths and future callers land in this method directly,
-            # and a settings row pointing at a deleted configuration reads as
-            # configured when it is not.
+            # Redundant with the model's soft_delete, which releases too — kept
+            # because this method is the documented delete path and a settings row
+            # pointing at a deleted configuration reads as configured when it is
+            # not. Both are idempotent.
             instance.release_from_settings()
             instance.soft_delete(user=self.request.user)
             TenantEmailConfiguration.ensure_default(tenant_id)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        blocked = self._booking_sender_block(instance)
-        if blocked is not None:
-            return blocked
+        needs_confirmation = self._needs_confirmation(
+            request, self.CONFIRM_DELETE, instance.is_booking_sender()
+        )
+        if needs_confirmation is not None:
+            return needs_confirmation
+
         self.perform_destroy(instance)
         return self.success(message="Deleted successfully")
 
@@ -160,7 +229,18 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
             message="Default email configuration updated",
         )
 
-    @extend_schema(request=None, responses={200: TenantEmailConfigurationSerializer})
+    @extend_schema(
+        request={"application/json": {"example": {"force": True}}},
+        responses={
+            200: TenantEmailConfigurationSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "This configuration is the assigned booking sender. Confirm by "
+                    "repeating the request with force=true; booking email will stop."
+                )
+            ),
+        },
+    )
     @action(detail=True, methods=["post"])
     def disconnect(self, request, pk=None):
         """Stop using this configuration, keeping its credentials for later.
@@ -170,11 +250,18 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         default, a connected replacement is promoted — disconnecting must never
         drop a tenant onto the platform sender while a working alternative sits
         unused.
+
+        If this was the assigned booking sender, the assignment is cleared and
+        **booking email stops**. Allowed on purpose: refusing did not prevent that
+        outcome, it only made the tenant edit settings first.
         """
         config = self.get_object()
-        blocked = self._booking_sender_block(config)
-        if blocked is not None:
-            return blocked
+        needs_confirmation = self._needs_confirmation(
+            request, self.CONFIRM_DISCONNECT, config.is_booking_sender()
+        )
+        if needs_confirmation is not None:
+            return needs_confirmation
+
         config.disconnect()
         config.refresh_from_db()
         return self.success(
@@ -292,8 +379,20 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         )
 
     @extend_schema(
-        request={"application/json": {"example": {"ids": ["uuid-1", "uuid-2"]}}},
-        responses={200: None},
+        request={
+            "application/json": {
+                "example": {"ids": ["uuid-1", "uuid-2"], "force": False}
+            }
+        },
+        responses={
+            200: None,
+            409: OpenApiResponse(
+                description=(
+                    "One of the ids is the assigned booking sender. Confirm by "
+                    "repeating the request with force=true; booking email will stop."
+                )
+            ),
+        },
     )
     @action(detail=False, methods=["post"])
     def bulk_delete(self, request):
@@ -309,13 +408,17 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         """
         ids = request.data.get("ids") or []
         if isinstance(ids, list) and ids:
-            assigned = self.get_queryset().filter(id__in=ids, booking_settings__isnull=False)
-            if assigned.exists():
-                return self.error(
-                    message=self.BOOKING_SENDER_LOCKED,
-                    errors={"code": "BOOKING_SENDER_IN_USE"},
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                )
+            assigned = self.get_queryset().filter(
+                id__in=ids, booking_settings__isnull=False
+            )
+            needs_confirmation = self._needs_confirmation(
+                request,
+                self.CONFIRM_BULK_DELETE,
+                assigned.exists(),
+                note=self.BOOKING_SENDER_NOTE_BULK,
+            )
+            if needs_confirmation is not None:
+                return needs_confirmation
 
         tenant_id = self._tenant_id()
         response = super().bulk_delete(request)

@@ -124,7 +124,7 @@ class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSe
 
     filterset_class = AgentFilter
     search_fields = ["bot_name", "persona_name"]
-    ordering_fields = ["bot_name", "created_at", "tone"]
+    ordering_fields = ["bot_name", "created_at", "tone", "agent_template", "agent_template__name", "languages"]
     ordering = ["-created_at"]
 
     select_related_fields = ["agent_template"]

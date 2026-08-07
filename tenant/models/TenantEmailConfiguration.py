@@ -423,11 +423,12 @@ class TenantEmailConfiguration(TenantBaseModel):
     def is_booking_sender(self):
         """Whether this configuration is the one assigned to carry booking mail.
 
-        Booking mail has no platform fallback: taking this configuration out of
-        service stops those messages entirely rather than rerouting them. That is
-        why disconnecting and deleting are blocked while the assignment stands —
-        the tenant has to say what should carry the mail instead, or state
-        explicitly that nothing should.
+        Nothing is blocked on this. Disconnecting or deleting an assigned
+        configuration clears the assignment and proceeds — see
+        :meth:`release_from_settings`. The predicate is kept so a caller can *warn*
+        before doing that (booking mail has no platform fallback, so it stops
+        rather than rerouting), which is a better place for the friction than a
+        refusal the tenant has to work around.
         """
         from tenant.models.TenantSettings import TenantSettings
 
@@ -443,12 +444,31 @@ class TenantEmailConfiguration(TenantBaseModel):
         through the soft-delete-aware manager and so return ``None`` anyway, but
         leaving the stale id in place makes the settings row lie about what is
         configured.
+
+        Called by :meth:`disconnect` and :meth:`soft_delete` rather than by the
+        viewset alone, so every path — bulk delete, the admin, a shell session —
+        leaves the settings row honest.
         """
         from tenant.models.TenantSettings import TenantSettings
 
         TenantSettings.objects.filter(
             tenant_id=self.tenant_id, booking_email_configuration_id=self.pk
         ).update(booking_email_configuration=None)
+
+    def soft_delete(self, user=None):
+        """Delete, releasing the booking assignment first.
+
+        Deleting an assigned sender is allowed and **stops booking email** — there
+        is no platform fallback to inherit it. Clearing the pointer is what keeps
+        that state readable: a settings row still naming a deleted configuration
+        reports a sender that cannot send, which is indistinguishable from a
+        misconfiguration when someone comes to diagnose the silence.
+        """
+        from django.db import transaction
+
+        with transaction.atomic():
+            self.release_from_settings()
+            super().soft_delete(user=user)
 
     # --- connect / disconnect -------------------------------------------------
 
@@ -462,6 +482,13 @@ class TenantEmailConfiguration(TenantBaseModel):
         Promotes a connected replacement when this was the default, so
         disconnecting never silently drops the tenant onto the platform sender
         while a working alternative sits unused.
+
+        **Releases the booking assignment if this held it.** Disconnecting the
+        assigned sender is allowed, and stops booking email — there is no platform
+        fallback. Clearing the pointer rather than leaving it aimed at an inactive
+        configuration is what makes that state legible afterwards: ``will_send``
+        then reports *nothing assigned* instead of naming a sender that cannot
+        send.
 
         **A VERIFIED configuration drops to UNVERIFIED here.** Verification is a
         claim about a specific moment — "these credentials worked when we tried
@@ -480,6 +507,8 @@ class TenantEmailConfiguration(TenantBaseModel):
         from django.db import transaction
 
         with transaction.atomic():
+            self.release_from_settings()
+
             changed = []
 
             if self.is_active:

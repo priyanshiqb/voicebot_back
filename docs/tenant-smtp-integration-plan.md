@@ -360,7 +360,7 @@ Three protections around it, each closing a way the assignment could quietly bec
 |---|---|---|
 | Queryset scoped to the tenant on the serializer field, plus a tenant check in `clean()` | `TenantSettingsSerializer.__init__` | A tenant naming another tenant's configuration id and routing their customer mail through a stranger's credentials |
 | Only `VERIFIED` + connected may be assigned | `validate_booking_email_configuration` | Assigning a sender that cannot send, which is indistinguishable from assigning nothing |
-| The assigned configuration cannot be disconnected or deleted | `_booking_sender_block` in the configuration viewset | Silently stopping booking mail by taking its sender out of service |
+| Removing the assigned configuration warns first, then proceeds with `force=true` | `_needs_confirmation` in the viewset; `release_from_settings` from `disconnect()` and `soft_delete()` | Silently stopping all booking mail, and a settings row naming a configuration that can no longer send |
 
 The escape hatch from that last one is clearing or reassigning the setting, so a leaked credential is
 still two calls from being out of service — the guard is a speed bump, not a trap.
