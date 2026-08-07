@@ -23,6 +23,8 @@ urlpatterns = [
     path("", include("core.urls.public_reschedule")),
     # Contacts
     path("", include("core.urls.contact")),
+    path("", include("core.urls.directory_contact")),
+    path("", include("core.urls.business_hours")),
     path("", include("core.urls.contact_import")),
     # Campaigns
     path("", include("core.urls.campaign")),

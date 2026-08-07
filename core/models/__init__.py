@@ -29,8 +29,11 @@ from core.models.device_token import DeviceToken
 from core.models.custom_voice import CustomVoice
 from core.models.agent_call_recording import AgentCallRecording
 
+from core.models.business_hours import BusinessHours, BusinessHoursInterval
+
 # Contacts
 from core.models.contact import Contact
+from core.models.directory_contact import DirectoryContact
 from core.models.contact_import import (
     ContactImportFile,
     ContactImportRow,
@@ -69,6 +72,9 @@ __all__ = [
     "CustomVoice",
     "AgentCallRecording",
     "Contact",
+    "DirectoryContact",
+    "BusinessHours",
+    "BusinessHoursInterval",
     "ContactImportFile",
     "ContactImportSession",
     "ContactImportRow",

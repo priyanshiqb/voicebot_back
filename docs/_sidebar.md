@@ -16,6 +16,7 @@
   * [Custom Voice Records](apiDocs/core/custom_voice.md)
   * [Contacts](apiDocs/core/contact.md)
   * [Contact Import - Bulk CSV](apiDocs/core/contact_import.md)
+  * [Company Directory](apiDocs/core/directory_contact.md)
 
 * **📣 Campaigns**
   * [Overview & Complete Flow](campaigns/README.md)
@@ -23,6 +24,7 @@
   * [Campaign Runner - Machine API](apiDocs/core/campaign_runner.md)
 
 * **📅 Scheduling & Booking APIs**
+  * [Business Hours](apiDocs/core/business_hours.md)
   * [Event Templates](apiDocs/core/event_template.md)
   * [Host Event Skills](apiDocs/core/event_skill.md)
   * [Availability Profiles](apiDocs/core/availability_profile.md)

@@ -41,7 +41,12 @@ class BookingViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     filterset_fields = ["status", "primary_host", "event_template", "source"]
-    ordering_fields = ["start_time", "created_at"]
+    ordering_fields = [
+        "start_time", "end_time", "created_at", "updated_at", "status", 
+        "source", "title", "event_template", "event_template__name", 
+        "primary_host", "primary_host__first_name", "primary_host__last_name", 
+        "primary_host__email", "external_provider", "cancellation_reason"
+    ]
     ordering = ["-start_time"]
     select_related_fields = ["event_template", "primary_host"]
     prefetch_related_fields = ["participants"]

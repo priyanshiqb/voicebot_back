@@ -80,6 +80,7 @@ class BookingListSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "status",
+            "source",
             "meeting_url",
             "created_at",
         )
