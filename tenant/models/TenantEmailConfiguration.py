@@ -462,13 +462,42 @@ class TenantEmailConfiguration(TenantBaseModel):
         Promotes a connected replacement when this was the default, so
         disconnecting never silently drops the tenant onto the platform sender
         while a working alternative sits unused.
+
+        **A VERIFIED configuration drops to UNVERIFIED here.** Verification is a
+        claim about a specific moment — "these credentials worked when we tried
+        them" — and the reasons a configuration gets disconnected are largely the
+        reasons that claim expires: a rotated password, a revoked app key, a
+        provider that suspended the account. Carrying VERIFIED across an
+        open-ended pause would let a configuration be reassigned as the booking
+        sender months later on the strength of a test that predates whatever
+        caused the disconnect, and the first customer to find out would be the
+        one whose confirmation never arrived. Re-testing is one request.
+
+        FAILED is deliberately left alone. Rewriting it to UNVERIFIED would
+        discard the more specific fact — that a send was actually refused — in
+        favour of a vaguer one.
         """
         from django.db import transaction
 
         with transaction.atomic():
+            changed = []
+
             if self.is_active:
                 self.is_active = False
-                self.save(update_fields=["is_active", "updated_at"])
+                changed.append("is_active")
+
+            if self.status == self.Status.VERIFIED:
+                self.status = self.Status.UNVERIFIED
+                # Cleared together with the status, matching how the serializer
+                # represents "unverified" after a credential edit. A verified_at
+                # left standing under an UNVERIFIED status reads as a working
+                # sender to anything that checks the timestamp instead of the flag.
+                self.verified_at = None
+                changed.extend(["status", "verified_at"])
+
+            if changed:
+                self.save(update_fields=changed + ["updated_at"])
+
             return type(self).ensure_default(self.tenant_id)
 
     def reconnect(self):
@@ -477,6 +506,12 @@ class TenantEmailConfiguration(TenantBaseModel):
         If the tenant's default is currently disconnected, this becomes the
         default — reconnecting your only working sender should not also require
         remembering to promote it. An already-connected default is left alone.
+
+        **Does not restore VERIFIED.** ``disconnect`` drops it, and only a passing
+        test send sets it — that asymmetry is the point. A configuration comes
+        back in service but stays ineligible to carry booking mail until it has
+        proved it still works, so reconnecting cannot quietly re-arm a sender
+        whose credentials expired during the pause.
         """
         from django.db import transaction
 

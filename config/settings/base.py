@@ -440,6 +440,19 @@ TENANT_SMTP_ALLOW_PRIVATE_HOSTS = env.bool(
     "TENANT_SMTP_ALLOW_PRIVATE_HOSTS", default=False
 )
 
+# Test sends allowed per hour, PER USER (not per tenant — DRF's UserRateThrottle
+# keys on the user id, so a tenant's budget is this number times its user count).
+#
+# Attempts are counted, not successes: throttling runs before the view, so a
+# rejected login costs the same as a delivered message. That is what makes the
+# default tight during first-time setup — Gmail in particular usually takes a few
+# tries, since it needs an App Password rather than the account password.
+#
+# The default is the protection. Raising this by environment is for working
+# through a provider's setup; it is not something to leave elevated, because the
+# endpoint opens outbound SMTP connections to a host the caller supplies.
+SMTP_TEST_THROTTLE_PER_HOUR = env.int("SMTP_TEST_THROTTLE_PER_HOUR", default=5)
+
 # Razorpay Credentials
 RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID", "rzp_test_dummykey")
 RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET", "dummysecret")

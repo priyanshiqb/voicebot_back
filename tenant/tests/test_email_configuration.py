@@ -20,8 +20,10 @@ import smtplib
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -423,6 +425,79 @@ class DisconnectTests(EmailConfigurationTestCase):
             TenantEmailConfiguration.objects.get(pk=spare["id"]).is_default
         )
 
+    def _verify(self, config_id):
+        """Put a configuration into the state a passing test send leaves it in."""
+        row = TenantEmailConfiguration.objects.get(pk=config_id)
+        row.status = TenantEmailConfiguration.Status.VERIFIED
+        row.verified_at = timezone.now()
+        row.save(update_fields=["status", "verified_at"])
+        return row
+
+    def test_disconnect_drops_verified_to_unverified(self):
+        """Verification says "these credentials worked at that moment", and the
+        usual reasons for disconnecting are the reasons that stops being true."""
+        created = self.create_config(name="Primary")
+        self.create_config(name="Spare")
+        self._verify(created["id"])
+
+        self.client_alex.post(f"{URL}{created['id']}/disconnect/")
+
+        row = TenantEmailConfiguration.objects.get(pk=created["id"])
+        self.assertEqual(row.status, TenantEmailConfiguration.Status.UNVERIFIED)
+        # Left standing, this reads as a working sender to anything checking the
+        # timestamp rather than the status.
+        self.assertIsNone(row.verified_at)
+        # The credentials still survive — that is unchanged.
+        self.assertTrue(row.has_password())
+
+    def test_reconnect_does_not_restore_verified(self):
+        """Otherwise the reset would be cosmetic: pause, resume, and the stale
+        verification is back without anything having proved it still works."""
+        created = self.create_config(name="Primary")
+        self.create_config(name="Spare")
+        self._verify(created["id"])
+
+        self.client_alex.post(f"{URL}{created['id']}/disconnect/")
+        response = self.client_alex.post(f"{URL}{created['id']}/reconnect/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["data"]["is_active"])
+        self.assertEqual(
+            response.data["data"]["status"],
+            TenantEmailConfiguration.Status.UNVERIFIED,
+        )
+
+    def test_disconnect_leaves_a_failed_configuration_failed(self):
+        """FAILED is the more specific fact — a send was actually refused.
+        Rewriting it to UNVERIFIED would trade it for a vaguer one."""
+        created = self.create_config(name="Primary")
+        self.create_config(name="Spare")
+        row = TenantEmailConfiguration.objects.get(pk=created["id"])
+        row.status = TenantEmailConfiguration.Status.FAILED
+        row.last_error = "535 authentication failed"
+        row.save(update_fields=["status", "last_error"])
+
+        self.client_alex.post(f"{URL}{created['id']}/disconnect/")
+
+        row.refresh_from_db()
+        self.assertEqual(row.status, TenantEmailConfiguration.Status.FAILED)
+        self.assertEqual(row.last_error, "535 authentication failed")
+
+    def test_a_reconnected_configuration_is_verified_again_by_testing_it(self):
+        """The way back: one test send, not a re-entered password."""
+        created = self.create_config(name="Primary")
+        self.create_config(name="Spare")
+        self._verify(created["id"])
+        self.client_alex.post(f"{URL}{created['id']}/disconnect/")
+        self.client_alex.post(f"{URL}{created['id']}/reconnect/")
+
+        with patch.object(mail_connection, "send_test_email", return_value=(True, "")):
+            self.client_alex.post(f"{URL}{created['id']}/test/")
+
+        row = TenantEmailConfiguration.objects.get(pk=created["id"])
+        self.assertEqual(row.status, TenantEmailConfiguration.Status.VERIFIED)
+        self.assertIsNotNone(row.verified_at)
+
     def test_disconnect_is_idempotent(self):
         created = self.create_config(name="Primary")
         self.client_alex.post(f"{URL}{created['id']}/disconnect/")
@@ -625,12 +700,33 @@ class TestSendTests(EmailConfigurationTestCase):
         self.assertEqual(default.status, TenantEmailConfiguration.Status.UNVERIFIED)
         self.assertEqual(default.last_error, "")
 
+    @override_settings(SMTP_TEST_THROTTLE_PER_HOUR=5)
     def test_the_test_endpoint_is_throttled(self):
+        """Pinned to 5: the rate is environment-configurable, so without this the
+        test fails on any machine that raised it to work through a provider setup."""
         with patch.object(mail_connection, "send_test_email", return_value=(True, "")):
             codes = [
                 self.client_alex.post(self.test_url).status_code for _ in range(6)
             ]
         self.assertEqual(codes[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(SMTP_TEST_THROTTLE_PER_HOUR=2)
+    def test_the_throttle_rate_follows_the_setting(self):
+        with patch.object(mail_connection, "send_test_email", return_value=(True, "")):
+            codes = [
+                self.client_alex.post(self.test_url).status_code for _ in range(3)
+            ]
+        self.assertEqual(codes[:2], [status.HTTP_200_OK, status.HTTP_200_OK])
+        self.assertEqual(codes[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_the_throttle_falls_back_when_the_setting_is_absent(self):
+        """A deployment that loses the settings line gets the safe rate, not an
+        unthrottled endpoint that opens SMTP connections to a caller-named host."""
+        from tenant.views.tenant_email_configuration import SMTPTestRateThrottle
+
+        with override_settings():
+            del django_settings.SMTP_TEST_THROTTLE_PER_HOUR
+            self.assertEqual(SMTPTestRateThrottle().rate, "5/hour")
 
     def test_another_tenant_cannot_test_your_configuration(self):
         with patch.object(mail_connection, "send_test_email") as send:

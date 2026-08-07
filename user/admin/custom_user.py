@@ -1,6 +1,7 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from user.models import CustomUser
+from utils.throttling import clear_smtp_test_throttles
 
 
 @admin.register(CustomUser)
@@ -9,6 +10,49 @@ class CustomUserAdmin(UserAdmin):
     model = CustomUser
 
     ordering = ("-created_at",)
+
+    actions = ("clear_smtp_test_rate_limit",)
+
+    @admin.action(description="Clear SMTP test rate limit for selected users")
+    def clear_smtp_test_rate_limit(self, request, queryset):
+        """Unblock users sitting on the SMTP test-send window.
+
+        That endpoint allows a few attempts an hour and counts failures the same
+        as successes, so configuring a provider that needs an App Password can
+        exhaust it before anything works.
+        """
+        user_ids = list(queryset.values_list("pk", flat=True))
+        cleared = clear_smtp_test_throttles(user_ids)
+
+        if cleared:
+            self.message_user(
+                request,
+                f"Cleared the SMTP test rate limit for {cleared} of "
+                f"{len(user_ids)} selected user(s).",
+                messages.SUCCESS,
+            )
+        else:
+            # Distinguished from success on purpose: "nothing was throttled" and
+            # "unblocked you" look identical otherwise, and the first means the
+            # 429 someone reported is coming from somewhere else.
+            self.message_user(
+                request,
+                f"None of the {len(user_ids)} selected user(s) were rate limited "
+                f"on the SMTP test endpoint.",
+                messages.INFO,
+            )
+
+    def get_actions(self, request):
+        """Superusers only.
+
+        The throttles this clears are protections, not preferences — the SMTP one
+        bounds outbound connections to a host the caller names. Anyone who can
+        reset their own limit at will is not throttled.
+        """
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop("clear_smtp_test_rate_limit", None)
+        return actions
 
     list_display = (
         "email",

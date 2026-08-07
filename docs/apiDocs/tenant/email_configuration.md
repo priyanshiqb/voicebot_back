@@ -62,6 +62,7 @@ one that will be used to reach their customers.
 | Deleting the default | Another is promoted automatically, preferring a `VERIFIED`, connected one |
 | **Disconnecting the default** | Same promotion — a connected replacement takes over |
 | Deleting or disconnecting the last one | No usable default remains |
+| **Disconnecting anything** | A `VERIFIED` status drops to `UNVERIFIED` — [why](#5b-disconnect-and-reconnect) |
 
 > **`is_default` is not what decides who sends your booking email.** That is the separate assignment
 > at [`/tenant/settings/`](./settings.md). `is_default` marks the tenant's primary connection for
@@ -316,14 +317,34 @@ progress.
 
 > **If nothing connected is left to promote, the disconnected configuration stays the default** —
 > `is_default: true, is_active: false`. It is still the tenant's stated choice, and reconnecting it
-> restores service with no further action. Display this state as *"no active sender"*, because it is.
+> puts it back in service. Display this state as *"no active sender"*, because it is.
+
+> ## Disconnecting resets `VERIFIED` to `UNVERIFIED`
+>
+> Verification is a claim about a moment — *these credentials worked when we tried them* — and the
+> reasons a configuration gets disconnected are largely the reasons that claim expires: a rotated
+> password, a revoked app key, a suspended account.
+>
+> Carrying `VERIFIED` across an open-ended pause would let a configuration be reassigned as the
+> booking sender months later on the strength of a test that predates whatever caused the
+> disconnect, and the first person to discover it stopped working would be the customer whose
+> confirmation never arrived.
+>
+> `FAILED` is left as `FAILED` — it is the more specific fact, and overwriting it with `UNVERIFIED`
+> trades it for a vaguer one.
 
 > **A disconnected configuration can still be [tested](#6-send-a-test-message).** Proving a fix works
-> before putting it back into service is the point.
+> before putting it back into service is the point — and after the reset above, it is also the way
+> back to `VERIFIED`.
 
-**Reconnecting** puts it back. If the tenant's current default is disconnected, the reconnected one
-**becomes** the default — restoring your only working sender should not also require remembering to
-promote it. An already-connected default is left alone.
+**Reconnecting** puts it back into service. If the tenant's current default is disconnected, the
+reconnected one **becomes** the default — restoring your only working sender should not also require
+remembering to promote it. An already-connected default is left alone.
+
+> **Reconnecting does not restore `VERIFIED`.** Only a passing test send sets it. So a reconnected
+> configuration is live and promotable, but stays ineligible to be [assigned as the booking
+> sender](./settings.md#2-update-settings) until it has proved it still works. Sequence for resuming
+> a paused sender: `reconnect/` → `test/` → `PATCH /tenant/settings/`.
 
 ### The assigned booking sender is locked
 
@@ -412,7 +433,22 @@ No request body. Connects to the configured server and sends a short message.
 | **400** | Rejected. Status becomes `FAILED`; the real error is in `errors.detail`. | `The test message could not be sent.` |
 | **400** | Your user account has no email address. | `Your account has no email address to send the test to.` |
 | **404** | Not this tenant's configuration. | `Not found.` |
-| **429** | More than **5 attempts per hour** for this user. | `Request was throttled.` |
+| **429** | More than **5 attempts per hour** for this user — see below. | `Request was throttled.` |
+
+> **The limit is per user, not per tenant, and counts attempts rather than successes.** Throttling
+> runs before the view, so a rejected login costs the same as a delivered message — which is why
+> first-time setup hits it: Gmail needs an App Password, not the account password, and finding that
+> out usually takes a few tries. A tenant's effective budget is 5 × its user count, and one user
+> testing three configurations shares a single bucket.
+>
+> The rate is `SMTP_TEST_THROTTLE_PER_HOUR` (default `5`), read from settings per request, so a
+> restart applies a new value. Raise it while working through a provider's setup, then put it back —
+> this endpoint opens outbound SMTP connections to a host the caller names. Missing the setting
+> entirely falls back to 5 rather than to unlimited.
+>
+> To clear an existing block without changing the rate, delete the cache key
+> `throttle_smtp_test_<user-id>` via `django.core.cache` — a raw `redis-cli DEL` misses it, because
+> django-redis stores it under a versioned key.
 
 > **A success does not guarantee customer mail will arrive.** An Amazon SES account still in sandbox
 > mode may only send to addresses verified in that account — and the tenant admin's own address

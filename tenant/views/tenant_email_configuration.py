@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -23,15 +24,25 @@ logger = logging.getLogger(__name__)
 class SMTPTestRateThrottle(UserRateThrottle):
     """An authenticated endpoint that sends mail is an open relay with extra
     steps. The recipient is pinned to the caller's own address, which removes the
-    abuse case, and this bounds the noise."""
+    abuse case, and this bounds the noise.
+
+    **Per user, not per tenant.** ``UserRateThrottle`` keys the bucket on the user
+    id, so a tenant's effective budget is this rate multiplied by its user count,
+    and one user testing three different configurations shares a single bucket.
+
+    The rate is read from ``settings.SMTP_TEST_THROTTLE_PER_HOUR`` at request time
+    — DRF instantiates a throttle per request, so no caching to work around. It
+    still falls back to 5 if the setting is missing entirely: this endpoint must be
+    throttled the moment it exists, and a deployment that loses a settings line
+    should get the safe rate rather than an unthrottled relay.
+    """
 
     scope = "smtp_test"
 
+    DEFAULT_PER_HOUR = 5
+
     def get_rate(self):
-        # Hardcoded rather than read from DEFAULT_THROTTLE_RATES so the endpoint is
-        # throttled the moment it exists, with no settings change required to make
-        # the protection real.
-        return "5/hour"
+        return f"{getattr(settings, 'SMTP_TEST_THROTTLE_PER_HOUR', self.DEFAULT_PER_HOUR)}/hour"
 
 
 @extend_schema(tags=["Tenant Email Configuration"])
