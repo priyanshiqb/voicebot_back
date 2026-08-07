@@ -215,6 +215,24 @@ class TenantEmailConfigurationViewSet(TenantBaseViewSet):
         ok, error_message = mail_connection.send_test_email(config, recipient)
         now = timezone.now()
 
+        # The configuration's own status/last_tested_at is the current state; this
+        # is the history. "They tried five times and it failed every time" is the
+        # shape of a support ticket, and a single overwritten field cannot show it.
+        from user.models.email_delivery_log import EmailDeliveryLog
+        from user.services import email_log
+
+        email_log.mark(
+            email_log.record(
+                EmailDeliveryLog.Purpose.SMTP_TEST,
+                recipient,
+                request=request,
+                user=request.user,
+                tenant_id=config.tenant_id,
+            ),
+            EmailDeliveryLog.Status.SENT if ok else EmailDeliveryLog.Status.FAILED,
+            error="" if ok else error_message,
+        )
+
         config.last_tested_at = now
         if ok:
             config.status = TenantEmailConfiguration.Status.VERIFIED

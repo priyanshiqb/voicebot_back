@@ -2,6 +2,8 @@ import random
 import logging
 from django.utils import timezone
 from utils.tasks import send_email_task
+from user.models.email_delivery_log import EmailDeliveryLog
+from user.services import email_log
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -68,7 +70,17 @@ class UserForgotPasswordResendOTPAPIView(ResponseMixin, APIView):
 
         # Email the OTP code via Celery task
         try:
+            delivery_log_id = email_log.record(
+                EmailDeliveryLog.Purpose.PASSWORD_RESET,
+                user.email,
+                request=request,
+                user=user,
+                tenant_id=getattr(
+                    getattr(user, "tenant_mapping", None), "tenant_id", None
+                ),
+            )
             send_email_task.delay(
+                delivery_log_id=delivery_log_id,
                 subject="Reset your Voicebot Account Password - New OTP",
                 message=f"You requested to reset your password. Your new verification OTP code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),

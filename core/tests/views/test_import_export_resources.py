@@ -16,7 +16,11 @@ from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
 from core.models.agent_template import AgentTemplate
+from core.resources.agent import AgentResource
+from core.resources.agent_template import AgentTemplateResource
 from core.resources.base_resource import TenantModelResource
+from core.resources.contact import ContactResource
+from core.resources.probing_question import ProbingQuestionResource
 from tenant.models.Tenant import Tenant
 from tenant.models.TenantUserMapping import TenantUserMapping
 from user.models import CustomUser as User
@@ -387,3 +391,67 @@ class ResourceFailsClosedTests(APITestCase):
         resource.allow_cross_tenant = True
 
         self.assertEqual(resource.get_queryset().count(), 2)
+
+
+class ExportColumnContractTests(APITestCase):
+    """
+    The exported columns are a contract with whoever consumes the file, so they are
+    pinned per resource rather than left to whatever `Meta.fields` happens to hold.
+
+    They need pinning because the intuitive way to change them does not work.
+    `_get_ordered_field_names` builds the export order from `Meta.fields` and then
+    appends every remaining key of `self.fields`, and `id` is declared on
+    `TenantModelResource` — it has to be, since `import_id_fields` defaults to
+    `("id",)` and is resolved through `self.fields`. So removing `'id'` from
+    `Meta.fields` relocates the column to the end of the file rather than dropping
+    it, and deleting the declaration instead breaks every import. `EXPORT_FIELDS`
+    is what actually decides, and these tests fail if someone "simplifies" it away.
+    """
+
+    AGREED = {
+        AgentResource: (
+            "bot_name",
+            "persona_name",
+            "languages",
+            "tone",
+            "voice_name",
+            "is_active",
+        ),
+        AgentTemplateResource: (
+            "name",
+            "short_description",
+            "industry",
+            "strict_facts",
+            "can_user_edit_flow",
+            "is_active",
+        ),
+        ProbingQuestionResource: (
+            "question",
+            "priority",
+            "score",
+            "is_mandatory",
+            "is_active",
+        ),
+    }
+
+    def test_each_resource_exports_exactly_its_agreed_columns(self):
+        for resource_class, expected in self.AGREED.items():
+            with self.subTest(resource=resource_class.__name__):
+                headers = resource_class().get_export_headers()
+                self.assertEqual(headers, list(expected))
+
+    def test_id_is_never_exported_but_always_importable(self):
+        """Dropping `id` from the file is the point; dropping it from the resource
+        would make every import raise KeyError instead of creating rows."""
+        for resource_class in self.AGREED:
+            with self.subTest(resource=resource_class.__name__):
+                resource = resource_class()
+                self.assertNotIn("id", resource.get_export_headers())
+                self.assertIn("id", resource.fields)
+                self.assertEqual(resource.get_import_id_fields(), ["id"])
+
+    def test_resources_without_an_agreed_list_keep_the_library_default(self):
+        """`EXPORT_FIELDS` is opt-in — a resource that does not set it must not have
+        its export silently narrowed by the shared base."""
+        self.assertIsNone(TenantModelResource.EXPORT_FIELDS)
+        self.assertIn("id", ContactResource().get_export_headers())

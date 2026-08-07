@@ -2,6 +2,8 @@ from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from utils.tasks import send_email_task
+from user.models.email_delivery_log import EmailDeliveryLog
+from user.services import email_log
 from django.conf import settings
 from django.core import signing
 from django.utils import timezone
@@ -66,7 +68,14 @@ class ForgotPasswordView(ResponseMixin, APIView):
 
         # 2. Email the OTP code via Celery task
         try:
+            delivery_log_id = email_log.record(
+                EmailDeliveryLog.Purpose.PASSWORD_RESET,
+                temp_user.email,
+                request=request,
+                temp_user_id=temp_user.id,
+            )
             send_email_task.delay(
+                delivery_log_id=delivery_log_id,
                 subject="Reset your Voicebot Onboarding Password - OTP",
                 message=f"You requested to reset your password during onboarding. Your verification OTP code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),

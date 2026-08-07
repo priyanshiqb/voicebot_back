@@ -499,6 +499,27 @@ NOTIFICATION_LOG_FAILED_RETENTION_DAYS = env.int(
 )
 NOTIFICATION_LOG_PURGE_BATCH = env.int("NOTIFICATION_LOG_PURGE_BATCH", default=5000)
 
+# EmailDeliveryLog retention, per purpose. Rows hold an email address and the IP of
+# whoever requested the message, so this is a privacy obligation before a disk one.
+#
+# Security-audit records (password reset, email change) are kept longest: they are
+# the evidence someone reaches for after an account is compromised, which is rarely
+# the week it happened. Signup OTP is support data with a shorter useful life; SMTP
+# tests are operational noise.
+#
+# Unlike NotificationLog, nothing here is an idempotency key — deleting a row
+# cannot cause anything to re-send.
+EMAIL_DELIVERY_LOG_RETENTION_DAYS = {
+    "PASSWORD_RESET": env.int("EMAIL_LOG_PASSWORD_RESET_RETENTION_DAYS", default=365),
+    "EMAIL_CHANGE": env.int("EMAIL_LOG_EMAIL_CHANGE_RETENTION_DAYS", default=365),
+    "SIGNUP_OTP": env.int("EMAIL_LOG_SIGNUP_RETENTION_DAYS", default=180),
+    "SMTP_TEST": env.int("EMAIL_LOG_SMTP_TEST_RETENTION_DAYS", default=90),
+}
+EMAIL_DELIVERY_LOG_DEFAULT_RETENTION_DAYS = env.int(
+    "EMAIL_LOG_DEFAULT_RETENTION_DAYS", default=180
+)
+EMAIL_DELIVERY_LOG_PURGE_BATCH = env.int("EMAIL_LOG_PURGE_BATCH", default=5000)
+
 # Contacts & Contact Import
 # Primary market, used to parse phone numbers that are not already in international
 # form (ISO-3166 alpha-2). Numbers written as "+..." ignore this and parse on their own.
@@ -547,6 +568,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     "scheduling-purge-notification-logs": {
         "task": "core.tasks.purge_notification_logs",
+        "schedule": 86400.0,  # daily
+    },
+    "purge-email-delivery-logs": {
+        "task": "user.tasks.purge_email_delivery_logs",
         "schedule": 86400.0,  # daily
     },
     "scheduling-cleanup-expired-holds": {

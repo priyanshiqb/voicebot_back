@@ -413,6 +413,64 @@ Both authenticators run in order on every request:
 > A revoked token is cached as revoked for the remainder of its lifetime; an active session's
 > `last_used` is written at most once per 60 seconds to avoid a write on every request.
 
+## Email delivery records
+
+Every platform email — signup OTP, email-change verification, password reset, and their resends —
+writes a row to `user.EmailDeliveryLog`. There is **no API for it**; it is queried from the admin,
+the shell, or a support tool.
+
+> **The admin view is superuser-only, and read-only.** Every other log in the admin is scoped by a
+> `tenant` ForeignKey; this model has none — `tenant_id` is a bare UUID so a row outlives the tenant
+> it describes — so that scoping cannot apply here. What is left spans every tenant plus pre-signup
+> `TempUser` records and holds addresses and request IPs, which is more than `is_staff` should carry.
+> Rows cannot be added or edited: an editable audit trail is not one. Deletion stays available
+> (erasure requests arrive sooner than the retention window) and is a **hard** delete, matching the
+> purge task — a soft delete would hide the row while leaving the address and IP in the table.
+
+| Column | Notes |
+|---|---|
+| `purpose` | `SIGNUP_OTP`, `EMAIL_CHANGE`, `PASSWORD_RESET`, `SMTP_TEST` |
+| `recipient` | Always set — the only identifier guaranteed to exist |
+| `user` | The account, when there is one. Null during signup. |
+| `temp_user_id` | The in-progress signup. **Not redundant with `recipient`** — see below. |
+| `tenant_id` | When one existed |
+| `status`, `sent_at`, `error` | Delivery outcome |
+| `ip_address`, `user_agent` | Who requested it — the point of logging resets at all |
+
+> **`temp_user_id` is what survives an email change.** Changing the address mid-signup rewrites
+> `TempUser.email` **in place**, so the messages before and after land on different addresses.
+> Hijacking an in-progress signup by swapping its email is the attack this log exists to make
+> visible, so a trail that split in half at that moment would be worse than none.
+
+> **The OTP code and reset token are never stored.** Purpose, recipient, outcome, requester — nothing
+> more. A table of live one-time codes would be a credential store and a worse liability than the
+> visibility it buys. Subjects and bodies are excluded for the same reason.
+
+> **An unknown email address leaves no row.** Password reset answers identically whether or not an
+> account exists; the log must not become the oracle that undoes that.
+
+> **Recording can never block a send.** Both the insert and the outcome update swallow their errors —
+> an audit trail that can stop a password reset is worse than no audit trail.
+
+### Retention
+
+Purged daily by `user.tasks.purge_email_delivery_logs`. Rows hold an email address and the
+requester's IP, so this is a privacy obligation before a disk one.
+
+| Purpose | Kept | Why |
+|---|---|---|
+| `PASSWORD_RESET` | **365 days** | Security-audit evidence, reached for long after the event |
+| `EMAIL_CHANGE` | **365 days** | Account-takeover vector |
+| `SIGNUP_OTP` | **180 days** | Support data, shorter useful life |
+| `SMTP_TEST` | **90 days** | Operational noise |
+
+A purpose with no configured window falls back to 180 days — erring short, so an unclassified record
+expires rather than accumulating forever because a settings line was missed.
+
+> **Unlike `NotificationLog`, deleting a row here is simply forgetting.** Booking-notification rows
+> *are* the idempotency mechanism, so purging one re-arms it; that is why the two live in separate
+> tables with separate purge tasks.
+
 ## Known gaps
 
 | # | Gap | Impact |

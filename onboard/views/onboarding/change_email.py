@@ -3,6 +3,8 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
 from utils.tasks import send_email_task
+from user.models.email_delivery_log import EmailDeliveryLog
+from user.services import email_log
 from django.conf import settings
 import random
 
@@ -86,7 +88,19 @@ class ChangeEmailView(ResponseMixin, APIView):
 
         # 3. Send the new OTP to the updated email address via Celery task
         try:
+            # `new_email`, not temp_user.email — the row has already been rewritten
+            # in place, and the value that matters is where the message actually
+            # went. temp_user_id is what joins this to the messages sent to the
+            # previous address; without it the trail splits exactly here, which is
+            # the moment a hijacked signup would be visible.
+            delivery_log_id = email_log.record(
+                EmailDeliveryLog.Purpose.EMAIL_CHANGE,
+                new_email,
+                request=request,
+                temp_user_id=temp_user.id,
+            )
             send_email_task.delay(
+                delivery_log_id=delivery_log_id,
                 subject="Verify your Voicebot Registration - Email Updated",
                 message=f"Your email has been updated. Your verification code is: {otp_code}. It is valid for {settings.OTP_VALIDITY_MINUTES} minutes.",
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com"),

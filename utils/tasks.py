@@ -19,12 +19,29 @@ def send_email_task(
     lead_text=None,
     otp_code=None,
     body_text=None,
+    delivery_log_id=None,
 ):
     """
     Celery task to send emails asynchronously.
     Supports rendering a generic, modern HTML email template.
+
+    ``delivery_log_id`` points at an ``EmailDeliveryLog`` row opened by the caller;
+    this task writes the delivery outcome onto it. The row is created at the call
+    site because only the request knows who asked and from where, and marked here
+    because only the worker knows whether the send succeeded.
+
+    ``otp_code`` is rendered into the message and **never recorded** — a table of
+    live one-time codes would be a credential store.
     """
-    logger.info(f"Sending email task triggered for: {recipient_list} with subject '{subject}'")
+    from user.services import email_log
+    from user.models.email_delivery_log import EmailDeliveryLog
+
+    # Recipients are deliberately absent from this line. They are personal data, and
+    # they now live in a table with a retention policy instead of in application
+    # logs that have neither retention nor a way to be queried.
+    logger.info(
+        "Sending email task triggered", extra={"delivery_log_id": delivery_log_id}
+    )
 
     if not html_message and (title or lead_text or otp_code):
         try:
@@ -49,9 +66,13 @@ def send_email_task(
             fail_silently=fail_silently,
             html_message=html_message,
         )
-        logger.info(f"Email successfully sent to: {recipient_list}")
+        email_log.mark(delivery_log_id, EmailDeliveryLog.Status.SENT)
+        logger.info("Email sent", extra={"delivery_log_id": delivery_log_id})
     except Exception as e:
-        logger.error(f"Email task failed for: {recipient_list}. Error: {str(e)}")
+        email_log.mark(delivery_log_id, EmailDeliveryLog.Status.FAILED, error=str(e))
+        logger.error(
+            "Email task failed: %s", str(e), extra={"delivery_log_id": delivery_log_id}
+        )
         if not fail_silently:
             raise e
 

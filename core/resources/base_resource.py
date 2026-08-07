@@ -25,6 +25,25 @@ class TenantModelResource(resources.ModelResource):
     # its primary key — it simply becomes a new row in the caller's own tenant.
     id = fields.Field(attribute="id", column_name="id", readonly=True)
 
+    # Optional: the exact columns to export, in order. None keeps the library
+    # default (everything in Meta.fields, plus every declared field).
+    #
+    # This exists because `Meta.fields` alone CANNOT drop `id` from an export.
+    # `_get_ordered_field_names` builds the export order from `Meta.fields` and then
+    # appends every remaining key of `self.fields` — and `id` is declared above, so
+    # it survives that filter. Removing it from `Meta.fields` moves the column to the
+    # end of the file rather than removing it, and deleting the declaration instead
+    # breaks every import. Subclasses that want a narrower export set this.
+    #
+    # Import is unaffected either way: it reads whatever columns the uploaded file
+    # actually has.
+    EXPORT_FIELDS = None
+
+    def get_export_order(self):
+        if self.EXPORT_FIELDS is None:
+            return super().get_export_order()
+        return tuple(self.EXPORT_FIELDS)
+
     def get_queryset(self):
         """
         Scope instance lookup to the importing user's tenant.

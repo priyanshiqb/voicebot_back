@@ -674,3 +674,132 @@ class AgentProbingViewsTestCase(APITestCase):
         # Attempt to delete again -> 400 Bad Request (linked to template)
         response_tpl = self.client_alex.delete(f"/api/v1/core/probing-questions/{pq.id}/")
         self.assertEqual(response_tpl.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ProbingQuestionExportColumnsTestCase(APITestCase):
+    """
+    The export carries exactly five columns, and nothing else.
+
+    Guarded rather than assumed because the obvious way to change this list —
+    editing `Meta.fields` on the resource — silently does not work for `id`. It is
+    a declared field on `TenantModelResource`, and import-export appends every
+    declared field to the export order after the ones `Meta.fields` names, so
+    removing it there moves the column to the end of the file instead of dropping
+    it. Without this test that regression looks like a tidy-up and reads as a no-op.
+    """
+
+    EXPECTED = ["question", "priority", "score", "is_mandatory", "is_active"]
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme Corp", subdomain="acme-export")
+        self.user = User.objects.create_user(
+            username="export-alex", email="export-alex@example.com", password="password"
+        )
+        TenantUserMapping.objects.create(user=self.user, tenant=self.tenant)
+        self.client_alex = APIClient()
+        self.client_alex.force_authenticate(user=self.user)
+
+        ProbingQuestion.objects.create(
+            tenant=self.tenant,
+            question="What is your approved budget?",
+            priority=1,
+            score=40,
+            is_mandatory=True,
+        )
+
+    def test_the_exported_csv_has_exactly_the_agreed_columns(self):
+        response = self.client_alex.get("/api/v1/core/probing-questions/export/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        body = response.content.decode("utf-8-sig").splitlines()
+        self.assertEqual(body[0].strip().split(","), self.EXPECTED)
+        # The row lines up with the header — a column dropped from one and not the
+        # other would still produce a plausible-looking file.
+        # Booleans render as 1/0, which is what import-export writes and reads back.
+        self.assertEqual(
+            body[1].strip().split(","),
+            ["What is your approved budget?", "1", "40", "1", "1"],
+        )
+
+    def test_id_stays_importable_even_though_it_is_not_exported(self):
+        """`import_id_fields` defaults to ("id",) and is resolved through
+        `self.fields`; drop it there and every import raises KeyError rather than
+        falling back to creating rows."""
+        from core.resources.probing_question import ProbingQuestionResource
+
+        resource = ProbingQuestionResource()
+        self.assertIn("id", resource.fields)
+        self.assertEqual(resource.get_import_id_fields(), ["id"])
+        self.assertNotIn("id", resource.get_export_headers())
+
+
+class AgentTemplateExportColumnsTestCase(APITestCase):
+    """
+    Same contract as the probing export, and guarded for the same reason: `id`
+    cannot be dropped through `Meta.fields`, so a future "tidy-up" there would put
+    the column back without looking like a change in behaviour. See
+    `TenantModelResource.EXPORT_FIELDS`.
+    """
+
+    EXPECTED = [
+        "name",
+        "short_description",
+        "industry",
+        "strict_facts",
+        "can_user_edit_flow",
+        "is_active",
+    ]
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Acme Corp", subdomain="acme-tpl-export"
+        )
+        self.user = User.objects.create_user(
+            username="tpl-alex", email="tpl-alex@example.com", password="password"
+        )
+        TenantUserMapping.objects.create(user=self.user, tenant=self.tenant)
+        self.client_alex = APIClient()
+        self.client_alex.force_authenticate(user=self.user)
+
+        AgentTemplate.objects.create(
+            tenant=self.tenant,
+            name="Acme Template",
+            short_description="Handles inbound support, billing, and returns.",
+            industry=AgentTemplate.IndustryChoices.E_COMMERCE,
+            agent_prompt="You are a helpful customer assistant assisting customers.",
+            strict_facts=True,
+            can_user_edit_flow=False,
+        )
+
+    def _rows(self):
+        import csv
+        import io
+
+        response = self.client_alex.get("/api/v1/core/agent-templates/export/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+
+    def test_the_exported_csv_has_exactly_the_agreed_columns(self):
+        rows = self._rows()
+        self.assertEqual(rows[0], self.EXPECTED)
+        # Parsed with csv rather than split(","): short_description is free text and
+        # a comma in it would otherwise look like an extra column.
+        self.assertEqual(
+            rows[1],
+            [
+                "Acme Template",
+                "Handles inbound support, billing, and returns.",
+                "E_COMMERCE",
+                "1",
+                "0",
+                "1",
+            ],
+        )
+
+    def test_id_stays_importable_even_though_it_is_not_exported(self):
+        from core.resources.agent_template import AgentTemplateResource
+
+        resource = AgentTemplateResource()
+        self.assertIn("id", resource.fields)
+        self.assertEqual(resource.get_import_id_fields(), ["id"])
+        self.assertNotIn("id", resource.get_export_headers())

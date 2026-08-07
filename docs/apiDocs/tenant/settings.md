@@ -164,7 +164,7 @@ and this is the single field that tells you the truth.
 
 | # | Gap | Impact |
 |---|---|---|
-| 0 | **Platform mail is not logged at all.** OTP, verification and password reset write no `NotificationLog` row. | "Did the customer receive their OTP?" is answerable only from worker logs. Note that logging it must never capture the body — OTP codes and reset links in a table are a credential store. |
+| 0 | ~~Platform mail is not logged.~~ **Closed** — signup, email change and password reset now write to `user.EmailDeliveryLog`. See [Authentication](../user/auth.md#email-delivery-records). | — |
 | 1 | **Only booking email is configurable.** Campaign and platform mail are not covered. | A tenant cannot separate transactional from bulk sending reputation yet. |
 | 2 | **No notification when the assigned sender breaks.** | A configuration that goes `FAILED` mid-flight stops booking mail, and the tenant finds out from a customer unless something is watching `booking_email.will_send`. |
 | 3 | **No audit trail of assignment changes** beyond `updated_at` and a log line. | "Who turned our booking email off?" is answerable from application logs, not from the API. |
