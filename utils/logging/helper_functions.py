@@ -6,7 +6,6 @@ import re
 def _get_extra(request=None, response=None,add_dict=None):
     """A private helper to build the context dictionary from a request."""
     data = {}
-    fields = []
 
     if request is not None:
 
@@ -18,19 +17,10 @@ def _get_extra(request=None, response=None,add_dict=None):
         data['req_ip_address'] = _get_client_ip(request)
         # data['req_headers'] = _get_req_headers(request)
 
-        fields.append("req_id")
-        fields.append("req_path")
-        fields.append("req_method")
-        fields.append("req_query_params")
-        fields.append("req_user_agent")
-        fields.append("req_ip_address")
-
         if hasattr(request, "user") and request.user and request.user.is_authenticated:
             data['req_user_id'] = str(request.user.id)
             data['req_user_tenant'] = 'N/A'
 
-            fields.append("req_user_id")
-            fields.append("req_user_tenant")
             try:
                 data['req_user_tenant'] = str(request.user.tenant_mapping.tenant.id)
             except Exception as e:
@@ -40,29 +30,19 @@ def _get_extra(request=None, response=None,add_dict=None):
             data['req_user'] = 'Anonymous'
             data['req_user_id'] = 'N/A'
 
-            fields.append("req_user")
-            fields.append("req_user_id")
-
         if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             try:
                 body = _get_request_body(request)
                 data['req_body'] = _sanitize_data(body)
-                fields.append("req_body")
             except Exception as e:
                 data['req_body_error'] = str(e)
-                fields.append("req_body_error")
     if response is not None:
         data['res_code'] = getattr(response, 'status_code', 'N/A')
         data['res_size_bytes'] = len(response.content) if hasattr(response, 'content') else 0
-        fields.append("res_code")
-        fields.append("res_size_bytes")
 
     if add_dict is not None:
         for key, value in add_dict.items():
             data[key] = value
-            fields.append(key)
-
-    data['fields_name'] = fields
 
     return data
 
