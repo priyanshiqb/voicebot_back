@@ -50,12 +50,12 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
     def get_authenticators(self):
         # The OAuth callback is hit by Google's browser redirect, which cannot
         # carry our auth header — it is trusted via the signed `state` instead.
-        if getattr(self, "action", None) == "callback":
+        if getattr(self, "action", None) == "callback" or "callback" in getattr(self, "action_map", {}).values():
             return []
         return super().get_authenticators()
 
     def get_permissions(self):
-        if getattr(self, "action", None) == "callback":
+        if getattr(self, "action", None) == "callback" or "callback" in getattr(self, "action_map", {}).values():
             return [AllowAny()]
         return super().get_permissions()
 
