@@ -155,6 +155,7 @@ Names and ingestion state only — deliberately light, with no components.
         "name": "Acme Setup Guides",
         "is_processed": false,
         "processing_status": "PROCESSING",
+        "processing_error": null,
         "created_at": "2026-06-03T18:00:00Z"
       }
     ],

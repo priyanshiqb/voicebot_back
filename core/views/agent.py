@@ -1,6 +1,10 @@
 from rest_framework.decorators import action
+from rest_framework import filters
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 import django_filters
+from django.db.models import Func, IntegerField
+from django.db.models.functions import Coalesce
+
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from tenant.common.views.agent_tenant_scope import (
     VBAgentTenantScopedMixin,
@@ -18,6 +22,29 @@ from onboard.serializers.onboarding import GeneralResponseSerializer
 from utils.views.base_model_viewset import BaseViewSet
 from core.views.mixins import ImportExportMixin
 from core.resources import AgentResource
+
+class JsonbArrayLength(Func):
+    function = 'jsonb_array_length'
+    output_field = IntegerField()
+
+class AgentOrderingFilter(filters.OrderingFilter):
+    def get_ordering(self, request, queryset, view):
+        ordering = super().get_ordering(request, queryset, view)
+        if ordering:
+            new_ordering = []
+            for field in ordering:
+                if field == "agent_template":
+                    new_ordering.append("agent_template__name")
+                elif field == "-agent_template":
+                    new_ordering.append("-agent_template__name")
+                elif field in ("languages", "total_languages_count"):
+                    new_ordering.append("total_languages_count")
+                elif field in ("-languages", "-total_languages_count"):
+                    new_ordering.append("-total_languages_count")
+                else:
+                    new_ordering.append(field)
+            return new_ordering
+        return ordering
 
 class AgentFilter(django_filters.FilterSet):
     industry = django_filters.CharFilter(field_name="agent_template__industry")
@@ -117,14 +144,29 @@ class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSe
     Provides complete row-level isolation and multi-tenant scoping for Agents.
     """
     resource_class = AgentResource
-    queryset = Agent.objects.all()
+    queryset = Agent.objects.annotate(
+        total_languages_count=Coalesce(JsonbArrayLength('languages'), 0, output_field=IntegerField())
+    )
     serializer_class = AgentSerializer
     list_serializer_class = AgentListSerializer
     dropdown_serializer_class = AgentDropdownSerializer
 
+    filter_backends = [
+        django_filters.rest_framework.DjangoFilterBackend,
+        filters.SearchFilter,
+        AgentOrderingFilter,
+    ]
     filterset_class = AgentFilter
     search_fields = ["bot_name", "persona_name"]
-    ordering_fields = ["bot_name", "created_at", "tone", "agent_template", "agent_template__name", "languages"]
+    ordering_fields = [
+        "bot_name",
+        "created_at",
+        "tone",
+        "agent_template",
+        "agent_template__name",
+        "languages",
+        "total_languages_count",
+    ]
     ordering = ["-created_at"]
 
     select_related_fields = ["agent_template"]
@@ -169,14 +211,14 @@ class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSe
 
         user = request.user
         if user.is_superuser:
-            qs = Agent.objects.filter(bot_name=bot_name, is_deleted=False)
+            qs = Agent.objects.filter(bot_name__iexact=bot_name, is_deleted=False)
         else:
             try:
                 active_tenant = user.tenant_mapping.tenant
             except Exception:
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("Your user account is not associated with any active tenant.")
-            qs = Agent.objects.filter(bot_name=bot_name, tenant=active_tenant, is_deleted=False)
+            qs = Agent.objects.filter(bot_name__iexact=bot_name, tenant=active_tenant, is_deleted=False)
 
         if exclude_id:
             qs = qs.exclude(id=exclude_id)

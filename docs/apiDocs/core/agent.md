@@ -42,7 +42,7 @@ audit fields are **not** included; use Retrieve for those.
 |---|---|---|
 | `page`, `page_size` | integer | Pagination. |
 | `search` | string | Partial, case-insensitive match on `bot_name` or `persona_name`. |
-| `ordering` | string | `bot_name`, `created_at`, or `tone`; prefix `-` to reverse. Default `-created_at`. |
+| `ordering` | string | `bot_name`, `created_at`, `tone`, `agent_template` (sorts by name), `languages` (sorts by length), or `total_languages_count`; prefix `-` to reverse. Default `-created_at`. |
 | `is_active` | boolean | Filter by active flag. |
 | `tone` | enum | `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`. |
 | `agent_template` | UUID | Only agents built from this template. |

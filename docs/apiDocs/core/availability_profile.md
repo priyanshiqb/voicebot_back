@@ -73,11 +73,12 @@ Retrieve for those.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `page` | integer | Page number, 1-based. |
-| `page_size` | integer | Rows per page. |
+| `page`, `page_size` | integer | Pagination. |
+| `search` | string | Partial, case-insensitive match on profile `name`, user's `email`/`first_name`/`last_name`, or timezone identifier/region. |
 | `user` | UUID | Only the profile belonging to this user. |
+| `timezone` | UUID | Only profiles using this timezone. |
 | `is_active` | boolean | Filter by active flag. **Inactive profiles still appear here** — they are excluded from *booking*, not from listings. |
-| `ordering` | string | `created_at` or `updated_at`, prefix `-` to reverse. Default `-created_at`. |
+| `ordering` | string | `created_at`, `updated_at`, `name`, or `timezone__timezone`; prefix `-` to reverse. Default `-created_at`. |
 
 ### Response — `200 OK`
 

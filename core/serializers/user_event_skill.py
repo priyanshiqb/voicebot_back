@@ -67,6 +67,20 @@ class UserEventSkillSerializer(TenantBaseModelCoreSerializer):
                     raise serializers.ValidationError(
                         {"user": "User does not belong to your tenant."}
                     )
+            
+            if user is not None and event_template is not None:
+                qs = UserEventSkill.objects.filter(
+                    user=user,
+                    event_template=event_template,
+                    tenant=tenant,
+                    is_deleted=False,
+                )
+                if self.instance:
+                    qs = qs.exclude(pk=self.instance.pk)
+                if qs.exists():
+                    raise serializers.ValidationError(
+                        "This user is already linked to this event template."
+                    )
         return attrs
 
 

@@ -479,7 +479,7 @@ class KnowledgeBaseSerializer(TenantBaseModelSerializer):
 class KnowledgeBaseListSerializer(serializers.ModelSerializer):
     class Meta:
         model = KnowledgeBase
-        fields = ("id", "name", "is_processed", "processing_status", "created_at")
+        fields = ("id", "name", "is_processed", "processing_status", "processing_error", "created_at")
 
 class KnowledgeBaseDropdownSerializer(serializers.Serializer):
     label = serializers.CharField(source="name")

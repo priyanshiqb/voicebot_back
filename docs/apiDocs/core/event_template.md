@@ -31,10 +31,11 @@ An event template defines duration, buffers, how a host is chosen, and the booki
   - `page` (optional): Page number (default: 1)
   - `page_size` (optional): Items per page (default: 10)
   - `search` (optional): Filter by `name` or `description` (partial, case-insensitive)
-  - `ordering` (optional): Sort by `name`, `created_at`, `updated_at`, `duration_minutes` (prefix `-` for descending; default `-created_at`)
+  - `ordering` (optional): Sort by `name`, `created_at`, `updated_at`, `duration_minutes`, `assignment_strategy`, `location_type`, `is_active` (prefix `-` for descending; default `-created_at`)
   - `is_active` (optional): Boolean filter
   - `assignment_strategy` (optional): One of `COLLECTIVE`, `DIRECT`
   - `location_type` (optional): One of `IN_PERSON`, `PHONE`, `VIDEO`
+  - `duration_minutes` (optional): Filter by exact duration.
 - **Success Response (200 OK)**:
   ```json
   {

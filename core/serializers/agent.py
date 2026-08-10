@@ -164,7 +164,7 @@ class AgentSerializer(TenantBaseModelSerializer):
                 except AttributeError:
                     pass
 
-            qs = Agent.objects.filter(bot_name=bot_name, tenant=tenant, is_deleted=False)
+            qs = Agent.objects.filter(bot_name__iexact=bot_name, tenant=tenant, is_deleted=False)
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():

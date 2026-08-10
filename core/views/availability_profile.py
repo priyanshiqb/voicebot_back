@@ -17,8 +17,16 @@ class AvailabilityProfileViewSet(TenantBaseViewSet):
     list_serializer_class = AvailabilityProfileListSerializer
     dropdown_serializer_class = AvailabilityProfileDropdownSerializer
 
-    filterset_fields = ["user", "is_active"]
-    ordering_fields = ["created_at", "updated_at"]
+    filterset_fields = ["user", "is_active", "timezone"]
+    search_fields = [
+        "name",
+        "user__email",
+        "user__first_name",
+        "user__last_name",
+        "timezone__timezone",
+        "timezone__region",
+    ]
+    ordering_fields = ["created_at", "updated_at", "name", "timezone__timezone"]
     ordering = ["-created_at"]
     select_related_fields = ["timezone", "user"]
     prefetch_related_fields = ["rules"]

@@ -24,7 +24,20 @@ class UserEventSkillViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     dropdown_serializer_class = UserEventSkillDropdownSerializer
 
     filterset_fields = ["user", "event_template", "is_active"]
-    ordering_fields = ["created_at", "updated_at"]
+    search_fields = [
+        "user__email",
+        "user__first_name",
+        "user__last_name",
+        "event_template__name",
+    ]
+    ordering_fields = [
+        "created_at",
+        "updated_at",
+        "user__email",
+        "user__first_name",
+        "user__last_name",
+        "event_template__name",
+    ]
     ordering = ["-created_at"]
     select_related_fields = ["user", "event_template"]
 

@@ -38,9 +38,11 @@ Three consequences worth knowing before you start:
 - **Headers**: `Authorization: Bearer <token>`
 - **Query Parameters**:
   - `page`, `page_size` (optional): Pagination.
+  - `search` (optional): Partial, case-insensitive match on user's `email`/`first_name`/`last_name`, or event template's `name`.
   - `user` (optional): Filter by host user id.
   - `event_template` (optional): Filter by event template id.
   - `is_active` (optional): Boolean filter.
+  - `ordering` (optional): `created_at`, `updated_at`, `user__email`, `user__first_name`, `user__last_name`, or `event_template__name`; prefix `-` to reverse. Default `-created_at`.
 - **Success Response (200 OK)**:
   ```json
   {

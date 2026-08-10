@@ -23,9 +23,22 @@ class EventTemplateViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     list_serializer_class = EventTemplateListSerializer
     dropdown_serializer_class = EventTemplateDropdownSerializer
 
-    filterset_fields = ["is_active", "assignment_strategy", "location_type"]
+    filterset_fields = [
+        "is_active",
+        "assignment_strategy",
+        "location_type",
+        "duration_minutes",
+    ]
     search_fields = ["name", "description"]
-    ordering_fields = ["name", "created_at", "updated_at", "duration_minutes"]
+    ordering_fields = [
+        "name",
+        "created_at",
+        "updated_at",
+        "duration_minutes",
+        "assignment_strategy",
+        "location_type",
+        "is_active",
+    ]
     ordering = ["-created_at"]
 
     vb_agent_allowed_actions = frozenset({"list", "retrieve", "dropdown"})
