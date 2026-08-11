@@ -1,6 +1,10 @@
+import logging
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from tenant.common.models.tenant_base_model_core import TenantBaseModelCore
+
+logger = logging.getLogger(__name__)
 
 def agent_call_recording_upload_path(instance, filename):
     return f"t-{instance.tenant.id}/call_recordings/{instance.id}_{filename}"
@@ -55,3 +59,27 @@ class AgentCallRecording(TenantBaseModelCore):
 
     def __str__(self):
         return self.original_name or str(self.id)
+
+    def delete(self, *args, **kwargs):
+        """Remove the stored object along with the row.
+
+        Without this, hard-deleting a recording orphans its bytes in the bucket
+        permanently: the row was the only record of the object key. That matters most
+        for the abandoned-upload sweep, where the usual case is *not* "no object" but
+        "the PUT succeeded and the confirm request never arrived".
+
+        A failure to delete the blob must not block the row deletion — otherwise an
+        unreachable bucket makes cleanup impossible forever. The key is logged so an
+        operator can reconcile later.
+        """
+        object_key = self.file.name if self.file else None
+        if object_key:
+            try:
+                self.file.delete(save=False)
+            except Exception:  # noqa: BLE001 — never block the row delete
+                logger.warning(
+                    "Could not delete call recording object %s for %s; it is now orphaned.",
+                    object_key,
+                    self.pk,
+                )
+        super().delete(*args, **kwargs)

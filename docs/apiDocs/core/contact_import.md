@@ -103,7 +103,7 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
 |---|---|---|---|
 | `filename` * | string | The user's original filename. Used for the stored name and to derive the extension. | Sanitized server-side — a traversal attempt like `../../evil.csv` lands inside the tenant's own prefix like any other upload. |
 | `content_type` * | string | MIME type, e.g. `text/csv`. Baked into the presigned URL, so the actual `PUT` must send a matching `Content-Type` header. | Must be a supported spreadsheet type. |
-| `file_size_in_bytes` * | integer | Size of the file you are about to upload. Also baked into the URL. | Must be > 0 and ≤ `CONTACT_IMPORT_MAX_FILE_BYTES` (default **10 MB**). Rejected here *before* any upload happens. |
+| `file_size_in_bytes` * | integer | Size of the file you are about to upload. A **declaration** — see the note below on which mode actually enforces it. | Must be > 0 and ≤ `CONTACT_IMPORT_MAX_FILE_BYTES` (default **10 MB**). Rejected here *before* any upload happens. |
 
 ```json
 {
@@ -111,7 +111,11 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
   "message": "Upload URL generated successfully.",
   "data": {
     "file_id": "9c1e85f6-…",
+    "upload_method": "PUT",
     "upload_url": "https://…presigned…",
+    "upload_fields": {},
+    "expires_in_minutes": 15,
+    "max_bytes": 10485760,
     "object_key": "t-7bf26cf4-…/contact_imports/9c1e85f6-…_contacts.csv"
   }
 }
@@ -120,7 +124,11 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
 | Field | Meaning |
 |---|---|
 | `file_id` | **The handle for every later step.** Confirm and import with this. |
-| `upload_url` | Presigned `PUT` target. Short-lived — request a new one rather than caching it. |
+| `upload_method` | `PUT` or `POST`. **Branch on it** — see below. |
+| `upload_url` | Where to send the file. Short-lived — request a new one rather than caching it. |
+| `upload_fields` | `POST` mode only: the signed policy fields. Empty under `PUT`. |
+| `expires_in_minutes` | Ticket lifetime (`UPLOAD_URL_TTL_MINUTES`, default 15). |
+| `max_bytes` | The server's ceiling for this flow. Enforced during the upload under `POST` only. |
 | `object_key` | Where the file will live in storage. **Informational only** (see below). |
 
 > **`object_key` is output, never input.** It is derived server-side from the row's own id and a
@@ -137,8 +145,26 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
 | **403** | Caller's account has no tenant mapping. | `Your user account is not associated with any active tenant.` |
 | **500** | Storage refused to mint a URL. The row is marked `FAILED` — request a new one. | `Failed to generate upload URL.` |
 
-Then `PUT` the bytes to `upload_url` with the same `Content-Type` you declared. A mismatch makes
-the signature invalid and storage rejects the upload.
+### Sending the file
+
+Follow `upload_method`; do not hardcode it. It comes from deployment configuration
+(`UPLOAD_PRESIGN_METHOD`) and can change without an API version bump.
+
+| `upload_method` | How to send | Success |
+|---|---|---|
+| `PUT` | Body raw to `upload_url` with the same `Content-Type` you declared | `200` |
+| `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` |
+
+Either way the `Content-Type` is signed — a mismatch invalidates the signature and storage
+rejects the upload.
+
+> **Under `PUT` the size limit is not enforced during the upload.** `ContentLength` cannot be
+> signed into a presigned PUT in a way a browser can satisfy, so a ticket issued for a 1 MB
+> file will accept a 500 MB one. `confirm-upload` measures the stored object and deletes it if
+> it overruns — but the bytes have already been transferred and stored by then.
+>
+> Under `POST`, `max_bytes` is a signed `content-length-range` condition and storage rejects an
+> oversize body mid-upload with `EntityTooLarge`.
 
 ---
 

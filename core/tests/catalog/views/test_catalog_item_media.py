@@ -25,6 +25,28 @@ UploadStatus = CatalogItemMedia.UploadStatus
 MediaType = CatalogItemMedia.MediaType
 
 
+def disk_usage(size_in_bytes):
+    """The real shape of ``S3StorageService.get_file_disk_usage``.
+
+    Worth a helper rather than an inline literal. These tests used to stub the call
+    with a bare ``4096``, and the view had an ``isinstance(..., dict)`` branch that
+    quietly accepted it — so the suite exercised a path production never took, while
+    the real path read a key (``size_in_bytes``) that the service does not return and
+    silently fell back to the client's *declared* size. The measured size was never
+    recorded and the ceiling was never applied. A mock that does not match its
+    original is worse than no mock: it reports success.
+
+    ``core.tests.test_storage_service_contract`` pins these keys against the real
+    method so this helper cannot drift again.
+    """
+    return {
+        "total_size_bytes": size_in_bytes,
+        "formatted_size": f"{size_in_bytes / 1024:.2f} KB",
+        "content_type": "image/jpeg",
+        "last_modified": None,
+    }
+
+
 class MediaAPITestCase(CatalogAPITestCase):
     def setUp(self):
         super().setUp()
@@ -169,7 +191,7 @@ class ConfirmUploadTests(MediaAPITestCase):
     def test_a_confirmed_upload_flips_status_and_records_the_real_size(self, storage):
         """The declared size at step 1 is a client claim; the stored size is the fact."""
         storage.return_value.verify_object_exists.return_value = True
-        storage.return_value.get_file_disk_usage.return_value = 4096
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(4096)
         media = self._pending()
 
         data = self.assert_ok(
@@ -200,7 +222,7 @@ class ConfirmUploadTests(MediaAPITestCase):
     def test_confirming_twice_is_idempotent(self, storage):
         """A retried confirm after a dropped response must not fail."""
         storage.return_value.verify_object_exists.return_value = True
-        storage.return_value.get_file_disk_usage.return_value = 4096
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(4096)
         media = self._pending()
 
         first = self.api.post(
@@ -263,9 +285,119 @@ class ConfirmUploadTests(MediaAPITestCase):
         media.refresh_from_db()
         self.assertEqual(media.upload_status, UploadStatus.PENDING)
 
+    def test_the_measured_size_is_recorded_not_the_declared_one(self, storage):
+        """`file_size_in_bytes` at step 1 is a claim. A presigned PUT carries no signed
+        length, so the only honest number is the one read back off the object."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(999_000)
+        media = self._pending()  # declares 1024
+
+        self.assert_ok(
+            self.api.post(
+                f"{MEDIA}confirm-upload/", {"media_id": str(media.pk)}, format="json"
+            )
+        )
+
+        media.refresh_from_db()
+        self.assertEqual(media.file_size_in_bytes, 999_000)
+
+    def test_an_object_over_the_ceiling_is_rejected_and_purged(self, storage):
+        """The declare-small-upload-huge hole. Step 1 validated a 1 KB declaration;
+        nothing stopped the client PUTting far more to the URL it got back, so the
+        limit has to be applied to the measured size or it is not a limit."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(5 * 1024 * 1024)
+        media = self._pending()
+
+        with self.settings(CATALOG_MAX_MEDIA_BYTES=1024):
+            self.assert_error(
+                self.api.post(
+                    f"{MEDIA}confirm-upload/", {"media_id": str(media.pk)}, format="json"
+                ),
+                400,
+                contains="1 KB per file",
+            )
+
+        media.refresh_from_db()
+        self.assertEqual(media.upload_status, UploadStatus.FAILED)
+        # Leaving the object behind would mean the rejection cost storage anyway.
+        storage.return_value.delete_blob_direct.assert_called_once_with(media.file.name)
+
+    def test_an_oversize_object_is_purged_by_its_own_stored_key(self, storage):
+        """The purge must use the key from our tenant-scoped row, never one supplied by
+        the caller. Accepting a key here and deleting it is exactly how the old
+        Knowledge Base flow let one tenant destroy another's file."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(5 * 1024 * 1024)
+        media = self._pending()
+
+        with self.settings(CATALOG_MAX_MEDIA_BYTES=1024):
+            self.api.post(
+                f"{MEDIA}confirm-upload/",
+                {"media_id": str(media.pk), "object_key": "t-victim/catalog/theirs.jpg"},
+                format="json",
+            )
+
+        purged = storage.return_value.delete_blob_direct.call_args.args[0]
+        self.assertEqual(purged, media.file.name)
+        self.assertNotIn("t-victim", purged)
+
+    def test_a_size_read_failure_fails_closed(self, storage):
+        """If the real size cannot be read the ceiling cannot be applied, so confirming
+        anyway would make "break the HEAD request" the way around it. 503 loses
+        nothing: the row is still PENDING and the object is still there."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.side_effect = RuntimeError("down")
+        media = self._pending()
+
+        self.assert_error(
+            self.api.post(
+                f"{MEDIA}confirm-upload/", {"media_id": str(media.pk)}, format="json"
+            ),
+            503,
+        )
+
+        media.refresh_from_db()
+        self.assertEqual(media.upload_status, UploadStatus.PENDING)
+        self.assertNotEqual(media.upload_status, UploadStatus.CONFIRMED)
+
+    def test_a_failed_purge_still_rejects_the_upload(self, storage):
+        """An orphaned object is a storage bill. A confirmed oversize file is a bypassed
+        control, so the rejection must not depend on the cleanup succeeding."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(5 * 1024 * 1024)
+        storage.return_value.delete_blob_direct.side_effect = RuntimeError("down")
+        media = self._pending()
+
+        with self.settings(CATALOG_MAX_MEDIA_BYTES=1024):
+            self.assert_error(
+                self.api.post(
+                    f"{MEDIA}confirm-upload/", {"media_id": str(media.pk)}, format="json"
+                ),
+                400,
+            )
+
+        media.refresh_from_db()
+        self.assertEqual(media.upload_status, UploadStatus.FAILED)
+
+    def test_an_object_exactly_at_the_ceiling_is_accepted(self, storage):
+        """Off-by-one: the limit is a maximum, not an exclusive bound."""
+        storage.return_value.verify_object_exists.return_value = True
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(1024)
+        media = self._pending()
+
+        with self.settings(CATALOG_MAX_MEDIA_BYTES=1024):
+            data = self.assert_ok(
+                self.api.post(
+                    f"{MEDIA}confirm-upload/", {"media_id": str(media.pk)}, format="json"
+                )
+            )
+
+        self.assertEqual(data["upload_status"], UploadStatus.CONFIRMED)
+
     def test_confirming_as_primary_demotes_the_incumbent(self, storage):
         storage.return_value.verify_object_exists.return_value = True
-        storage.return_value.get_file_disk_usage.return_value = 4096
+        storage.return_value.get_file_disk_usage.return_value = disk_usage(4096)
         incumbent = self.make_media(is_primary=True, original_name="old.jpg")
         media = self._pending()
 

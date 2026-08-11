@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from django.db import models
@@ -5,6 +6,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from tenant.common.models.tenant_base_model_core import TenantBaseModelCore
+
+logger = logging.getLogger(__name__)
 
 
 def catalog_media_upload_path(instance, filename):
@@ -130,3 +133,27 @@ class CatalogItemMedia(TenantBaseModelCore):
         self.deleted_at = timezone.now()
         self.is_primary = False
         self.save(update_fields=["is_deleted", "deleted_at", "is_primary"])
+
+    def delete(self, *args, **kwargs):
+        """Remove the stored object along with the row.
+
+        Only reached by a *hard* delete — the API soft-deletes, and a soft delete
+        deliberately keeps the object so a restore still has its file. The paths that
+        get here are the abandoned-upload sweep, the admin and a shell session, and in
+        each of those the row is the only record of the object key: drop it without
+        the blob and the bytes are orphaned in the bucket forever.
+
+        Blob failures are logged rather than raised, so an unreachable bucket cannot
+        make cleanup impossible.
+        """
+        object_key = self.file.name if self.file else None
+        if object_key:
+            try:
+                self.file.delete(save=False)
+            except Exception:  # noqa: BLE001 — never block the row delete
+                logger.warning(
+                    "Could not delete catalog media object %s for %s; it is now orphaned.",
+                    object_key,
+                    self.pk,
+                )
+        super().delete(*args, **kwargs)

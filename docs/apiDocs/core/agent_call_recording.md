@@ -39,14 +39,23 @@ administrative action, not an API one.
 ## The upload flow
 
 ```
-1. POST /request-upload-url/   →  { file_id, upload_url }
-2. PUT  <upload_url>           →  your MP3 bytes, straight to S3
+1. POST /request-upload-url/   →  { file_id, upload_method, upload_url, upload_fields, max_bytes }
+2. send the MP3 bytes          →  straight to S3, per upload_method
 3. POST /confirm-upload/       →  { file_id }  →  recording is CONFIRMED
 4. POST /agent-call-logs/      →  recording_file: <file_id>
 ```
 
-Step 2 is a plain HTTP `PUT` to S3 — not to this API. It must send the **same `Content-Type`** you
-declared in step 1, or S3 rejects the signature.
+Step 2 goes to S3, not to this API. **Follow `upload_method`; do not hardcode it** — it comes
+from deployment configuration (`UPLOAD_PRESIGN_METHOD`) and can change without an API version
+bump.
+
+| `upload_method` | How to send | Success |
+|---|---|---|
+| `PUT` | Body raw to `upload_url` with the declared `Content-Type` | `200` |
+| `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` |
+
+Either way the `Content-Type` is signed into the ticket — send a different one and S3 rejects
+the signature.
 
 ### `upload_status`
 
@@ -79,7 +88,7 @@ Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
 |---|---|---|---|
 | `filename` * | string | The recording's name, e.g. `call_123.mp3`. Used for the extension and the stored object key. | Required. Max **255**. Sanitised to a basename before the key is built, so a crafted value cannot steer the upload outside your tenant's prefix. |
 | `content_type` * | enum | MIME type, baked into the presigned URL. Your `PUT` must send the **same** value. | Required. Only `audio/mpeg` or `audio/mp3`. Anything else → 400. |
-| `file_size_in_bytes` * | integer | Declared size, baked into the URL as a limit. | Required. Must be **≥ 1**. |
+| `file_size_in_bytes` * | integer | Declared size. A **declaration**, not the enforced ceiling — the real limit is `max_bytes` (50 MB), enforced during the upload only under `POST` and otherwise at confirm. | Required. Must be **≥ 1**. |
 | `agent` | UUID | Which bot produced the recording. | **Required for agent tokens**; ignored for ordinary users. Must exist and belong to the tenant named in `X-Tenant-ID`. |
 
 - **Success Response (200 OK)**:
@@ -89,7 +98,11 @@ Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
     "message": "Upload URL generated successfully.",
     "data": {
       "file_id": "123e4567-e89b-12d3-a456-426614174000",
+      "upload_method": "PUT",
       "upload_url": "https://bucket.s3.amazonaws.com/t-7bf2…/call_recordings/…?X-Amz-Signature=…",
+      "upload_fields": {},
+      "expires_in_minutes": 15,
+      "max_bytes": 52428800,
       "object_key": "t-7bf26cf4-…/call_recordings/123e4567-…_call_123.mp3"
     },
     "errors": null

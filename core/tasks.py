@@ -760,6 +760,20 @@ def cleanup_expired_contact_imports():
 
 
 @shared_task(base=ReportedTask)
+def cleanup_pending_uploads():
+    """Beat task: delete abandoned presigned uploads and the objects they left behind.
+
+    Without this the bucket grows forever from uploads that succeeded but were never
+    confirmed — a closed tab is enough. Nothing in the product surfaces those bytes,
+    which is exactly why it needs to be scheduled rather than remembered.
+    """
+    from core.services import uploads as upload_service
+
+    results = upload_service.sweep_pending_uploads()
+    return sum(result["deleted"] for result in results)
+
+
+@shared_task(base=ReportedTask)
 def materialize_campaign(campaign_id):
     """Freeze a campaign's audience into CampaignMember rows and start it running."""
     from core.services import campaigns as campaign_service

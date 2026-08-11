@@ -10,7 +10,9 @@ from rest_framework import serializers
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from core.models.knowledge_base import KnowledgeBase, KBFiles, KBWebsite
 import os
+from core.serializers.uploads import upload_ticket_fields
 from core.serializers.kb_files import KBFilesSerializer, RequestUploadUrlSerializer, ConfirmUploadSerializer
+from core.services import uploads as upload_service
 from utils.s3_storage.service import S3StorageService
 from utils.s3_storage.keys import (
     build_tenant_object_key,
@@ -173,7 +175,7 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
                     "data": inline_serializer(
                         name="RequestUploadUrlData",
                         fields={
-                            "upload_url": serializers.CharField(),
+                            **upload_ticket_fields(),
                             "object_key": serializers.CharField()
                         }
                     )
@@ -214,10 +216,18 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
         kb_file.file.name = object_key
         kb_file.save()
 
-        storage_service = S3StorageService()
+        # The same ceiling confirm-upload applies, handed to the ticket so that under
+        # POST the object store enforces it during the upload instead of after it.
+        max_bytes = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
         try:
-            upload_url = storage_service.get_presigned_put_url(object_key, content_type, file_size_in_bytes)
-        except Exception as e:
+            ticket = upload_service.build_upload_ticket(
+                object_key,
+                content_type,
+                max_bytes=max_bytes,
+                storage=S3StorageService(),
+            )
+        except Exception:
+            logger.exception("Could not presign KB upload for tenant %s", tenant.id)
             kb_file.upload_status = KBFiles.UploadStatus.FAILED
             kb_file.save(update_fields=["upload_status"])
             return Response({"status": False, "message": "Failed to generate upload URL."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -227,7 +237,7 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
             "message": "Upload URL generated successfully.",
             "data": {
                 "file_id": str(kb_file.id),
-                "upload_url": upload_url,
+                **ticket,
                 # Deprecated: kept so existing clients that echo it back keep working.
                 "object_key": object_key
             }
@@ -313,6 +323,41 @@ class KnowledgeBaseViewSet(TenantBaseViewSet):
 
         except Exception as e:
             return Response({"status": False, "message": "Failed to verify file upload."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # What the file claims to be versus what it is. Matters more here than anywhere
+        # else in the codebase: these documents are parsed by the ETL/RAG service, so a
+        # .pdf that is actually something else is handed to a parser that did not expect
+        # it. Fails closed — otherwise breaking the read is the way around the check.
+        try:
+            mismatch, detected = upload_service.content_mismatch(
+                storage_service, object_key, extension
+            )
+        except Exception:
+            logger.exception("Could not read the head bytes of KB object %s", object_key)
+            return Response(
+                {"status": False, "message": "Failed to verify file upload."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if mismatch:
+            # Authorization already ran above, so this key is ours to delete.
+            try:
+                storage_service.delete_blob_direct(object_key)
+            except Exception:
+                logger.warning("Rejected KB object %s could not be purged.", object_key)
+            if kb_file is not None:
+                kb_file.upload_status = KBFiles.UploadStatus.FAILED
+                kb_file.save(update_fields=["upload_status"])
+            return Response(
+                {
+                    "status": False,
+                    "message": (
+                        f"That file is not {extension or 'the declared type'} — its "
+                        f"contents look like {detected}. Upload the real file."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if kb_file is None:
             # Legacy object_key path: no row was reserved up front, so create one now.

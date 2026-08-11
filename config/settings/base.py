@@ -551,6 +551,48 @@ CONTACT_IMPORT_COMMIT_BATCH_SIZE = env.int(
 )
 CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=25)
 
+# How a presigned upload ticket is issued.
+#   POST — browser form upload. The per-flow size ceiling is signed into the policy as
+#          a `content-length-range` condition, so the object store rejects an oversize
+#          body *during* the upload. This is the only way the limit is actually a limit.
+#   PUT  — single presigned PUT. Simpler for the client but unbounded: a URL issued for
+#          a 1 MB file will accept a 500 MB one, and confirm-upload only discovers that
+#          after the bytes have been transferred and stored.
+#
+# Defaults to PUT because switching is a BREAKING CHANGE for the frontend — POST needs
+# multipart form data with the returned fields, file part last — so backend and client
+# have to ship together. Verify the object store supports POST Object first: MinIO does;
+# check Cloudflare R2 against its current S3 compatibility list before flipping.
+# `manage.py check` warns while this is PUT.
+UPLOAD_PRESIGN_METHOD = env.str("UPLOAD_PRESIGN_METHOD", default="PUT")
+
+# How long an upload ticket stays valid. Must stay well under PENDING_UPLOAD_TTL_HOURS
+# below, or the sweep collects uploads that are still in flight — core.checks enforces
+# that relationship at deploy time.
+UPLOAD_URL_TTL_MINUTES = env.int("UPLOAD_URL_TTL_MINUTES", default=15)
+
+# Check an uploaded object's leading bytes against the extension it claims, at confirm
+# time. Costs one ranged GET of 64 bytes per confirm.
+#
+# Both the declared content_type and the filename's extension are client strings; the
+# allowlists check the string, never the file. A .png holding a PDF passes both today.
+#
+# Only a POSITIVE contradiction rejects — a file we cannot identify, or one whose
+# extension has no signature at all (.txt, .csv), is allowed through. Being unable to
+# recognise a file is not evidence against it, and the alternative rejects legitimate
+# uploads for no gain. This is not malware scanning and does not replace it.
+UPLOAD_VERIFY_CONTENT = env.bool("UPLOAD_VERIFY_CONTENT", default=True)
+
+# Presigned upload hygiene
+# How long a reserved-but-unconfirmed upload row is kept before the nightly sweep
+# deletes it AND the object it points at. This is the only thing that bounds bucket
+# growth from uploads that succeeded but were never confirmed — a closed tab is
+# enough to produce one, and nothing in the product ever surfaces those bytes.
+#
+# Must comfortably exceed the presigned URL lifetime (15 minutes) plus however long a
+# slow client might take, or the sweep deletes an upload that is still in flight.
+PENDING_UPLOAD_TTL_HOURS = env.int("PENDING_UPLOAD_TTL_HOURS", default=24)
+
 # Product & Service Catalog
 # All serializer-level ceilings. The category depth cap is deliberately NOT here:
 # it is enforced by a CheckConstraint, and a constraint built from a runtime setting
@@ -619,6 +661,10 @@ CELERY_BEAT_SCHEDULE = {
     "contacts-cleanup-expired-imports": {
         "task": "core.tasks.cleanup_expired_contact_imports",
         "schedule": 600.0,  # every 10 minutes
+    },
+    "uploads-cleanup-pending": {
+        "task": "core.tasks.cleanup_pending_uploads",
+        "schedule": 86400.0,  # daily
     },
     # 60s, not the 300s used for reminders: "starts automatically at the selected time"
     # is a user-facing promise, and a five-minute lag reads as broken.

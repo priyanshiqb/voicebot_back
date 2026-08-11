@@ -7,6 +7,7 @@ from rest_framework import serializers
 from core.models.catalog_item import CatalogItem
 from core.models.catalog_item_media import CatalogItemMedia
 from core.serializers.catalog_common import resolve_tenant_id
+from utils.files.sizes import format_size_limit
 from tenant.common.serializers.tenant_base_model_core_serializer import (
     TenantBaseModelCoreSerializer,
 )
@@ -190,7 +191,7 @@ class CatalogMediaUploadRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {
                     "file_size_in_bytes": (
-                        f"At most {max_bytes // (1024 * 1024)} MB per file."
+                        f"At most {format_size_limit(max_bytes)} per file."
                     )
                 }
             )

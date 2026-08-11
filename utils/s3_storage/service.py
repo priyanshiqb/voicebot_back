@@ -152,6 +152,89 @@ class S3StorageService:
             logger.error(f"Failed to generate presigned PUT URL for {object_key}: {e}")
             raise
 
+    def get_presigned_post(
+        self, object_key, content_type, max_bytes, min_bytes=1, expiry_minutes=15
+    ):
+        """Generate a browser form POST whose size limit the object store enforces.
+
+        This is the difference that matters versus :meth:`get_presigned_put_url`: the
+        ``content-length-range`` condition is signed into the policy, so an oversize
+        body is rejected by S3 **during** the upload. A presigned PUT cannot do that
+        reliably — ``ContentLength`` has to be signed as an exact value, which a browser
+        cannot control — so a PUT URL issued for 1 MB will happily accept 500 MB and the
+        overage is only discovered afterwards, once it has already been transferred and
+        stored.
+
+        ``min_bytes`` defaults to 1 so a zero-byte upload is refused at the same place.
+
+        Returns ``{"url": str, "fields": dict}``. The client must POST them as
+        ``multipart/form-data`` **with the file part last** — S3 ignores anything after
+        it. A successful upload answers ``204 No Content``, not ``200``.
+
+        The key travels in ``fields``, as it does in a presigned PUT's path. That is not
+        a weakening: it is the caller's own key, it is pinned by the signed policy so it
+        cannot be swapped for another, and confirm-upload still refuses to accept a key
+        at all — it reads one from the tenant-scoped row.
+        """
+        if not self.bucket_name:
+            raise ValueError("S3_BUCKET_NAME is not configured.")
+
+        try:
+            result = self.client.generate_presigned_post(
+                Bucket=self.bucket_name,
+                Key=object_key,
+                Fields={"Content-Type": content_type},
+                # Every Fields entry needs a matching condition or the policy rejects
+                # the form. The range is inclusive at both ends.
+                Conditions=[
+                    {"Content-Type": content_type},
+                    ["content-length-range", int(min_bytes), int(max_bytes)],
+                ],
+                ExpiresIn=expiry_minutes * 60,
+            )
+
+            if self.custom_domain:
+                parsed_url = urlparse(result["url"])
+                custom_parsed = urlparse(self.custom_domain)
+                result["url"] = result["url"].replace(
+                    f"{parsed_url.scheme}://{parsed_url.netloc}",
+                    f"{custom_parsed.scheme}://{custom_parsed.netloc}",
+                )
+
+            return {"url": result["url"], "fields": result["fields"]}
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned POST for {object_key}: {e}")
+            raise
+
+    def get_object_head_bytes(self, object_key, num_bytes=64):
+        """Read the first ``num_bytes`` of an object, and nothing more.
+
+        Uses a ranged GET, so identifying a 50 MB recording costs 64 bytes of transfer
+        rather than downloading it. That is what makes a content check affordable on
+        every confirm.
+
+        Returns ``b""`` when the object is missing or shorter than the range; callers
+        treat empty as "nothing to check" rather than as a failure.
+        """
+        if not self.bucket_name:
+            raise ValueError("S3_BUCKET_NAME is not configured.")
+
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket_name,
+                Key=object_key,
+                Range=f"bytes=0-{max(0, int(num_bytes) - 1)}",
+            )
+            return response["Body"].read()
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            # 416 is a file smaller than the requested range — on some backends. A file
+            # that short cannot carry a signature anyway.
+            if error_code in ("404", "NoSuchKey", "416", "InvalidRange"):
+                return b""
+            logger.error(f"Failed to read head bytes of {object_key}: {e}")
+            raise
+
     def verify_object_exists(self, object_key):
         """
         Verifies that an object actually exists in the S3 bucket via a HEAD request.
@@ -203,6 +286,25 @@ class S3StorageService:
         except ClientError as e:
             logger.error(f"Failed to generate presigned URL for folder {folder_prefix}: {e}")
             raise
+
+    def iter_objects(self, prefix):
+        """Yield ``{key, size, last_modified}`` for every object under ``prefix``.
+
+        Paginated, so a tenant with a hundred thousand objects streams rather than
+        materialising one list. Used by the orphan reconciliation, which is the only
+        thing that can see objects the database has forgotten about.
+        """
+        if not self.bucket_name:
+            raise ValueError("S3_BUCKET_NAME is not configured.")
+
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                yield {
+                    "key": obj["Key"],
+                    "size": obj.get("Size", 0),
+                    "last_modified": obj.get("LastModified"),
+                }
 
     def get_folder_disk_usage(self, folder_prefix):
         """

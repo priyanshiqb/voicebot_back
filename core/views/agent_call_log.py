@@ -26,6 +26,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status, serializers
 from drf_spectacular.utils import inline_serializer
+from core.serializers.uploads import upload_ticket_fields
+from core.services import uploads as upload_service
 from utils.s3_storage.service import S3StorageService
 from utils.s3_storage.keys import (
     build_tenant_object_key,
@@ -41,6 +43,12 @@ from core.serializers.agent_call_recording import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Size ceiling for a call recording. Hoisted to a constant because it is now needed in
+#: two places that must not disagree: signed into the upload ticket, and re-checked
+#: against the stored object at confirm. A limit enforced at only one of those is either
+#: bypassable or arbitrarily strict.
+MAX_RECORDING_BYTES = 50 * 1024 * 1024
 
 
 class AgentCallLogFilter(django_filters.FilterSet):
@@ -253,7 +261,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                     "data": inline_serializer(
                         name="RequestRecordingUploadUrlData",
                         fields={
-                            "upload_url": serializers.CharField(),
+                            **upload_ticket_fields(),
                             "object_key": serializers.CharField()
                         }
                     )
@@ -295,19 +303,26 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         recording.file.name = object_key
         recording.save()
 
-        storage_service = S3StorageService()
+        # Same 50 MB ceiling confirm-upload applies, handed to the ticket so that under
+        # POST the object store enforces it during the upload instead of after it.
         try:
-            upload_url = storage_service.get_presigned_put_url(object_key, content_type, file_size_in_bytes)
-        except Exception as e:
+            ticket = upload_service.build_upload_ticket(
+                object_key,
+                content_type,
+                max_bytes=MAX_RECORDING_BYTES,
+                storage=S3StorageService(),
+            )
+        except Exception:
+            logger.exception("Could not presign call recording upload for tenant %s", tenant_id)
             recording.upload_status = AgentCallRecording.UploadStatus.FAILED
             recording.save(update_fields=["upload_status"])
             return self.error(message="Failed to generate upload URL.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
+
         return self.success(
             message="Upload URL generated successfully.",
             data={
                 "file_id": str(recording.id),
-                "upload_url": upload_url,
+                **ticket,
                 # Deprecated: kept so existing clients that echo it back keep working.
                 "object_key": object_key
             },
@@ -383,8 +398,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                 return self.error(message="File not found in storage bucket. Did the upload succeed?", status_code=status.HTTP_400_BAD_REQUEST)
 
             file_stats = storage_service.get_file_disk_usage(object_key)
-            # Max 50MB for call recordings
-            max_size = 50 * 1024 * 1024
+            max_size = MAX_RECORDING_BYTES
             file_size_in_bytes = file_stats.get("total_size_bytes", 0)
             if file_size_in_bytes > max_size:
                 storage_service.delete_blob_direct(object_key)
@@ -395,6 +409,37 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
 
         except Exception as e:
             return self.error(message="Failed to verify file upload.", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # What the file claims to be versus what it is. `content_type` was restricted to
+        # MP3 at step 1, but that is a client string — nothing has looked at the bytes.
+        # Fails closed, as the size check above does.
+        try:
+            mismatch, detected = upload_service.content_mismatch(
+                storage_service, object_key, extension
+            )
+        except Exception:
+            logger.exception("Could not read the head bytes of recording %s", object_key)
+            return self.error(
+                message="Failed to verify file upload.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if mismatch:
+            # Authorization already ran above, so this key is ours to delete.
+            try:
+                storage_service.delete_blob_direct(object_key)
+            except Exception:
+                logger.warning("Rejected recording %s could not be purged.", object_key)
+            if recording is not None:
+                recording.upload_status = AgentCallRecording.UploadStatus.FAILED
+                recording.save(update_fields=["upload_status"])
+            return self.error(
+                message=(
+                    f"That file is not {extension or 'the declared type'} — its "
+                    f"contents look like {detected}. Upload the real file."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
         if recording is None:
             # Legacy object_key path: no row was reserved up front, so create one now.

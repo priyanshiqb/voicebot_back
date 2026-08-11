@@ -84,5 +84,11 @@
   * [Tenant Settings](apiDocs/tenant/settings.md)
   * [Email Configuration - SMTP](apiDocs/tenant/email_configuration.md)
 
+* **🧹 Maintenance Commands**
+  * [Overview - Which One Do I Want?](commands/README.md)
+  * [Abandoned Upload Sweep](commands/cleanup_pending_uploads.md)
+  * [Orphaned Object Audit](commands/audit_orphaned_objects.md)
+  * [Knowledge Base Files Cleanup](commands/cleanup_orphaned_kb_files.md)
+
 <!-- * **📐 Architecture**
   * [S3 Storage Service](architecture/s3-storage-service.md) -->

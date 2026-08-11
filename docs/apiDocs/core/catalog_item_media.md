@@ -68,14 +68,32 @@ Checked **before** a presigned URL is issued, so an unwanted type never reaches 
   "message": "Upload URL generated successfully",
   "data": {
     "media_id": "7f3a91cd-…",
-    "upload_url": "https://…/t-<tenant>/catalog/<item>/<uuid>_photo.jpg?X-Amz-…",
-    "expires_in_minutes": 15
+    "upload_method": "POST",
+    "upload_url": "https://…/<bucket>",
+    "upload_fields": {
+      "key": "t-<tenant>/catalog/<item>/<uuid>_photo.jpg",
+      "Content-Type": "image/jpeg",
+      "policy": "eyJleHBpcmF0aW9u…",
+      "x-amz-algorithm": "AWS4-HMAC-SHA256",
+      "x-amz-credential": "…",
+      "x-amz-date": "…",
+      "x-amz-signature": "…"
+    },
+    "expires_in_minutes": 15,
+    "max_bytes": 10485760
   },
   "errors": null
 }
 ```
 
-Note what is **not** in that response: an object key.
+**Branch on `upload_method`; do not assume it.** It is deployment configuration
+(`UPLOAD_PRESIGN_METHOD`) and can change without an API version bump. In `PUT` mode the
+same response carries `"upload_method": "PUT"`, a direct object URL, and an empty
+`upload_fields`.
+
+Note what is still **not** in that response: an object key you could send back. The `key`
+inside `upload_fields` is signed into the policy — it cannot be swapped for another — and
+`confirm-upload` refuses to accept a key at all. It reads one from the tenant-scoped row.
 
 ### Error responses
 
@@ -92,7 +110,35 @@ confirming them is an unmetered way past it.
 
 ---
 
-## 2. PUT the file
+## 2. Send the file
+
+Direct to the object store. Nothing passes through this API. The ticket expires in
+**15 minutes** (`UPLOAD_URL_TTL_MINUTES`).
+
+### `upload_method: "POST"` — the default going forward
+
+Every entry in `upload_fields` becomes a form field, and **the file part must be last** —
+the object store ignores anything after it. Success is **`204 No Content`**, not `200`.
+
+```js
+const form = new FormData();
+for (const [name, value] of Object.entries(data.upload_fields)) {
+  form.append(name, value);
+}
+form.append("file", file);            // last, always
+
+const res = await fetch(data.upload_url, { method: "POST", body: form });
+if (res.status !== 204) throw new Error("upload failed");
+```
+
+Do not set a `Content-Type` header on the request — the browser must set the multipart
+boundary itself.
+
+`max_bytes` is signed into the policy, so the store rejects an oversize body **during**
+the upload with `EntityTooLarge`. That is the point of this mode: `file_size_in_bytes` at
+step 1 is a declaration, and a declaration is not a limit.
+
+### `upload_method: "PUT"` — legacy
 
 ```
 PUT <upload_url>
@@ -101,10 +147,10 @@ Content-Type: <the same content_type you declared>
 <binary body>
 ```
 
-Direct to the object store. Nothing passes through this API — that is why
-`CATALOG_MAX_MEDIA_BYTES` is enforced at step 1 rather than by Django's upload limits.
-
-The URL expires in **15 minutes**.
+Success is `200`. `upload_fields` is empty. **The size ceiling is not enforced here** — a
+ticket issued for a 1 MB file will accept a 500 MB one, and the overage is caught at
+step 3, after it has been transferred and stored. It is deleted then, but you have
+already paid for the transfer.
 
 ---
 

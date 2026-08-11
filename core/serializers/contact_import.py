@@ -3,6 +3,8 @@ import os
 from django.conf import settings
 from rest_framework import serializers
 
+from utils.files.sizes import format_size_limit
+
 from core.models.contact_import import (
     ContactImportFile,
     ContactImportRow,
@@ -44,7 +46,7 @@ class RequestContactUploadUrlSerializer(serializers.Serializer):
         max_size = getattr(settings, "CONTACT_IMPORT_MAX_FILE_BYTES", 10 * 1024 * 1024)
         if value > max_size:
             raise serializers.ValidationError(
-                f"File size exceeds the limit of {max_size // (1024 * 1024)} MB."
+                f"File size exceeds the limit of {format_size_limit(max_size)}."
             )
         return value
 

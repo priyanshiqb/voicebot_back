@@ -130,7 +130,24 @@ class UploadRequestTests(MediaSerializerTestCase):
     def test_an_oversize_file_is_rejected(self):
         with self.settings(CATALOG_MAX_MEDIA_BYTES=1024):
             serializer = self.build_request(file_size_in_bytes=2048)
-            self.assert_field_error(serializer, "file_size_in_bytes", "MB per file")
+            self.assert_field_error(serializer, "file_size_in_bytes", "1 KB per file")
+
+    def test_the_limit_is_stated_in_a_unit_that_makes_sense(self):
+        """The message used to integer-divide by a megabyte, so any ceiling under 1 MB
+        read "At most 0 MB per file." — useless precisely when a tenant has hit a
+        tightened limit and needs to know the real number."""
+        from core.serializers.catalog_item_media import format_size_limit
+
+        for max_bytes, expected in (
+            (10 * 1024 * 1024, "10 MB"),
+            (int(1.5 * 1024 * 1024), "1.5 MB"),
+            (1024 * 1024, "1 MB"),
+            (512 * 1024, "512 KB"),
+            (1024, "1 KB"),
+            (500, "500 bytes"),
+        ):
+            with self.subTest(max_bytes=max_bytes):
+                self.assertEqual(format_size_limit(max_bytes), expected)
 
     def test_a_zero_byte_file_is_rejected(self):
         serializer = self.build_request(file_size_in_bytes=0)

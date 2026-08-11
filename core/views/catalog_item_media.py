@@ -1,9 +1,10 @@
 import logging
 import os
 
+from django.conf import settings
 from django.db import transaction
-from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.decorators import action
 
 from core.models.catalog_item_media import CatalogItemMedia
@@ -13,6 +14,9 @@ from core.serializers.catalog_item_media import (
     CatalogMediaUploadConfirmSerializer,
     CatalogMediaUploadRequestSerializer,
 )
+from utils.files.sizes import format_size_limit
+from core.serializers.uploads import upload_ticket_fields
+from core.services import uploads as upload_service
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from utils.s3_storage.keys import build_tenant_object_key
 from utils.s3_storage.service import S3StorageService
@@ -91,16 +95,38 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
             super().perform_update(serializer, **kwargs)
 
     @extend_schema(
-        summary="Step 1 — get a presigned upload URL",
+        summary="Step 1 — get a presigned upload ticket",
         description=(
-            "Creates a PENDING media row and returns `{media_id, upload_url, "
-            "expires_in_minutes}`. PUT the file to `upload_url` with the same "
-            "`Content-Type` you declared, then call `confirm-upload`.\n\n"
-            "**No object key is returned.** It is built server-side from the tenant "
-            "and item ids and read back from this row at confirm time."
+            "Creates a PENDING media row and returns `{media_id, upload_method, "
+            "upload_url, upload_fields, expires_in_minutes, max_bytes}`. Then call "
+            "`confirm-upload` with the `media_id`.\n\n"
+            "**Follow `upload_method`, do not assume it** — it is deployment "
+            "configuration and can change without an API version bump:\n\n"
+            "- `POST` — send `upload_fields` as `multipart/form-data` with the file "
+            "part **last**; success is `204`. `max_bytes` is signed into the policy, "
+            "so the store itself rejects anything larger.\n"
+            "- `PUT` — send the body raw with the `Content-Type` you declared; success "
+            "is `200`. `max_bytes` is advisory here and enforced at confirm.\n\n"
+            "**No object key is returned in either mode.** It is built server-side "
+            "from the tenant and item ids and read back from this row at confirm time."
         ),
         request=CatalogMediaUploadRequestSerializer,
-        responses={200: None},
+        responses={
+            200: inline_serializer(
+                name="CatalogMediaUploadTicketResponse",
+                fields={
+                    "status": serializers.BooleanField(),
+                    "message": serializers.CharField(),
+                    "data": inline_serializer(
+                        name="CatalogMediaUploadTicket",
+                        fields={
+                            "media_id": serializers.UUIDField(),
+                            **upload_ticket_fields(),
+                        },
+                    ),
+                },
+            )
+        },
     )
     @action(detail=False, methods=["post"], url_path="request-upload-url")
     def request_upload_url(self, request):
@@ -132,9 +158,16 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
         media.file.name = object_key
         media.save()
 
+        # The ceiling is handed to the ticket, not just checked against the declaration:
+        # under POST it becomes a signed condition the object store enforces itself, so
+        # an oversize body is refused mid-upload rather than discovered at confirm.
+        max_bytes = getattr(settings, "CATALOG_MAX_MEDIA_BYTES", 10 * 1024 * 1024)
         try:
-            upload_url = S3StorageService().get_presigned_put_url(
-                object_key, data["content_type"], data["file_size_in_bytes"]
+            ticket = upload_service.build_upload_ticket(
+                object_key,
+                data["content_type"],
+                max_bytes=max_bytes,
+                storage=S3StorageService(),
             )
         except Exception:
             logger.exception("Could not presign catalog media upload for item %s", item.pk)
@@ -146,11 +179,7 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
             )
 
         return self.success(
-            data={
-                "media_id": str(media.id),
-                "upload_url": upload_url,
-                "expires_in_minutes": 15,
-            },
+            data={"media_id": str(media.id), **ticket},
             message="Upload URL generated successfully",
         )
 
@@ -158,12 +187,38 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
         summary="Step 2 — confirm the upload",
         description=(
             "Body is `{\"media_id\": \"…\"}` and nothing else. Verifies the object "
-            "actually arrived, records its real size, and flips the row to CONFIRMED. "
-            "Only CONFIRMED media is served."
+            "actually arrived, measures it, and flips the row to CONFIRMED. Only "
+            "CONFIRMED media is served.\n\n"
+            "The **measured** size is what is stored and what the size limit is applied "
+            "to. `file_size_in_bytes` at step 1 is only a declaration — a presigned PUT "
+            "carries no signed length — so an object that overruns the limit is deleted "
+            "here and the row marked FAILED, with a `400`."
         ),
         request=CatalogMediaUploadConfirmSerializer,
         responses={200: CatalogItemMediaSerializer},
     )
+    @staticmethod
+    def _purge(storage, media):
+        """Delete a rejected upload's object.
+
+        Safe because `media` was resolved through the tenant-scoped queryset, so the key
+        came off our own row and was never client-supplied. Deleting a key the caller
+        handed in is precisely the shape of the old Knowledge Base cross-tenant delete;
+        the ordering — authorize, then purge — is what keeps them different.
+
+        A purge failure must not change the outcome: an orphaned object is a storage
+        bill, a confirmed bad upload is a bypassed control.
+        """
+        try:
+            storage.delete_blob_direct(media.file.name)
+        except Exception:
+            logger.warning(
+                "Rejected catalog media %s could not be purged; object %s is now "
+                "orphaned.",
+                media.pk,
+                media.file.name,
+            )
+
     @action(detail=False, methods=["post"], url_path="confirm-upload")
     def confirm_upload(self, request):
         serializer = CatalogMediaUploadConfirmSerializer(data=request.data)
@@ -206,15 +261,64 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
+        # This is where the size ceiling is actually enforced. The serializer checked
+        # `file_size_in_bytes` at step 1, but that is the client's *claim*: the presigned
+        # PUT does not carry a signed ContentLength, so nothing stops a URL issued for
+        # 1 MB from accepting 500 MB.
+        #
+        # Which means a failure to read the real size has to fail closed. Recording the
+        # declared value and carrying on — what this used to do — turns "make the HEAD
+        # request fail" into the way around the limit. Nothing is lost by returning 503:
+        # the row is still PENDING and the object is still there, so a retry succeeds.
         try:
-            actual_size = storage.get_file_disk_usage(media.file.name)
-            if isinstance(actual_size, dict):
-                actual_size = actual_size.get("size_in_bytes", media.file_size_in_bytes)
-            media.file_size_in_bytes = int(actual_size or media.file_size_in_bytes)
+            stats = storage.get_file_disk_usage(media.file.name)
+            actual_size = int(stats.get("total_size_bytes") or 0)
         except Exception:
-            # The declared size is a fallback, not a guarantee — worth recording, not
-            # worth failing a confirmed upload over.
-            logger.warning("Could not read the stored size of catalog media %s", media.pk)
+            logger.exception("Could not read the stored size of catalog media %s", media.pk)
+            return self.error(
+                message="Could not verify the upload. Try again.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        max_bytes = getattr(settings, "CATALOG_MAX_MEDIA_BYTES", 10 * 1024 * 1024)
+        if actual_size > max_bytes:
+            self._purge(storage, media)
+            media.upload_status = CatalogItemMedia.UploadStatus.FAILED
+            media.save(update_fields=["upload_status"])
+            return self.error(
+                message=f"At most {format_size_limit(max_bytes)} per file.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # What the file claims to be versus what it is. Both `content_type` and the
+        # extension are client strings the allowlist checked as strings; neither has
+        # ever been compared against the bytes. Fails closed for the same reason the
+        # size check does — otherwise breaking the read is the way around it.
+        extension = media.extension or os.path.splitext(media.original_name)[1].lower()
+        try:
+            mismatch, detected = upload_service.content_mismatch(
+                storage, media.file.name, extension
+            )
+        except Exception:
+            logger.exception("Could not read the head bytes of catalog media %s", media.pk)
+            return self.error(
+                message="Could not verify the upload. Try again.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if mismatch:
+            self._purge(storage, media)
+            media.upload_status = CatalogItemMedia.UploadStatus.FAILED
+            media.save(update_fields=["upload_status"])
+            return self.error(
+                message=(
+                    f"That file is not {extension or 'the declared type'} — its "
+                    f"contents look like {detected}. Upload the real file."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        media.file_size_in_bytes = actual_size or media.file_size_in_bytes
 
         with transaction.atomic():
             if request.data.get("is_primary") or media.is_primary:

@@ -31,10 +31,13 @@ from core.serializers.contact_import import (
     RequestContactUploadUrlSerializer,
     StartContactImportSerializer,
 )
+from core.serializers.uploads import upload_ticket_fields
 from core.services import contact_import as import_service
+from core.services import uploads as upload_service
 from core.tasks import commit_contact_import, parse_contact_import
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
+from utils.files.sizes import format_size_limit
 from utils.s3_storage.keys import build_tenant_object_key
 from utils.s3_storage.service import S3StorageService
 from utils.views.base_model_viewset import BaseViewSet
@@ -150,7 +153,7 @@ class ContactImportViewSet(TenantBaseViewSet):
                         name="ContactUploadUrlData",
                         fields={
                             "file_id": serializers.UUIDField(),
-                            "upload_url": serializers.CharField(),
+                            **upload_ticket_fields(),
                             "object_key": serializers.CharField(),
                         },
                     ),
@@ -195,9 +198,17 @@ class ContactImportViewSet(TenantBaseViewSet):
         import_file.file.name = object_key
         import_file.save()
 
+        # Same ceiling confirm-upload applies, handed to the ticket so that under POST
+        # the object store enforces it during the upload instead of after it.
+        max_bytes = getattr(
+            settings, "CONTACT_IMPORT_MAX_FILE_BYTES", 10 * 1024 * 1024
+        )
         try:
-            upload_url = S3StorageService().get_presigned_put_url(
-                object_key, content_type, size
+            ticket = upload_service.build_upload_ticket(
+                object_key,
+                content_type,
+                max_bytes=max_bytes,
+                storage=S3StorageService(),
             )
         except Exception:
             logger.exception("Failed to generate contact import upload URL")
@@ -210,8 +221,9 @@ class ContactImportViewSet(TenantBaseViewSet):
 
         return self.success(
             data={
-                "file_id": str(import_file.id), 
-                "upload_url": upload_url,
+                "file_id": str(import_file.id),
+                **ticket,
+                # Deprecated: kept so existing clients that echo it back keep working.
                 "object_key": object_key
             },
             message="Upload URL generated successfully.",
@@ -273,7 +285,7 @@ class ContactImportViewSet(TenantBaseViewSet):
                 import_file.save(update_fields=["upload_status"])
                 return self.error(
                     message=(
-                        f"File size exceeds the limit of {max_size // (1024 * 1024)} MB."
+                        f"File size exceeds the limit of {format_size_limit(max_size)}."
                     ),
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
@@ -282,6 +294,37 @@ class ContactImportViewSet(TenantBaseViewSet):
             return self.error(
                 message="Failed to verify file upload.",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # What the file claims to be versus what it is. Only `.csv` is accepted here and
+        # CSV has no signature, so this fires only when the bytes positively identify
+        # something else — a spreadsheet, an archive, an executable renamed to .csv.
+        # Fails closed, as the size check above does.
+        try:
+            mismatch, detected = upload_service.content_mismatch(
+                storage, object_key, import_file.extension
+            )
+        except Exception:
+            logger.exception("Could not read the head bytes of import file %s", object_key)
+            return self.error(
+                message="Failed to verify file upload.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if mismatch:
+            # Authorization already ran above, so this key is ours to delete.
+            try:
+                storage.delete_blob_direct(object_key)
+            except Exception:
+                logger.warning("Rejected import file %s could not be purged.", object_key)
+            import_file.upload_status = ContactImportFile.UploadStatus.FAILED
+            import_file.save(update_fields=["upload_status"])
+            return self.error(
+                message=(
+                    f"That file is not {import_file.extension or 'the declared type'} — "
+                    f"its contents look like {detected}. Upload the real file."
+                ),
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         import_file.file_size_in_bytes = actual_size

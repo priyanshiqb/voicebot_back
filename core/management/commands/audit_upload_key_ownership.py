@@ -18,16 +18,27 @@ A non-empty result is an incident with disclosure obligations, not a bug report.
 from django.core.management.base import BaseCommand
 
 from core.models.agent_call_recording import AgentCallRecording
+from core.models.catalog_item_media import CatalogItemMedia
 from core.models.contact_import import ContactImportFile
 from core.models.knowledge_base import KBFiles
 from utils.querysets import batched_values
 from utils.s3_storage.keys import is_object_key_owned_by_tenant
 
-# (model, folder, human label)
+#: Every model that stores a tenant-prefixed object key belongs here. Unlike the
+#: abandoned-upload sweep there are no exemptions: this command only reads, so auditing
+#: a model that turns out to be someone else's responsibility costs nothing, while
+#: leaving one out means a cross-tenant key would never be found.
+#:
+#: The folder is the segment that follows the tenant prefix. Catalog media keys carry
+#: the item id after it — ``t-<tenant>/catalog/<item>/<uuid>.jpg`` — so "catalog" is
+#: the right bound to check: it is a prefix test, not an equality test.
+#:
+#: (model, folder, human label)
 AUDITED = [
     (KBFiles, "kb_files", "Knowledge Base file"),
     (AgentCallRecording, "call_recordings", "Call recording"),
     (ContactImportFile, "contact_imports", "Contact import file"),
+    (CatalogItemMedia, "catalog", "Catalog media"),
 ]
 
 

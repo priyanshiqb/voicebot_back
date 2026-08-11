@@ -485,7 +485,7 @@ Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes 
 |---|---|---|---|
 | `filename` * | string | The file's name, used to derive the extension and the stored object key. | Required, max **255**. Extension must be `.pdf`, `.docx`, or `.txt`. |
 | `content_type` * | string | MIME type, baked into the presigned URL — your `PUT` must send the **same** `Content-Type` header or S3 rejects it. | Required, max **100**. Not cross-checked against `filename`. |
-| `file_size_in_bytes` * | integer | Declared size, baked into the URL as a limit. | Required. Must not exceed **10 MB**. |
+| `file_size_in_bytes` * | integer | Declared size. A **declaration**, not the enforced ceiling — see the note under the response. | Required. Must not exceed **10 MB**. |
 
 - **Success Response (200 OK)**:
   ```json
@@ -494,12 +494,33 @@ Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes 
     "message": "Upload URL generated successfully.",
     "data": {
       "file_id": "c3d4e5f6-…",
+      "upload_method": "PUT",
       "upload_url": "https://bucket.s3.amazonaws.com/t-7bf2…/kb_files/…?X-Amz-Signature=…",
+      "upload_fields": {},
+      "expires_in_minutes": 15,
+      "max_bytes": 11534336,
       "object_key": "t-7bf26cf4-…/kb_files/c3d4e5f6-…_setup.pdf"
     },
     "errors": null
   }
   ```
+
+> **Branch on `upload_method`; do not hardcode it.** It comes from deployment
+> configuration (`UPLOAD_PRESIGN_METHOD`) and changes without an API version bump.
+>
+> | `upload_method` | How to send | Success | `upload_fields` |
+> |---|---|---|---|
+> | `PUT` | Body raw to `upload_url`, with the declared `Content-Type` | `200` | `{}` |
+> | `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` | the policy fields |
+
+> **Under `PUT`, the size limit is not enforced during the upload.** `ContentLength`
+> cannot be signed into a presigned PUT in a way a browser can satisfy, so a ticket
+> issued for a 1 MB file will accept a 500 MB one. The overage is caught at step 2,
+> which measures the stored object and deletes it if it overruns — but the bytes have
+> already been transferred and stored by then.
+>
+> Under `POST`, `max_bytes` is signed into the policy as a `content-length-range`
+> condition and storage rejects an oversize body mid-upload with `EntityTooLarge`.
 
 | Status | When | `message` |
 |---|---|---|
