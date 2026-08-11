@@ -551,6 +551,23 @@ CONTACT_IMPORT_COMMIT_BATCH_SIZE = env.int(
 )
 CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=25)
 
+# Product & Service Catalog
+# All serializer-level ceilings. The category depth cap is deliberately NOT here:
+# it is enforced by a CheckConstraint, and a constraint built from a runtime setting
+# is frozen into the migration and then silently diverges from it. That bound lives
+# in core.models.catalog_category.MAX_CATEGORY_DEPTH.
+CATALOG_DEFAULT_CURRENCY = env.str("CATALOG_DEFAULT_CURRENCY", default="INR")
+CATALOG_MAX_VARIANTS_PER_ITEM = env.int("CATALOG_MAX_VARIANTS_PER_ITEM", default=100)
+CATALOG_MAX_TAGS_PER_ITEM = env.int("CATALOG_MAX_TAGS_PER_ITEM", default=25)
+CATALOG_MAX_ALIASES_PER_ITEM = env.int("CATALOG_MAX_ALIASES_PER_ITEM", default=25)
+CATALOG_MAX_ATTRIBUTE_BYTES = env.int("CATALOG_MAX_ATTRIBUTE_BYTES", default=8192)
+CATALOG_MAX_MEDIA_PER_ITEM = env.int("CATALOG_MAX_MEDIA_PER_ITEM", default=10)
+CATALOG_MAX_ADD_ONS_PER_ITEM = env.int("CATALOG_MAX_ADD_ONS_PER_ITEM", default=50)
+# Checked before a presigned PUT is issued, so an oversize file never reaches the
+# bucket. Separate from DATA_UPLOAD_MAX_MEMORY_SIZE: that bounds what passes through
+# Django, and these bytes never do.
+CATALOG_MAX_MEDIA_BYTES = env.int("CATALOG_MAX_MEDIA_BYTES", default=10 * 1024 * 1024)
+
 # Campaigns
 # MAX_SELECTED_CONTACTS bounds the request body on create/update; MAX_MEMBERS bounds
 # what materialisation will build. They are separate ceilings because a future

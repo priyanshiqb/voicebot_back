@@ -44,6 +44,12 @@ from core.models.contact_import import (
 from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember
 
+# Product & Service Catalog
+from core.models.catalog_category import CatalogCategory
+from core.models.catalog_variant import CatalogVariant
+from core.models.catalog_item import CatalogItem
+from core.models.catalog_item_media import CatalogItemMedia
+
 __all__ = [
     "KBText",
     "KBFiles",
@@ -80,6 +86,10 @@ __all__ = [
     "ContactImportRow",
     "Campaign",
     "CampaignMember",
+    "CatalogCategory",
+    "CatalogItem",
+    "CatalogVariant",
+    "CatalogItemMedia",
 ]
 
 

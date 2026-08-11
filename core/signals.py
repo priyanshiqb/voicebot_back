@@ -12,13 +12,15 @@ shell, and a host whose working hours silently stopped following them because th
 change came in through the wrong door is not a bug anyone would find quickly.
 """
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import m2m_changed, post_save, pre_save
 from django.dispatch import receiver
 
 from core.models.agent_call_log import AgentCallLog
 from core.models.availability_exception import AvailabilityException
 from core.models.booking_participant import BookingParticipant
+from core.models.catalog_item import CatalogItem
 from user.models import CustomUser
 
 # Stashed on the instance between pre_save and post_save. An attribute rather than
@@ -123,3 +125,57 @@ def link_participant_to_contact(sender, instance, **kwargs):
     contact = find_contact(tenant_id, instance.phone_number)
     if contact is not None:
         instance.contact = contact
+
+
+@receiver(m2m_changed, sender=CatalogItem.add_on_items.through)
+def validate_catalog_add_ons(sender, instance, action, reverse, pk_set, **kwargs):
+    """Refuse an add-on link that is cross-tenant, self-referential, or not an add-on.
+
+    A signal rather than `CatalogItem.clean()` because `clean()` cannot see this at
+    all: M2M rows are written after the instance is saved, so `full_clean()` on a new
+    item validates an empty relation. This receiver is the only hook that fires for
+    every path — `item.add_on_items.add(x)`, `.set([...])`, the admin's
+    `filter_horizontal` widget, a serializer, and the shell alike.
+
+    The serializer should still validate, so the API returns a field error rather than
+    a 500. This is the backstop that makes the rule true regardless.
+    """
+    if action not in ("pre_add", "pre_remove") or not pk_set:
+        return
+    if action == "pre_remove":
+        return
+
+    # `reverse` means someone wrote `add_on.add_on_for.add(item)` — the roles are
+    # swapped, and the thing being validated as an add-on is `instance`, not the set.
+    if reverse:
+        if instance.item_kind != CatalogItem.ItemKind.ADD_ON:
+            raise ValidationError(
+                f"'{instance.name}' is not an add-on (item_kind is "
+                f"{instance.item_kind}), so it cannot be added to another item."
+            )
+        parent_ids, add_on_ids = pk_set, {instance.pk}
+    else:
+        parent_ids, add_on_ids = {instance.pk}, pk_set
+
+    if parent_ids & add_on_ids:
+        raise ValidationError("An item cannot be its own add-on.")
+
+    tenant_ids = set(
+        CatalogItem.objects.filter(pk__in=parent_ids | add_on_ids).values_list(
+            "tenant_id", flat=True
+        )
+    )
+    if len(tenant_ids) > 1:
+        raise ValidationError("Add-ons must belong to the same tenant as the item.")
+
+    if not reverse:
+        wrong_kind = list(
+            CatalogItem.objects.filter(pk__in=add_on_ids)
+            .exclude(item_kind=CatalogItem.ItemKind.ADD_ON)
+            .values_list("name", flat=True)
+        )
+        if wrong_kind:
+            raise ValidationError(
+                "Only items with item_kind=ADD_ON can be attached as add-ons. "
+                f"Rejected: {', '.join(wrong_kind)}."
+            )
