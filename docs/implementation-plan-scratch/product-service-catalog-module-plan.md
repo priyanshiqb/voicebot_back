@@ -4,7 +4,19 @@
 URLs, admin, or API docs are designed here — those come in a separate API plan once this shape
 is agreed. Same split as [company-directory-module-plan.md](company-directory-module-plan.md).
 
-**Status:** design proposal. Field list needs your sign-off before any code is written.
+**Status:** **model layer and API layer both built and green.** Four models, admin, migration
+`0046`, 124 model tests; serializers, viewsets, URLs and API docs. `manage.py check` clean,
+OpenAPI schema generates with zero errors, `core` + `tenant` suite (1100 tests) green. Built on
+the §16 defaults, since Q1–Q7 were left to them.
+
+**Test coverage:** 506 catalog tests across three layers — 125 model, 219 serializer, 162 API
+(including 13 named regression tests, each verified to fail when its bug is reintroduced). Full
+`core` + `tenant` suite: 1482 tests, green.
+
+**Nothing is outstanding.** What remains is deferred by decision, not by oversight: the §13
+list (bundle components, modifier groups, slab pricing, tenant-defined attribute schemas,
+per-location stock) and **Q2** in §16 — whether catalog descriptions should sync to the RAG
+service. Q2 is the only open question that would change a base class.
 
 ---
 
@@ -649,13 +661,22 @@ silently mangling.
 ```python
 # Product & Service Catalog
 CATALOG_DEFAULT_CURRENCY       = env.str("CATALOG_DEFAULT_CURRENCY", default="INR")
-CATALOG_MAX_CATEGORY_DEPTH     = env.int("CATALOG_MAX_CATEGORY_DEPTH", default=3)
 CATALOG_MAX_VARIANTS_PER_ITEM  = env.int("CATALOG_MAX_VARIANTS_PER_ITEM", default=100)
 CATALOG_MAX_TAGS_PER_ITEM      = env.int("CATALOG_MAX_TAGS_PER_ITEM", default=25)
 CATALOG_MAX_ALIASES_PER_ITEM   = env.int("CATALOG_MAX_ALIASES_PER_ITEM", default=25)
 CATALOG_MAX_ATTRIBUTE_BYTES    = env.int("CATALOG_MAX_ATTRIBUTE_BYTES", default=8192)
 CATALOG_MAX_MEDIA_PER_ITEM     = env.int("CATALOG_MAX_MEDIA_PER_ITEM", default=10)
+CATALOG_MAX_ADD_ONS_PER_ITEM   = env.int("CATALOG_MAX_ADD_ONS_PER_ITEM", default=50)
 ```
+
+> **`CATALOG_MAX_CATEGORY_DEPTH` is deliberately not a setting** (changed during the build).
+> The depth cap is enforced by a CheckConstraint, and a constraint built from a runtime setting
+> is frozen into the migration at `makemigrations` time and then silently diverges the moment
+> anyone edits the environment — the database keeps the old number while the code reports the
+> new one. It lives as `core.models.catalog_category.MAX_CATEGORY_DEPTH` instead, the same way
+> `EventTemplate` holds `MAX_HORIZON_DAYS`. `CATALOG_DEFAULT_CURRENCY` stays a setting because
+> the field default is a **callable**, so Django serialises the function reference rather than
+> the value and the setting can change without a migration.
 
 Follows [contact-module-plan §4](contact-module-plan.md#4-settings-configsettingsbasepy). The
 caps on `attributes`, `tags` and `aliases` are enforced in the serializer — a JSON column with no
@@ -831,8 +852,22 @@ Run with `--settings=config.settings.test_postgres` — `ArrayField`, `JSONField
 | `core/admin/catalog_item_media_admin.py` | **new** (Q3) |
 | `core/admin/__init__.py` | register all four |
 | `config/settings/base.py` | the seven `CATALOG_*` settings (§12) |
-| `core/migrations/00XX_catalog.py` | generated — 4 `CreateModel` + the auto-created `add_on_items` through table, 6 unique constraints, 12 check constraints, 9 indexes |
-| `core/tests/catalog/` | **new** — `__init__.py` + `test_catalog_category.py`, `test_catalog_item.py`, `test_catalog_variant.py`, `test_catalog_add_ons.py`, `test_business_type_coverage.py` |
+| `core/signals.py` | `m2m_changed` receiver enforcing the add-on rules (see below) |
+| `core/migrations/0046_catalogcategory_catalogitem_catalogitemmedia_and_more.py` | generated — 4 `CreateModel` + the auto-created `core_catalog_items_add_on_items` through table, 6 partial unique indexes, 12 check constraints, 9 indexes |
+| `core/tests/catalog/` | **new** — `__init__.py`, `base.py` (shared factories), `test_catalog_category.py`, `test_catalog_item.py`, `test_catalog_variant.py`, `test_catalog_add_ons.py`, `test_business_type_coverage.py` |
+
+**Why the add-on rules are a signal and not `clean()`** (decided during the build): `clean()`
+cannot see an M2M at all. The rows are written *after* the instance is saved, so `full_clean()`
+on a new item validates an empty relation and passes. An `m2m_changed` receiver on `pre_add` is
+the only hook that fires for `.add()`, `.set()`, the admin's `filter_horizontal` widget, a
+serializer and the shell alike. The serializer should still validate so the API returns a field
+error rather than a 500; the receiver is what makes the rule true regardless of the door used.
+
+One consequence worth knowing before writing the API layer: Django runs `_add_items` inside
+`atomic(savepoint=False)`, so an exception from a `pre_add` receiver marks the **enclosing**
+transaction for rollback instead of unwinding a savepoint of its own. Under `ATOMIC_REQUESTS`
+that rolls the request back, which is the right outcome for a rejected write — but it means the
+serializer must reject bad add-ons *before* touching the relation, not rely on catching this.
 
 **Migration shape:** entirely additive. Four `CreateModel`s, no changes to existing tables, no
 data migration, no downtime consideration. Nothing existing is modified except
@@ -871,7 +906,7 @@ remembered examples. Four gaps found, recorded in full in §3.1.
 | Add-ons / modifiers | Every restaurant; retail warranties, installation, telecom | ✅ `item_kind=ADD_ON` + `add_on_items` M2M |
 | Date-priced rates & capacity | Hotels, cinemas, ticketed events | ⚠️ Raised as Q8 — resolved in v3 |
 
-Also: ten rows added to the §3 matrix; `unit_of_measure` widened from 14 values to 26 (`KM`,
+Also: ten rows added to the §3 matrix; `unit_of_measure` widened from 14 values to 28 (`KM`,
 `PERCENT`, `QUINTAL`, `ACRE`, `TONNE`, `VISIT`, `TRIP` and others were simply absent); three new
 check constraints; a "considered and declined" list so that deliberate omissions are
 distinguishable from oversights.

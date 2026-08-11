@@ -18,6 +18,12 @@
   * [Contact Import - Bulk CSV](apiDocs/core/contact_import.md)
   * [Company Directory](apiDocs/core/directory_contact.md)
 
+* **🛒 Product & Service Catalog**
+  * [Catalog Items](apiDocs/core/catalog_item.md)
+  * [Catalog Variants - Pricing](apiDocs/core/catalog_variant.md)
+  * [Catalog Categories](apiDocs/core/catalog_category.md)
+  * [Catalog Item Media](apiDocs/core/catalog_item_media.md)
+
 * **📣 Campaigns**
   * [Overview & Complete Flow](campaigns/README.md)
   * [Campaigns API](apiDocs/core/campaign.md)
