@@ -29,4 +29,6 @@ urlpatterns = [
     # Campaigns
     path("", include("core.urls.campaign")),
     path("", include("core.urls.campaign_runner")),
+    # Product & Service Catalog
+    path("", include("core.urls.catalog")),
 ]
