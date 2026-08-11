@@ -42,6 +42,12 @@ from core.admin.contact_import_admin import (
 from core.admin.campaign_admin import CampaignAdmin
 from core.admin.campaign_member_admin import CampaignMemberAdmin
 
+# Product & Service Catalog
+from core.admin.catalog_category_admin import CatalogCategoryAdmin
+from core.admin.catalog_item_admin import CatalogItemAdmin
+from core.admin.catalog_variant_admin import CatalogVariantAdmin
+from core.admin.catalog_item_media_admin import CatalogItemMediaAdmin
+
 __all__ = [
     "KBTextAdmin",
     "KBFilesAdmin",
@@ -74,6 +80,10 @@ __all__ = [
     "ContactImportRowAdmin",
     "CampaignAdmin",
     "CampaignMemberAdmin",
+    "CatalogCategoryAdmin",
+    "CatalogItemAdmin",
+    "CatalogVariantAdmin",
+    "CatalogItemMediaAdmin",
 ]
 
 
