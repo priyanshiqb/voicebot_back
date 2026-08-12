@@ -84,6 +84,9 @@
   * [Tenant Settings](apiDocs/tenant/settings.md)
   * [Email Configuration - SMTP](apiDocs/tenant/email_configuration.md)
 
+* **📤 File Uploads**
+  * [Complete Integration Flow](flows/file-upload.md)
+
 * **🧹 Maintenance Commands**
   * [Overview - Which One Do I Want?](commands/README.md)
   * [Abandoned Upload Sweep](commands/cleanup_pending_uploads.md)
