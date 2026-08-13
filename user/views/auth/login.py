@@ -13,9 +13,8 @@ from user.serializers.custom_user import UserRefSerializer
 from onboard.serializers.onboarding import GeneralResponseSerializer
 
 import datetime
-from datetime import timezone as dt_timezone
-from user.models.user_session import UserSession
-from utils.device_utils import parse_user_agent, get_client_ip
+from django.db import transaction
+from user.services import sessions as session_service
 
 @extend_schema(
     tags=["Auth - Access"],
@@ -32,6 +31,15 @@ from utils.device_utils import parse_user_agent, get_client_ip
         403: OpenApiResponse(
             response=GeneralResponseSerializer,
             description="Account or IP locked due to too many failed login attempts."
+        ),
+        503: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description=(
+                "Credentials were correct but the session could not be registered, so "
+                "no tokens are issued. Every authenticated request resolves its access "
+                "token against that session row — returning tokens without one would "
+                "mean a login that 401s on every call. Safe to retry."
+            )
         )
     }
 )
@@ -57,47 +65,35 @@ class LoginAPIView(ResponseMixin, APIView):
 
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
-        user.last_login = timezone.now()
-        user.save(update_fields=["last_login"])
         refresh = RefreshToken.for_user(user)
-        
+
         # Override expiration based on user's custom timeout (in hours)
         timeout_hours = getattr(user, 'session_timeout_hours', 168)
         refresh.set_exp(lifetime=datetime.timedelta(hours=max(1, timeout_hours)))
-        
+
         access = refresh.access_token
 
-        # Create active UserSession record
+        # The session row is part of the login, not bookkeeping alongside it. Every
+        # authenticated request resolves its access token against this row, so tokens
+        # issued without one are dead on arrival — every call 401s.
+        #
+        # This used to swallow the failure and return the tokens anyway, which turned a
+        # transient database blip into "login succeeded, nothing works" with only a
+        # warning in the logs to explain it. Failing loudly gives the client something
+        # it can retry.
+        #
+        # Atomic with the last_login stamp so the two cannot half-apply.
         try:
-            refresh_jti = refresh.get("jti")
-            access_jti = access.get("jti")
-            
-            refresh_iat_val = refresh.get("iat")
-            refresh_exp_val = refresh.get("exp")
-            access_iat_val = access.get("iat")
-            access_exp_val = access.get("exp")
-            
-            refresh_iat = datetime.datetime.fromtimestamp(refresh_iat_val, tz=dt_timezone.utc) if refresh_iat_val else None
-            refresh_exp = datetime.datetime.fromtimestamp(refresh_exp_val, tz=dt_timezone.utc) if refresh_exp_val else None
-            access_iat = datetime.datetime.fromtimestamp(access_iat_val, tz=dt_timezone.utc) if access_iat_val else None
-            access_exp = datetime.datetime.fromtimestamp(access_exp_val, tz=dt_timezone.utc) if access_exp_val else None
-            
-            expires_at = refresh_exp or (datetime.datetime.now(tz=dt_timezone.utc) + datetime.timedelta(days=1))
-
-            UserSession.objects.create(
-                user=user,
-                refresh_jti=refresh_jti,
-                access_jti=access_jti,
-                access_iat=access_iat,
-                access_exp=access_exp,
-                refresh_iat=refresh_iat,
-                refresh_exp=refresh_exp,
-                device_name=parse_user_agent(request.headers.get("User-Agent")),
-                ip_address=get_client_ip(request),
-                expires_at=expires_at
+            with transaction.atomic():
+                user.last_login = timezone.now()
+                user.save(update_fields=["last_login"])
+                session_service.create_for_tokens(user, request, refresh, access)
+        except Exception:
+            logger.exception("Failed to create UserSession during login for %s", user.pk)
+            return self.error(
+                message="Could not start a session. Please try again.",
+                status_code=503,
             )
-        except Exception as session_err:
-            logger.warning("Failed to create UserSession: %s", str(session_err))
 
         return self.success(
             data={

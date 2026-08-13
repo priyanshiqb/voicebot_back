@@ -84,6 +84,9 @@
   * [Tenant Settings](apiDocs/tenant/settings.md)
   * [Email Configuration - SMTP](apiDocs/tenant/email_configuration.md)
 
+* **🔐 Authentication**
+  * [Login, Tokens & Requests](flows/authentication.md)
+
 * **📤 File Uploads**
   * [Complete Integration Flow](flows/file-upload.md)
 

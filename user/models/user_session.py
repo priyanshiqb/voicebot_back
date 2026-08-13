@@ -31,44 +31,77 @@ class UserSession(BaseModelCore):
         verbose_name = "User Session"
         verbose_name_plural = "User Sessions"
 
+    #: How long a *positive* verdict is trusted without re-reading the row.
+    #: Deliberately short, and deliberately not the token's lifetime. A cached
+    #: "active" is only as fresh as this window, so anything that deactivates a
+    #: session **without** going through ``revoke()`` — an admin edit, a bulk
+    #: update, a direct SQL fix — takes effect within this many seconds rather
+    #: than immediately. Every in-code revocation path writes "revoked" to the
+    #: same key and is therefore instant; this bounds the ones that do not.
+    POSITIVE_CACHE_SECONDS = 60
+
+    @classmethod
+    def _positive_cache_seconds(cls):
+        return int(
+            getattr(settings, "SESSION_CACHE_TTL_SECONDS", cls.POSITIVE_CACHE_SECONDS)
+        )
+
     @classmethod
     def validate_session_jti(cls, jti):
         """
-        Validates the JTI against cache and PostgreSQL.
-        Handles Redis downtime gracefully.
-        
+        Confirm that an access token's session is still usable.
+
+        **Reads the database only on a cache miss.** The previous version consulted
+        the cache but then issued ``objects.get(...)`` unconditionally, so every
+        authenticated request in the system cost one query against
+        ``user_sessions``; the cache saved the ``last_used`` *write*, not the read.
+        That single query set the ceiling on request throughput.
+
+        Asymmetric TTLs, because the two answers have different risk:
+
+        * **"revoked"** is cached for the token's remaining life. It cannot become
+          valid again, so re-checking it is pure waste, and a rejected token stays
+          cheap for as long as it exists.
+        * **"active"** is cached for ``SESSION_CACHE_TTL_SECONDS`` (60s) only — see
+          :attr:`POSITIVE_CACHE_SECONDS` for why it is not the token lifetime.
+
+        Redis being unavailable degrades to a database read per request, which is
+        the old behaviour: slower, never wrong.
+
         Args:
             jti (str): The JWT Access Token JTI claim.
-            
+
         Returns:
-            UserSession: The active UserSession object if valid.
-            
+            UserSession | None: the row when it had to be read; ``None`` when the
+            cached verdict was enough. **Callers must treat "no exception" as the
+            result** and not rely on the return value.
+
         Raises:
-            cls.DoesNotExist: If session is invalid, expired, or revoked.
+            cls.DoesNotExist: If the session is invalid, expired, or revoked.
         """
         cache_key = f"user_session:access:{jti}"
-        cache_key_last_used = f"user_session:last_used:{jti}"
-        
+
         status = None
-        last_cached_used = None
         try:
             status = cache.get(cache_key)
-            last_cached_used = cache.get(cache_key_last_used)
         except Exception as cache_err:
-            logger.warning("Cache lookup failed during JTI validation, falling back to DB: %s", str(cache_err))
-            
+            logger.warning(
+                "Cache lookup failed during JTI validation, falling back to DB: %s",
+                str(cache_err),
+            )
+
         if status == "revoked":
             raise cls.DoesNotExist("Session is invalid or logged out")
-            
+
+        if status == "active":
+            # The whole point: a valid, recently-checked session costs no query.
+            # `last_used` is refreshed on the next miss, which lands at most
+            # POSITIVE_CACHE_SECONDS from now — the same throttle the old
+            # last_used cache key implemented, minus a round trip.
+            return None
+
         now = timezone.now()
-            
-        # If cache hit (active) and last_used is within the last 60s,
-        # we can fetch the session but skip the DB update!
-        skip_db_update = False
-        if status == "active" and last_cached_used:
-            if (now.timestamp() - last_cached_used) < 60:
-                skip_db_update = True
-                
+
         try:
             session = cls.objects.get(
                 access_jti=jti,
@@ -82,25 +115,59 @@ class UserSession(BaseModelCore):
             except Exception as cache_err:
                 logger.warning("Failed to cache revocation status: %s", str(cache_err))
             raise
-            
-        if not skip_db_update:
-            session.update_last_used()
-            
-            # Calculate remaining seconds for the token, capping the cache TTL
-            fallback_timeout = settings.ACCESS_TOKEN_LIFETIME_SECONDS
-            
-            if session.access_exp:
-                remaining_seconds = int(session.access_exp.timestamp() - now.timestamp())
-                cache_timeout = min(fallback_timeout, max(0, remaining_seconds))
-            else:
-                cache_timeout = fallback_timeout
-                
+
+        session.update_last_used()
+
+        # Never outlive the token itself: a key that survived it would keep
+        # answering "active" for a credential that no longer exists.
+        timeout = cls._positive_cache_seconds()
+        if session.access_exp:
+            remaining = int(session.access_exp.timestamp() - now.timestamp())
+            timeout = min(timeout, max(0, remaining))
+
+        if timeout > 0:
             try:
-                cache.set(cache_key, "active", timeout=cache_timeout)
-                cache.set(cache_key_last_used, now.timestamp(), timeout=cache_timeout)
+                cache.set(cache_key, "active", timeout=timeout)
             except Exception as cache_err:
                 logger.warning("Failed to cache session active status: %s", str(cache_err))
-                
+
+        return session
+
+    @classmethod
+    def get_active_session(cls, jti):
+        """Return the live ``UserSession`` for an access token, or raise.
+
+        For callers that need the **row**, not just a verdict — the WebSocket
+        handshake, which puts it in the connection scope so a consumer can address
+        messages at one session.
+
+        Separate from :meth:`validate_session_jti` on purpose. That one may answer
+        from cache and return ``None``, which is right for an HTTP request checking
+        "is this still valid?" thousands of times, and wrong here. A WebSocket
+        handshake happens once per connection, so a guaranteed read costs nothing
+        worth optimising away — whereas quietly handing back ``None`` would leave
+        ``scope["session"]`` empty and break session-scoped messaging in a way that
+        only shows up under a warm cache.
+
+        The revoked-cache check is still honoured, so a logged-out token is refused
+        without touching the database.
+        """
+        cache_key = f"user_session:access:{jti}"
+        try:
+            if cache.get(cache_key) == "revoked":
+                raise cls.DoesNotExist("Session is invalid or logged out")
+        except cls.DoesNotExist:
+            raise
+        except Exception as cache_err:
+            logger.warning(
+                "Cache lookup failed during session load, falling back to DB: %s",
+                str(cache_err),
+            )
+
+        session = cls.objects.get(
+            access_jti=jti, is_active=True, expires_at__gt=timezone.now()
+        )
+        session.update_last_used()
         return session
 
     def revoke(self):

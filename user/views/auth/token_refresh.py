@@ -30,9 +30,18 @@ from user.models.user_session import UserSession
         400: OpenApiResponse(
             response=GeneralResponseSerializer,
             description="Invalid or missing refresh token, or inactive/deleted user account."
+        ),
+        503: OpenApiResponse(
+            response=GeneralResponseSerializer,
+            description=(
+                "Tokens were rotated but the session row could not be updated, so no "
+                "tokens are returned — they would reference a session that still points "
+                "at the previous pair and would 401 immediately. **Terminal for this "
+                "token**: rotation already invalidated the one you sent, so log in again."
+            )
         )
     }
-)       
+)    
 class TokenRefreshAPIView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -119,16 +128,32 @@ class TokenRefreshAPIView(ResponseMixin, APIView):
                 session.refresh_exp = new_refresh_exp
                 session.expires_at = new_expires_at
                 session.save(update_fields=[
-                    "refresh_jti", 
-                    "access_jti", 
-                    "access_iat", 
-                    "access_exp", 
-                    "refresh_iat", 
-                    "refresh_exp", 
+                    "refresh_jti",
+                    "access_jti",
+                    "access_iat",
+                    "access_exp",
+                    "refresh_iat",
+                    "refresh_exp",
                     "expires_at"
                 ])
-            except Exception as rotation_err:
-                logger.warning("Failed to rotate UserSession JTIs: %s", str(rotation_err))
+            except Exception:
+                # The row still points at the OLD jtis, so the pair we just minted
+                # would 401 on its first use — the new access_jti matches nothing.
+                # Returning them anyway (which is what this used to do) hands the
+                # client credentials that cannot work and reports success.
+                #
+                # 503 is the honest answer, and it is genuinely terminal for this
+                # token: rotation already blacklisted the one the caller sent, so
+                # they must log in again. That is worse than a clean retry and much
+                # better than silently broken auth.
+                logger.exception(
+                    "Failed to rotate UserSession %s; the issued tokens are unusable",
+                    session.pk,
+                )
+                return self.error(
+                    message="Could not refresh the session. Please log in again.",
+                    status_code=503,
+                )
 
             return self.success(
                 data=serializer.validated_data,

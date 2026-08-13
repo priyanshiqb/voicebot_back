@@ -369,6 +369,30 @@ SIMPLE_JWT = {
     "CHECK_USER_IS_ACTIVE": True,
 }
 
+# --- Session hygiene --------------------------------------------------------
+# How long an EXPIRED login session is kept before deletion, measured from expiry
+# rather than creation. Rows hold an IP address and a device name, so this is a
+# privacy window before a disk one: a 7-day session removed 30 days after it
+# expired stayed visible for 37, which is what an "unrecognised device"
+# investigation needs.
+#
+# The same daily task also runs SimpleJWT's `flushexpiredtokens`. With
+# ROTATE_REFRESH_TOKENS and BLACKLIST_AFTER_ROTATION both on, every refresh writes
+# an outstanding-token row and blacklists the old one — roughly eight per active
+# user per day — and nothing else ever removes them.
+USER_SESSION_RETENTION_DAYS = env.int("USER_SESSION_RETENTION_DAYS", default=30)
+USER_SESSION_PURGE_BATCH = env.int("USER_SESSION_PURGE_BATCH", default=5000)
+
+# How long a *positive* session check is trusted without re-reading the row.
+# This is what keeps an authenticated request from costing a query: the previous
+# implementation consulted the cache and then read the database anyway.
+#
+# Deliberately short, and deliberately not the token lifetime. Every in-code
+# revocation path (logout, refresh rotation) writes "revoked" to the same key and
+# so takes effect immediately; this bounds only the paths that do not — an admin
+# edit, a bulk update, a direct SQL fix — to at most this many seconds.
+SESSION_CACHE_TTL_SECONDS = env.int("SESSION_CACHE_TTL_SECONDS", default=60)
+
 REDIS_HOST = env("REDIS_HOST")
 REDIS_PORT = env("REDIS_PORT")
 
@@ -644,6 +668,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     "purge-email-delivery-logs": {
         "task": "user.tasks.purge_email_delivery_logs",
+        "schedule": 86400.0,  # daily
+    },
+    "purge-expired-sessions": {
+        "task": "user.tasks.purge_expired_sessions",
         "schedule": 86400.0,  # daily
     },
     "scheduling-cleanup-expired-holds": {

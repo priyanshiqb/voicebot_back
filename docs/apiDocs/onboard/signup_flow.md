@@ -551,6 +551,15 @@ tenant, and subscription.
 | **400** | Signature does not verify. | `Validation failed` / signature error | `[...]` |
 | **404** | No transaction for that order id, or it belongs to someone else. | `Transaction not found for this user` | `["TRANSACTION_NOT_FOUND"]` |
 | **401** / **403** | Missing, expired, or non-temp token. | see [The temporary token](#the-temporary-token) | — |
+| **503** | **Payment succeeded and the account exists**, but the session could not be registered, so no tokens are issued. Send the user to [login](../user/auth.md#1-login). | `Your payment was successful and your account is ready, but we could not sign you in automatically. Please log in to continue.` | `null` |
+
+> ⚠️ **A `503` here is not a failed payment.** By the time it can occur the charge is verified and
+> the account is created — only the automatic sign-in failed. Do **not** show a payment-error screen
+> or prompt the user to pay again; direct them to log in with the credentials they just chose.
+>
+> The alternative would be returning tokens anyway, which is what this used to do: every
+> authenticated request resolves its access token against a session row, so tokens issued without
+> one `401` on every call. A clear "please log in" beats an account that appears broken.
 
 > **Idempotent by design.** If the [webhook](./webhooks.md) completed the order first, this
 > endpoint recognises the `SUCCESSFUL` transaction and issues tokens for the account that already

@@ -28,7 +28,11 @@ def get_user_from_token(token_string):
             
             from user.models.user_session import UserSession
             try:
-                session = UserSession.validate_session_jti(jti)
+                # get_active_session, not validate_session_jti: the row itself goes
+                # into the connection scope so consumers can address one session,
+                # and the validate path may answer from cache and return None. A
+                # handshake happens once per connection, so the read is free.
+                session = UserSession.get_active_session(jti)
                 return user, session, None
             except UserSession.DoesNotExist:
                 return None, None, "Session is invalid or logged out"

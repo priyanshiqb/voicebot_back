@@ -70,3 +70,29 @@ def purge_email_delivery_logs():
 
     logger.info("purged %s email delivery log rows", deleted)
     return deleted
+
+
+@shared_task
+def purge_expired_sessions():
+    """Beat task: prune login sessions and SimpleJWT's refresh-token blacklist.
+
+    Two tables that grew without bound until this existed. ``user_sessions`` gains a
+    row per login and holds an IP address and device name, so retention is a privacy
+    obligation as much as a disk one. The blacklist gains a row pair per *refresh* —
+    with rotation on and a 60-minute access token, roughly eight per active user per
+    day — and a blacklist entry for an already-expired token protects nothing.
+
+    Neither deletion can re-send or re-authorise anything, unlike
+    ``core.tasks.purge_notification_logs`` whose rows are an idempotency mechanism.
+    Here a deleted row is simply forgotten.
+    """
+    from user.services import sessions as session_service
+
+    result = session_service.sweep()
+    logger.info(
+        "session sweep: %s deactivated, %s purged, blacklist flushed=%s",
+        result["deactivated"],
+        result["purged"],
+        result["blacklist_flushed"],
+    )
+    return result["purged"]

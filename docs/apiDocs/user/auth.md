@@ -97,6 +97,13 @@ Exchange credentials for a token pair and open a session.
 | **400** | **The email belongs to an unfinished signup.** See below. | `Your registration is still pending. Please complete your onboarding.` | `{"onboarding_pending": true, "temp_registration_id": "…", "email": "…"}` |
 | **400** | `email` malformed or either field missing. | `This field is required.` | `{"<field>": [...]}` |
 | **403** | Five failed attempts for this email **or** from this IP. | `Account or IP temporarily locked due to too many failed login attempts. Please try again in 1 hour.` | `null` |
+| **503** | Credentials were correct, but the session could not be registered. **No tokens are issued.** Safe to retry. | `Could not start a session. Please try again.` | `null` |
+
+> **Why a correct password can still return `503`.** A login issues tokens *and* writes a
+> `UserSession` row; every authenticated request afterwards resolves its access token against
+> that row. Returning tokens without one would hand you credentials that 401 on every call —
+> "logged in, and nothing works". So the write is part of the login, and its failure is
+> reported rather than swallowed. Treat it as a transient failure and retry the login.
 
 > **Handle the onboarding-pending case explicitly.** If the credentials match a `TempUser` who has
 > not finished signing up, login fails with a `400` carrying `errors.onboarding_pending: true` and a
@@ -176,12 +183,22 @@ Rotate an expiring access token.
 | **400** | The account has been soft-deleted since login. | `User account is deleted.` |
 | **400** | The session was logged out, revoked, or expired. | `Session is invalid or has been logged out.` |
 | **400** | The token's user no longer exists. | `User not found.` |
+| **503** | Tokens rotated, but the session row could not be updated. **No tokens are returned, and the token you sent is already spent.** Log in again. | `Could not refresh the session. Please log in again.` |
 
 > **Replace both tokens in storage.** The response contains a new `refresh` as well as a new
 > `access`. Keeping the old refresh token guarantees the next refresh fails.
 
-> **Every failure here is a `400`, never a `401`.** Unusual for an auth endpoint — do not branch on
-> `401` to detect an expired session; branch on the `400` and its `message`.
+> **No failure here is a `401`.** Unusual for an auth endpoint — do not branch on `401` to detect
+> an expired session. Everything recoverable is a `400`; the one `503` is not recoverable and means
+> "start a fresh login".
+
+> ⚠️ **Do not refresh concurrently.** Rotation invalidates the token you sent, so if two requests
+> refresh with the same token the second gets `Invalid refresh token.` and most clients respond by
+> logging the user out. This bites hardest with multiple browser tabs, or when several API calls
+> `401` at once and each triggers its own refresh.
+>
+> **Serialise it:** keep one in-flight refresh promise per client and have every other caller await
+> it, rather than issuing their own. There is no server-side grace window for a replayed token.
 
 > **The new refresh token's lifetime comes from the user's `session_timeout_hours`**, re-applied on
 > each rotation. Changing that value takes effect from the next refresh onwards, not immediately.

@@ -15,6 +15,7 @@ from**:
 | Find bucket objects no database row knows about | [`audit_orphaned_objects`](audit_orphaned_objects.md) | No, unless `--delete` |
 | Delete KB files never attached to a Knowledge Base | [`cleanup_orphaned_kb_files`](cleanup_orphaned_kb_files.md) | Yes — `--dry-run` to preview |
 | Check whether any row references another tenant's object | `audit_upload_key_ownership` | **No — read-only** |
+| Prune expired login sessions + the JWT blacklist | `purge_expired_sessions` | Yes — `--dry-run` to preview. **Already scheduled daily** |
 
 ## The two that are easily confused
 
@@ -51,6 +52,33 @@ report.** Each row means one tenant could read another tenant's file. Preserve t
 identify the affected tenants, and follow your disclosure process before deleting
 anything.
 
+## Sessions and the JWT blacklist
+
+`purge_expired_sessions` covers two tables that grew with every login and every
+token refresh, and which nothing pruned:
+
+- **`user_sessions`** — one row per login. `is_active` was only ever set `False` by
+  an explicit logout, so an expired session stayed `is_active=True` forever. The
+  sweep now marks them inactive, then deletes those past
+  `USER_SESSION_RETENTION_DAYS`. Rows hold an IP address and a device name, so this
+  is a privacy obligation as much as a disk one.
+- **SimpleJWT's blacklist** — `ROTATE_REFRESH_TOKENS` and `BLACKLIST_AFTER_ROTATION`
+  are both on, so *every refresh* writes an outstanding-token row and blacklists the
+  old one. With a 60-minute access token that is roughly eight row pairs per active
+  user per day. The sweep runs SimpleJWT's own `flushexpiredtokens`; a blacklist
+  entry for an already-expired token protects nothing, since the token is refused on
+  `exp` before the blacklist is consulted.
+
+```bash
+uv run python manage.py purge_expired_sessions --dry-run
+uv run python manage.py purge_expired_sessions
+uv run python manage.py purge_expired_sessions --older-than-days 90
+```
+
+Safe to automate — and already is (`purge-expired-sessions`, daily). Unlike
+`audit_orphaned_objects`, it deletes from data it can inspect, and unlike
+`core.NotificationLog` a deleted row here re-arms nothing.
+
 ## Related settings
 
 | Setting | Default | Affects |
@@ -59,5 +87,8 @@ anything.
 | `UPLOAD_URL_TTL_MINUTES` | 15 | Upload ticket lifetime. Must stay well below the sweep cutoff — `manage.py check` enforces it |
 | `UPLOAD_PRESIGN_METHOD` | `PUT` | `POST` signs the size limit into the upload policy |
 | `UPLOAD_VERIFY_CONTENT` | `True` | Checks uploaded bytes against the declared extension at confirm |
+| `USER_SESSION_RETENTION_DAYS` | 30 | How long an expired login session is kept, measured from expiry |
+| `USER_SESSION_PURGE_BATCH` | 5000 | Rows deleted per chunk by the session sweep |
+| `SESSION_CACHE_TTL_SECONDS` | 60 | How long a positive session check is trusted without a query. Bounds revocation latency for paths that bypass `revoke()` |
 
 See `.env.example` for the full annotated descriptions.

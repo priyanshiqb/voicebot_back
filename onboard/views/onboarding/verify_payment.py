@@ -30,7 +30,8 @@ User = get_user_model()
         200: VerifyPaymentResponseSerializer,
         400: GeneralResponseSerializer,
         401: GeneralResponseSerializer,
-        403: GeneralResponseSerializer
+        403: GeneralResponseSerializer,
+        503: GeneralResponseSerializer
     }
 )
 class VerifyPaymentView(ResponseMixin, APIView):
@@ -39,43 +40,38 @@ class VerifyPaymentView(ResponseMixin, APIView):
     serializer_class = VerifyPaymentSerializer
 
     def _create_user_session(self, user, request, refresh, access):
-        from user.models.user_session import UserSession
-        from utils.device_utils import parse_user_agent, get_client_ip
-        import datetime
-        from datetime import timezone as dt_timezone
+        """Register the session behind a freshly-minted token pair.
+
+        Returns ``None`` on success, or an error ``Response`` the caller must return.
+
+        Every authenticated request resolves its access token against this row, so a
+        pair issued without one is dead — every call 401s. Swallowing the failure and
+        returning the tokens anyway, which is what this used to do, meant a database
+        blip produced credentials that looked fine and worked nowhere.
+
+        **The payment is already verified and the account already exists** when this
+        runs, so a failure here costs the customer a sign-in, not their money. The
+        message says so, because "an error occurred" right after paying reads as a lost
+        payment.
+        """
         import logging
+
+        from user.services import sessions as session_service
+
         logger = logging.getLogger(__name__)
 
         try:
-            refresh_jti = refresh.get("jti")
-            access_jti = access.get("jti")
-            
-            refresh_iat_val = refresh.get("iat")
-            refresh_exp_val = refresh.get("exp")
-            access_iat_val = access.get("iat")
-            access_exp_val = access.get("exp")
-            
-            refresh_iat = datetime.datetime.fromtimestamp(refresh_iat_val, tz=dt_timezone.utc) if refresh_iat_val else None
-            refresh_exp = datetime.datetime.fromtimestamp(refresh_exp_val, tz=dt_timezone.utc) if refresh_exp_val else None
-            access_iat = datetime.datetime.fromtimestamp(access_iat_val, tz=dt_timezone.utc) if access_iat_val else None
-            access_exp = datetime.datetime.fromtimestamp(access_exp_val, tz=dt_timezone.utc) if access_exp_val else None
-            
-            expires_at = refresh_exp or (datetime.datetime.now(tz=dt_timezone.utc) + datetime.timedelta(days=1))
-
-            UserSession.objects.create(
-                user=user,
-                refresh_jti=refresh_jti,
-                access_jti=access_jti,
-                access_iat=access_iat,
-                access_exp=access_exp,
-                refresh_iat=refresh_iat,
-                refresh_exp=refresh_exp,
-                device_name=parse_user_agent(request.headers.get("User-Agent")),
-                ip_address=get_client_ip(request),
-                expires_at=expires_at
+            session_service.create_for_tokens(user, request, refresh, access)
+        except Exception:
+            logger.exception("Failed to create UserSession after payment for %s", user.pk)
+            return self.error(
+                message=(
+                    "Your payment was successful and your account is ready, but we "
+                    "could not sign you in automatically. Please log in to continue."
+                ),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        except Exception as session_err:
-            logger.warning("Failed to create UserSession: %s", str(session_err))
+        return None
 
     def post(self, request):
         temp_user = request.user
@@ -119,7 +115,9 @@ class VerifyPaymentView(ResponseMixin, APIView):
                     access = refresh.access_token
 
                     # Create active UserSession record
-                    self._create_user_session(user, request, refresh, access)
+                    session_error = self._create_user_session(user, request, refresh, access)
+                    if session_error is not None:
+                        return session_error
 
                     return self.success(
                         data={
@@ -213,7 +211,9 @@ class VerifyPaymentView(ResponseMixin, APIView):
         access = refresh.access_token
 
         # Create active UserSession record
-        self._create_user_session(user, request, refresh, access)
+        session_error = self._create_user_session(user, request, refresh, access)
+        if session_error is not None:
+            return session_error
 
         return self.success(
             data={
