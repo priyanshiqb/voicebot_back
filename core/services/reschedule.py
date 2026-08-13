@@ -23,6 +23,7 @@ from django.db import transaction
 from core.models.availability_exception import AvailabilityException
 from core.models.booking import Booking
 from core.models.booking_event import BookingEvent
+from core.models.notification_log import NotificationLog
 from core.services import deferred, events, notifications
 from core.services.time_utils import utcnow
 
@@ -34,10 +35,32 @@ logger = logging.getLogger(__name__)
 PROCESSABLE_STATUSES = (Booking.Status.SCHEDULED, Booking.Status.CONFIRMED)
 
 
-def _enqueue_push_admins(tenant_id, title, body):
-    from core.tasks import send_push_to_admins_task
+def _enqueue_push_admins(booking_id):
+    """Alert tenant admins that a booking needs rescheduling — at most once.
 
-    send_push_to_admins_task.delay(str(tenant_id), title, body)
+    Takes a booking id rather than pre-rendered strings so the notification can be
+    deduplicated and deep-linked: both need the booking's identity, and the previous
+    signature had thrown it away by the time the task ran.
+
+    ``push:`` prefixes the dedup key because the customer-facing email for the same
+    event already owns ``{booking}:RESCHEDULE_REQUEST:{token}`` in the same unique
+    index — an unprefixed key would make one channel suppress the other.
+    """
+    booking = Booking.objects.select_related("tenant").filter(pk=booking_id).first()
+    if booking is None:
+        return
+
+    notifications.emit_admin_push(
+        booking,
+        NotificationLog.NotificationType.RESCHEDULE_REQUEST,
+        f"push:{booking.id}:RESCHEDULE_REQUEST",
+        "Booking needs rescheduling",
+        booking.title,
+        # Several bookings can be flagged by one leave; collapsing on the booking
+        # keeps a retry from stacking duplicates without merging distinct alerts.
+        collapse_key=f"booking:{booking.id}",
+        route=f"bookings/{booking.id}",
+    )
 
 
 def _process_booking(tenant, booking_id, leave, now, token_ttl):
@@ -94,14 +117,7 @@ def _process_booking(tenant, booking_id, leave, now, token_ttl):
         transaction.on_commit(
             deferred.safe(notifications.send_reschedule_request, booking.id)
         )
-        transaction.on_commit(
-            deferred.safe(
-                _enqueue_push_admins,
-                tenant.id,
-                "Booking needs rescheduling",
-                booking.title,
-            )
-        )
+        transaction.on_commit(deferred.safe(_enqueue_push_admins, booking.id))
         return "flagged"
 
 

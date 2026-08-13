@@ -179,12 +179,30 @@ def sweep(now=None, dry_run=False):
     now = now or timezone.now()
 
     deactivated = 0 if dry_run else deactivate_expired_sessions(now=now)
+    # After the demotion above and before the purge below. A device whose session
+    # expired should stop receiving pushes — the client cannot tell us itself,
+    # because an expired refresh token leaves it with no credentials to call any
+    # endpoint with. Once purge_expired_sessions deletes the session row the link
+    # is nulled and the signal is gone, so the order here is load-bearing.
+    devices = 0 if dry_run else _deactivate_orphaned_devices()
     purged = purge_expired_sessions(now=now, dry_run=dry_run)
     flushed = False if dry_run else flush_expired_blacklist_tokens()
 
     return {
         "deactivated": deactivated,
+        "devices_deactivated": devices,
         "purged": purged,
         "blacklist_flushed": flushed,
         "retention_days": session_retention_days(),
     }
+
+
+def _deactivate_orphaned_devices():
+    """Push devices behind now-dead sessions. Tolerant of core being unavailable."""
+    try:
+        from core.services import device_tokens as token_service
+
+        return token_service.deactivate_for_dead_sessions()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to deactivate device tokens for expired sessions")
+        return 0

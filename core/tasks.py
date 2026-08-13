@@ -699,8 +699,48 @@ def renew_calendar_watches():
     return renewed
 
 
-@shared_task(base=ReportedTask)
-def send_push_to_user_task(tenant_id, user_id, title, body, data=None):
+def _run_push(self, notification_log_id, describe, send):
+    """Shared body for the push tasks: send, record the outcome, retry on failure.
+
+    Push used to be fire-and-forget — no retries and no record — so a transient FCM
+    failure dropped an operational alert with nothing but a warning line to show for
+    it. Email has had both since it was written; there was never a reason for push
+    to differ.
+
+    "Sent" here means **FCM accepted the message**. There is no per-device delivery
+    receipt in this API, so a SENT row is a record of acceptance, not of arrival.
+    """
+    from core.models.notification_log import NotificationLog
+
+    try:
+        sent = send()
+    except Exception as exc:  # noqa: BLE001
+        if self.request.retries >= self.max_retries:
+            _mark_notification(
+                notification_log_id, NotificationLog.Status.FAILED, error=str(exc)
+            )
+            logger.exception("push %s failed permanently: %s", describe, exc)
+            return 0
+        raise self.retry(exc=exc)
+
+    if sent:
+        _mark_notification(notification_log_id, NotificationLog.Status.SENT)
+    else:
+        # Zero accepted is not an exception: push may be unconfigured, or every
+        # device may have been retired. Either way there is nothing to retry, and
+        # a FAILED row with the reason beats a SENT row that delivered nothing.
+        _mark_notification(
+            notification_log_id,
+            NotificationLog.Status.FAILED,
+            error="No push accepted by FCM (push disabled, or no live device tokens).",
+        )
+    return sent
+
+
+@shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=30)
+def send_push_to_user_task(
+    self, tenant_id, user_id, title, body, data=None, notification_log_id=None, **envelope
+):
     from tenant.models.Tenant import Tenant
     from user.models import CustomUser
     from core.services import push
@@ -709,18 +749,46 @@ def send_push_to_user_task(tenant_id, user_id, title, body, data=None):
     user = CustomUser.objects.filter(pk=user_id).first()
     if tenant is None or user is None:
         return 0
-    return push.send_to_user(tenant, user, title, body, data)
+    return _run_push(
+        self,
+        notification_log_id,
+        f"to user {user_id}",
+        lambda: push.send_to_user(tenant, user, title, body, data, **envelope),
+    )
 
 
-@shared_task(base=ReportedTask)
-def send_push_to_admins_task(tenant_id, title, body, data=None):
+@shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=30)
+def send_push_to_admins_task(
+    self, tenant_id, title, body, data=None, notification_log_id=None, **envelope
+):
     from tenant.models.Tenant import Tenant
     from core.services import push
 
     tenant = Tenant.objects.filter(pk=tenant_id).first()
     if tenant is None:
         return 0
-    return push.notify_tenant_admins(tenant, title, body, data)
+    return _run_push(
+        self,
+        notification_log_id,
+        f"to admins of tenant {tenant_id}",
+        lambda: push.notify_tenant_admins(tenant, title, body, data, **envelope),
+    )
+
+
+@shared_task(base=ReportedTask)
+def sweep_device_tokens():
+    """Beat task: retire device tokens that stopped checking in, then purge dead rows.
+
+    Without this ``core_device_tokens`` grows forever and ``is_active`` decays into
+    "was reachable once" — the same pair of problems ``user_sessions`` had. Probing
+    is not part of the nightly run: it costs one FCM call per token and the age rule
+    already covers the same ground. Run ``purge_device_tokens --verify`` by hand when
+    a confirmed answer is worth the calls.
+    """
+    from core.services import device_tokens as token_service
+
+    result = token_service.sweep()
+    return result["deactivated"] + result["purged"]
 
 
 @shared_task(base=ReportedTask)

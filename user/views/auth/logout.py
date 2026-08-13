@@ -27,6 +27,32 @@ logger = logging.getLogger("django")
 )
 class LogoutAPIView(ResponseMixin, APIView):
 
+    def _deactivate_device(self, request):
+        """Stop pushes to the device signing out, if it named itself.
+
+        Best-effort on purpose: a logout that fails because push bookkeeping failed
+        would be a worse bug than the one this fixes. But it is not optional
+        behaviour — leaving the token active means the next alert lands on a device
+        the user has walked away from, and notification bodies render on lock
+        screens and shared browsers.
+
+        Scoped to the caller. Naming someone else's token silently does nothing,
+        exactly as ``device-tokens/deactivate/`` behaves.
+        """
+        device_token = (request.data.get("device_token") or "").strip()
+        if not device_token or not request.user or not request.user.is_authenticated:
+            return
+        try:
+            from core.models.device_token import DeviceToken
+
+            DeviceToken.objects.filter(
+                user=request.user, token=device_token
+            ).update(is_active=False, last_error="Signed out on this device")
+        except Exception as device_err:  # noqa: BLE001
+            logger.warning(
+                "Failed to deactivate device token on logout: %s", str(device_err)
+            )
+
     def post(self, request):
         refresh_token = request.data.get("refresh")
         if not refresh_token:
@@ -36,6 +62,8 @@ class LogoutAPIView(ResponseMixin, APIView):
         try:
             token = RefreshToken(refresh_token)
             token.blacklist()
+
+            self._deactivate_device(request)
 
             # Revoke UserSession
             try:

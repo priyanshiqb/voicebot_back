@@ -52,29 +52,49 @@ class DeviceTokenApiTests(TestCase):
         self.assertFalse(DeviceToken.objects.get(token="abc").is_active)
 
 
+class _Result:
+    def __init__(self, success=True, exception=None):
+        self.success = success
+        self.exception = exception
+
+
+class _Batch:
+    def __init__(self, *results):
+        self.responses = list(results)
+
+
 @REQUIRES_PG
 class PushSendTests(TestCase):
+    """Delivery goes through one multicast call, not a loop of single sends.
+
+    The mocks target ``send_each_for_multicast`` and hand failures back *inside* the
+    batch response, which is how firebase-admin actually reports per-token outcomes
+    — an exception raised from the call itself means the whole batch failed and
+    nothing is known about any individual token.
+    """
+
     def setUp(self):
         self.tenant = f.make_tenant()
         self.user = f.make_user(self.tenant)
 
     @patch("core.services.push._ensure_app", return_value=True)
-    @patch("firebase_admin.messaging.send")
+    @patch("firebase_admin.messaging.send_each_for_multicast")
     def test_send_to_user(self, mock_send, _ensure):
         DeviceToken.objects.create(
             tenant=self.tenant, user=self.user, token="tok-1", platform="WEB"
         )
+        mock_send.return_value = _Batch(_Result())
         sent = push.send_to_user(self.tenant, self.user, "Title", "Body")
         self.assertEqual(sent, 1)
         mock_send.assert_called_once()
 
     @patch("core.services.push._ensure_app", return_value=True)
-    @patch("firebase_admin.messaging.send")
+    @patch("firebase_admin.messaging.send_each_for_multicast")
     def test_invalid_token_deactivated(self, mock_send, _ensure):
         class UnregisteredError(Exception):
             pass
 
-        mock_send.side_effect = UnregisteredError("gone")
+        mock_send.return_value = _Batch(_Result(False, UnregisteredError("gone")))
         device = DeviceToken.objects.create(
             tenant=self.tenant, user=self.user, token="tok-x", platform="WEB"
         )

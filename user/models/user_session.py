@@ -176,15 +176,43 @@ class UserSession(BaseModelCore):
         """
         self.is_active = False
         self.save(update_fields=["is_active"])
-        
+
         # Invalidate access token from cache
         if self.access_jti:
             timeout = settings.ACCESS_TOKEN_LIFETIME_SECONDS
             if self.access_exp:
                 remaining = int(self.access_exp.timestamp() - timezone.now().timestamp())
                 timeout = max(60, remaining)  # Cache for at least 60s or exact remaining time
-                
+
             cache.set(f"user_session:access:{self.access_jti}", "revoked", timeout=timeout)
+
+        self.deactivate_device_tokens()
+
+    def deactivate_device_tokens(self, reason="Session ended"):
+        """Stop push notifications reaching the device this session was signed in on.
+
+        Nobody is signed in there any more, and notification bodies render on lock
+        screens and shared browsers — so the device should go quiet the moment the
+        session does, not whenever the client next remembers to tell us.
+
+        **Best-effort.** The session revocation above is the security-critical part
+        and has already been written; a failure to update push bookkeeping must not
+        be able to undo it or fail the request that asked for it. The nightly
+        ``deactivate_for_dead_sessions`` sweep is the backstop.
+        """
+        try:
+            from core.models.device_token import DeviceToken
+
+            return DeviceToken.objects.filter(session_id=self.pk, is_active=True).update(
+                is_active=False, last_error=reason
+            )
+        except Exception as device_err:  # noqa: BLE001
+            logger.warning(
+                "Failed to deactivate device tokens for session %s: %s",
+                self.pk,
+                str(device_err),
+            )
+            return 0
 
     def update_last_used(self):
         """

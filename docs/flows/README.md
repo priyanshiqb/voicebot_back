@@ -18,6 +18,7 @@ Mermaid diagram plus **step-by-step actions with the API endpoint**, the possibl
 | 5 | Notifications & push (email, `.ics`, reminders, FCM) | [05-notifications-and-push.md](05-notifications-and-push.md) | System |
 | 6 | AI agent booking (voicebot tool surface) | [06-ai-agent-booking.md](06-ai-agent-booking.md) | AI Agent |
 | — | **Implementation reference** — code-level internals, invariants, concurrency, known gaps | [booking-flow-internals.md](booking-flow-internals.md) | Engineers |
+| — | **FCM push end-to-end** — token lifecycle on the client, storage, sending, reaping, retention | [push-notifications.md](push-notifications.md) | Frontend + Engineers |
 
 ## System map
 

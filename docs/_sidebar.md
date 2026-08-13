@@ -1,5 +1,8 @@
 * [Welcome](README.md)
 
+* **⚡ Command Runbook**
+  * [Setup, Stack, Tests & Commands](runbook.md)
+
 * **🔌 WebSockets**
   * [WS Event Protocol](wsDocs/instruction.md)
 
@@ -90,11 +93,15 @@
 * **📤 File Uploads**
   * [Complete Integration Flow](flows/file-upload.md)
 
+* **🔔 Push Notifications**
+  * [FCM End-to-End Flow](flows/push-notifications.md)
+
 * **🧹 Maintenance Commands**
   * [Overview - Which One Do I Want?](commands/README.md)
   * [Abandoned Upload Sweep](commands/cleanup_pending_uploads.md)
   * [Orphaned Object Audit](commands/audit_orphaned_objects.md)
   * [Knowledge Base Files Cleanup](commands/cleanup_orphaned_kb_files.md)
+  * [Device Token Sweep](commands/purge_device_tokens.md)
 
 <!-- * **📐 Architecture**
   * [S3 Storage Service](architecture/s3-storage-service.md) -->

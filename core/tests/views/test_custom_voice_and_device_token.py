@@ -197,7 +197,10 @@ class DeviceTokenRegistrationTests(APITestCase):
         finally:
             DeviceToken.objects.filter = original_filter
 
-        self.assertEqual(calls["n"], 2, "the recovery lookup should have run")
+        # 1 blind lookup + 1 recovery lookup + 1 from the per-user cap check that
+        # runs after every registration. Asserted exactly rather than `>= 2` so a
+        # future change that adds a query here has to say so out loud.
+        self.assertEqual(calls["n"], 3, "the recovery lookup should have run")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(DeviceToken.objects.filter(token="fcm-race").count(), 1)
 

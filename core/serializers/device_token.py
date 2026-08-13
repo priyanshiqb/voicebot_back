@@ -15,6 +15,7 @@ class DeviceTokenSerializer(TenantBaseModelCoreSerializer):
             "platform",
             "is_active",
             "last_seen_at",
+            "last_error",
             "created_at",
             "updated_at",
             "deleted_at",
@@ -23,6 +24,7 @@ class DeviceTokenSerializer(TenantBaseModelCoreSerializer):
             "user",
             "is_active",
             "last_seen_at",
+            "last_error",
         )
 
     def validate_token(self, value):
@@ -34,7 +36,18 @@ class DeviceTokenSerializer(TenantBaseModelCoreSerializer):
 class DeviceTokenListSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceToken
-        fields = ("id", "user", "platform", "is_active", "last_seen_at", "created_at")
+        # `last_error` is exposed because "this device stopped getting alerts" was
+        # otherwise unanswerable — is_active alone cannot distinguish a sign-out
+        # from FCM rejecting the token from the staleness sweep aging it out.
+        fields = (
+            "id",
+            "user",
+            "platform",
+            "is_active",
+            "last_seen_at",
+            "last_error",
+            "created_at",
+        )
 
 
 class DeviceTokenDropdownSerializer(serializers.Serializer):

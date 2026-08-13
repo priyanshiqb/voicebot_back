@@ -171,14 +171,19 @@ so the guaranteed read costs nothing worth optimising away.
 
 ## What invalidates what
 
-| Event | Access token | Refresh token | Session row |
-|---|---|---|---|
-| Access token expires (60 min) | dead | fine | untouched |
-| Refresh (rotation) | old one revoked in cache | old one blacklisted | updated in place |
-| Logout | revoked in cache | blacklisted | `is_active=False` |
-| Revoke a device | revoked in cache | — | `is_active=False` |
-| Refresh token expires (default 7d) | — | dead | swept later |
-| Session row deleted by retention | — | — | gone |
+| Event | Access token | Refresh token | Session row | Push device |
+|---|---|---|---|---|
+| Access token expires (60 min) | dead | fine | untouched | untouched |
+| Refresh (rotation) | old one revoked in cache | old one blacklisted | updated in place | untouched |
+| Logout | revoked in cache | blacklisted | `is_active=False` | deactivated |
+| Revoke a device | revoked in cache | — | `is_active=False` | deactivated |
+| Refresh token expires (default 7d) | — | dead | swept later | deactivated by the sweep |
+| Session row deleted by retention | — | — | gone | already deactivated above |
+
+**Sessions own push devices.** A `DeviceToken` records the session it registered under, so
+the death of a session silences the device — including on plain expiry, which the client
+cannot report because it has no credentials left to call with. See
+[Push Notifications](push-notifications.md).
 
 ---
 

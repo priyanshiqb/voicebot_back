@@ -288,6 +288,13 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ),
     "EXCEPTION_HANDLER": "utils.exception.custom_exception_handler",
+    # Only consulted where a view sets `throttle_scope`, so this adds no global
+    # rate limit. Device registration is the one write a client is told to repeat
+    # on every app start, which makes an unbounded loop there indistinguishable
+    # from normal traffic until the table is full of junk.
+    "DEFAULT_THROTTLE_RATES": {
+        "device_token_register": env.str("DEVICE_TOKEN_REGISTER_RATE", default="60/hour"),
+    },
     # Subclasses drf-spectacular's AutoSchema to document the X-Tenant-ID header on the
     # operations agent tokens can reach, driven off each viewset's
     # `vb_agent_allowed_actions` so Swagger cannot drift from what is enforced.
@@ -694,6 +701,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.cleanup_pending_uploads",
         "schedule": 86400.0,  # daily
     },
+    "device-tokens-sweep": {
+        "task": "core.tasks.sweep_device_tokens",
+        "schedule": 86400.0,  # daily
+    },
     # 60s, not the 300s used for reminders: "starts automatically at the selected time"
     # is a user-facing promise, and a five-minute lag reads as broken.
     "campaigns-start-due": {
@@ -723,3 +734,23 @@ EXTERNAL_FREEBUSY_CACHE_SECONDS = env.int("EXTERNAL_FREEBUSY_CACHE_SECONDS", def
 # Firebase Cloud Messaging (push notifications). Path to the service-account JSON.
 # Leave blank to disable push (sends become no-ops).
 FIREBASE_CREDENTIALS = env.str("FIREBASE_CREDENTIALS", default="")
+
+# --- Device token lifecycle ---------------------------------------------------
+# An FCM token has no expiry and cannot be validated offline, so reachability is
+# inferred from how recently the client re-registered it. See
+# core.services.device_tokens and docs/flows/push-notifications.md.
+
+# Stop sending to a token not re-registered within this window (Google's own
+# staleness guidance is ~2 months; FCM itself reaps app instances at ~270 days).
+DEVICE_TOKEN_STALE_DAYS = env.int("DEVICE_TOKEN_STALE_DAYS", default=60)
+# How long a dead row is kept before deletion, measured from last contact.
+DEVICE_TOKEN_RETENTION_DAYS = env.int("DEVICE_TOKEN_RETENTION_DAYS", default=90)
+# Ceiling on live registrations per user per tenant; the oldest are retired.
+DEVICE_TOKEN_MAX_PER_USER = env.int("DEVICE_TOKEN_MAX_PER_USER", default=20)
+# Consecutive INVALID_ARGUMENT failures before a token is retired. Not 1 — that
+# error can mean a malformed message rather than a malformed token.
+DEVICE_TOKEN_FAILURE_STRIKES = env.int("DEVICE_TOKEN_FAILURE_STRIKES", default=3)
+DEVICE_TOKEN_PURGE_BATCH = env.int("DEVICE_TOKEN_PURGE_BATCH", default=5000)
+# How long FCM should keep retrying before dropping a push. A stale operational
+# alert is worse than none, so this is deliberately finite.
+PUSH_TTL_SECONDS = env.int("PUSH_TTL_SECONDS", default=86400)

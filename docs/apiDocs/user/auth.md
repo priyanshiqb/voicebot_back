@@ -130,6 +130,7 @@ Revokes the session and blacklists the refresh token.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `refresh` * | string | The refresh token for the session being closed. | Required. Must be a valid, unexpired, non-blacklisted refresh token. |
+| `device_token` | string | The FCM registration token of the device signing out. Deactivates it so push notifications stop reaching this device. | Optional. Matched against **your own** tokens only — naming someone else's silently does nothing. Unknown values are ignored. |
 
 | Status | When | `message` |
 |---|---|---|
@@ -141,6 +142,16 @@ Revokes the session and blacklists the refresh token.
 > **Logout revokes the access token too, not just the refresh.** The session's `access_jti` is
 > marked revoked in the cache, so the access token is rejected on its very next use rather than
 > remaining valid for up to an hour.
+
+> 🔔 **Send `device_token` if you use push.** Without it the device stays subscribed, and on a
+> shared browser or a re-issued handset the next alert lands in front of whoever is sitting there —
+> notification bodies render on lock screens. Do **both** halves on sign-out: call the Firebase
+> SDK's `deleteToken()` *and* pass the token here. Deactivating server-side alone leaves the device
+> subscribed at Google.
+>
+> Deactivation is **best-effort**: if it fails, the logout still succeeds with a `200`. A sign-out
+> that broke because push bookkeeping broke would be the worse bug. See
+> [Device Tokens](../core/device_token.md).
 
 > **You must send the refresh token even though you are authenticated with the access token.** The
 > access token alone does not say which session to close — a user may have several.

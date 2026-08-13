@@ -78,6 +78,15 @@ The client obtains its FCM registration token, then registers it via
 - **API version:** ensure **FCM API (V1)** is enabled; the legacy "Cloud Messaging API (Legacy)"
   server key is not used by `firebase-admin`.
 - **Dead tokens self-heal:** when FCM reports a token unregistered, push.py auto-deactivates that
-  `DeviceToken` — no action needed.
+  `DeviceToken` — no action needed. Tokens that simply stop checking in are retired by a nightly
+  sweep instead; see [`purge_device_tokens`](../commands/purge_device_tokens.md).
 - **One project, many tenants:** a single Firebase project serves all tenants; messages are
   targeted by device token, not project.
+- **A token from the wrong project fails loudly.** If a client is built against a different
+  Firebase project than the service account, every send returns `SENDER_ID_MISMATCH` and those
+  tokens are retired immediately. Check the client's `messagingSenderId` against the service
+  account's `project_id` before assuming the tokens are bad.
+- **iOS needs one more thing than this page lists.** Push to iOS requires an **APNs auth key**
+  uploaded under Cloud Messaging → Apple app configuration. Without it, iOS sends fail with
+  `ThirdPartyAuthError` — which is deliberately treated as *not the device's fault*, so those
+  tokens are left active rather than being wrongly retired while the certificate is missing.

@@ -16,6 +16,7 @@ from**:
 | Delete KB files never attached to a Knowledge Base | [`cleanup_orphaned_kb_files`](cleanup_orphaned_kb_files.md) | Yes — `--dry-run` to preview |
 | Check whether any row references another tenant's object | `audit_upload_key_ownership` | **No — read-only** |
 | Prune expired login sessions + the JWT blacklist | `purge_expired_sessions` | Yes — `--dry-run` to preview. **Already scheduled daily** |
+| Retire and delete dead FCM device tokens | [`purge_device_tokens`](purge_device_tokens.md) | Yes — `--dry-run` to preview. **Already scheduled daily** |
 
 ## The two that are easily confused
 
@@ -69,6 +70,12 @@ token refresh, and which nothing pruned:
   entry for an already-expired token protects nothing, since the token is refused on
   `exp` before the blacklist is consulted.
 
+- **Push devices behind dead sessions** — a `DeviceToken` records the login it registered
+  under, so this sweep also deactivates devices whose session expired. That is the one
+  path a client cannot close for itself: an expired refresh token leaves the app with no
+  credentials to call any endpoint with, so it cannot deactivate its own device. Runs
+  **between** the demotion and the purge, because purging nulls the link.
+
 ```bash
 uv run python manage.py purge_expired_sessions --dry-run
 uv run python manage.py purge_expired_sessions
@@ -90,5 +97,8 @@ Safe to automate — and already is (`purge-expired-sessions`, daily). Unlike
 | `USER_SESSION_RETENTION_DAYS` | 30 | How long an expired login session is kept, measured from expiry |
 | `USER_SESSION_PURGE_BATCH` | 5000 | Rows deleted per chunk by the session sweep |
 | `SESSION_CACHE_TTL_SECONDS` | 60 | How long a positive session check is trusted without a query. Bounds revocation latency for paths that bypass `revoke()` |
+| `DEVICE_TOKEN_STALE_DAYS` | 60 | No re-registration in this window ⇒ the token stops receiving pushes |
+| `DEVICE_TOKEN_RETENTION_DAYS` | 90 | How long a dead device-token row is kept, measured from last contact |
+| `DEVICE_TOKEN_PURGE_BATCH` | 5000 | Rows deleted per chunk by the device-token sweep |
 
 See `.env.example` for the full annotated descriptions.

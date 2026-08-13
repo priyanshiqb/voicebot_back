@@ -16,6 +16,14 @@ Three things shape every endpoint on this page:
   gone stale, sends are skipped without surfacing an error to anyone. Registration succeeding tells
   you the token was *stored*, never that a notification will actually arrive.
 
+> ⏳ **Re-registering is not optional — it is how a device stays reachable.** A token with no
+> registration inside `DEVICE_TOKEN_STALE_DAYS` (default **60 days**) stops receiving pushes and is
+> deactivated by a nightly sweep, then deleted after `DEVICE_TOKEN_RETENTION_DAYS` (default **90**).
+> The token itself may still be perfectly valid at Google; we stop trusting it because the client
+> went quiet. On **web there is no rotation callback at all** (the JS SDK v9+ removed
+> `onTokenRefresh`), so a client that skips the app-start POST goes dark permanently with no error
+> anywhere. See [FCM End-to-End](../../flows/push-notifications.md).
+
 > **VB_AGENT access:** none. `vb_agent_allowed_actions` is empty for this viewset, so every action
 > returns **403 `This endpoint is not available to agent tokens.`** Device tokens belong to human
 > operators; a machine caller has no device.
@@ -71,6 +79,7 @@ a "your signed-in devices" screen, and for spotting stale entries — a token wi
         "platform": "WEB",
         "is_active": true,
         "last_seen_at": "2026-07-05T14:00:00Z",
+        "last_error": "",
         "created_at": "2026-07-01T10:00:00Z"
       }
     ],
@@ -129,8 +138,24 @@ one, that row is updated rather than a new one created:
 | `user` | **Reassigned to the caller.** |
 | `platform` | Overwritten with the submitted value (or reset to `WEB` if you omit it). |
 | `is_active` | Forced back to `true` — this is how a device that Firebase previously rejected comes back to life. |
-| `last_seen_at` | Set to now. |
+| `last_seen_at` | Set to now. **This is what resets the staleness clock.** |
+| `last_error` | Cleared. |
+| `failure_count` | Reset to `0` (internal; not returned). |
 | `id`, `created_at` | Unchanged — the original row is kept. |
+
+> **Registration is the self-heal path, so it clears the send-side verdict too.** A token that
+> accumulated failures months ago starts clean; otherwise one unrelated failure after the client
+> came back healthy would be enough to retire it.
+
+### Limits on registration
+
+| Limit | Value | Behaviour when exceeded |
+|---|---|---|
+| **Rate** | `DEVICE_TOKEN_REGISTER_RATE`, default `60/hour` per user | **429 Too Many Requests.** Applies to this call only — reading your device list is not throttled |
+| **Live devices per user** | `DEVICE_TOKEN_MAX_PER_USER`, default `20` per tenant | Silently succeeds; the **oldest** live tokens beyond the cap are deactivated. The device you just registered is never the one retired |
+
+Neither is something a normal client hits. A human has a handful of devices, and 60 app starts
+per hour is not a real usage pattern — both exist to bound a looping or compromised client.
 
 > **Re-registration can transfer ownership between users.** The lookup is scoped to the *tenant*,
 > not to the caller, so if user A registered a token and user B later registers the same string,
@@ -155,6 +180,7 @@ one, that row is updated rather than a new one created:
       "platform": "WEB",
       "is_active": true,
       "last_seen_at": "2026-07-05T14:00:00Z",
+      "last_error": "",
       "created_at": "2026-07-05T14:00:00Z",
       "updated_at": "2026-07-05T14:00:00Z",
       "deleted_at": null
@@ -182,6 +208,7 @@ one, that row is updated rather than a new one created:
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": ...}` |
 | **403** | Your user has no active tenant mapping. | `Your user account is not associated with any active tenant.` | `{"detail": ...}` |
 | **403** | Agent (`VB_AGENT`) token. | `This endpoint is not available to agent tokens.` | `{"detail": ...}` |
+| **429** | More than `DEVICE_TOKEN_REGISTER_RATE` registrations in the window. | throttle message with `Retry-After` | `{"detail": ...}` |
 
 > **Safe under concurrency.** `(tenant, token)` is unique among non-deleted rows at the database
 > level, and the upsert reads before it writes — so two *simultaneous* registrations of the same
@@ -249,16 +276,35 @@ history survive, and the next successful registration (§2) flips it back on.
 > **Scoped to `tenant` + `user` + `token`.** You cannot deactivate someone else's device even by
 > guessing the string; the call simply no-ops with a `200`.
 
-### Firebase deactivates tokens too
+### Five ways a token gets deactivated
 
-Tokens are also switched off **automatically**, with no API call involved. When a send fails
-because Firebase reports the token as `Unregistered` or `SenderIdMismatch` — the app was
-uninstalled, the data cleared, or the token reissued — that row's `is_active` is set to `false` on
-the spot. Other send failures (network errors, throttling) are logged and leave the token alone, so
-`is_active: false` specifically means *Firebase disowned this token*, not *a push failed once*.
+Only the first is an API call. `is_active: false` no longer means one thing — **read
+`last_error` to find out which happened**:
+
+| Cause | `last_error` reads roughly | Trigger |
+|---|---|---|
+| You called `deactivate` (§4) | `""` (unchanged) | This endpoint |
+| You logged out and named the device | `Signed out on this device` | `POST /auth/logout/` with `device_token` |
+| **The login behind it ended** | `Session ended` | Logout, a revoke from the session list, or **the refresh token expiring** |
+| Firebase disowned the token | `FCM rejected the token: UnregisteredError` | A real send returning `UNREGISTERED` / `SENDER_ID_MISMATCH` |
+| Repeated ambiguous failures | `INVALID_ARGUMENT: … x3` | `DEVICE_TOKEN_FAILURE_STRIKES` consecutive strikes |
+| It went stale | `Not re-registered in 60 days` | The nightly sweep |
+| It fell off the cap | `Exceeded 20 active devices` | A registration that pushed past `DEVICE_TOKEN_MAX_PER_USER` |
+
+> **A device is tied to the login it registered under.** When that session dies the device
+> stops receiving pushes — including when the refresh token simply *expires*, which is the
+> one case a client cannot report itself (it has no credentials left to call anything with).
+> Re-registering after signing in again relinks and reactivates it. This also means
+> `device_token` on logout is now a **fast path, not the only mechanism**: forget it and the
+> device is still silenced, just via `revoke()` rather than by name.
+
+> **A transient failure never deactivates anything.** Quota errors, FCM outages, and APNs
+> credential problems are logged and leave the token completely alone — counting them would retire
+> healthy devices during an incident, which is precisely when push matters most.
 
 Consequence for clients: a device can go inactive between sessions without the user doing anything.
-Re-registering on every app start (§2) is what heals it.
+**Re-registering on every app start (§2) is what heals it** — and it heals all six cases,
+clearing `last_error` and the strike count along with the flag.
 
 ---
 
@@ -355,20 +401,41 @@ flags on this API. Delivery is decided entirely by the sending code:
 
 | Audience | Who receives it |
 |---|---|
-| A specific user | Every `is_active`, non-deleted token that user has **in that tenant**. |
-| Tenant admins | Every `is_active`, non-deleted token belonging to a user whose type is `ADMIN` in that tenant. |
+| A specific user | Every **deliverable** token that user has **in that tenant**. |
+| Tenant admins | Every **deliverable** token belonging to a user whose type is `ADMIN` in that tenant. |
 
-Two implications worth designing around:
+"Deliverable" means `is_active`, not soft-deleted, **and last registered within
+`DEVICE_TOKEN_STALE_DAYS`**. The staleness clause is the one that surprises people: a token can be
+`is_active: true` right up until the nightly sweep and still be skipped by a send, because the send
+path applies the age rule directly rather than waiting for the sweep to catch up.
+
+Three implications worth designing around:
 
 - **Pushes fan out to all of a user's live devices**, not just the most recent. Deactivate the ones
   you do not want ringing.
+- **Notifications expire.** Every push carries a TTL (`PUSH_TTL_SECONDS`, default 24h) and a
+  collapse key. A device offline past the TTL gets nothing rather than a stale alert, and repeated
+  alerts about the same booking collapse into one.
 - **If Firebase credentials are not configured on the server, nothing is sent at all** and the send
   is logged and skipped. Registration still returns `201` in that environment, so a successful
   register in staging tells you nothing about whether push works there. See
   [Firebase / FCM setup](../../external-app-creds/01-firebase-fcm.md).
 
+### Handling a notification
+
+Every push carries a `data.route` — a path relative to your app root, e.g. `bookings/<id>`. Your
+handler should navigate there on tap. On web, the same route is additionally set as the
+notification's click target, but **only when `FRONTEND_PROJECT_URL` is HTTPS** (FCM rejects
+non-HTTPS links), so in local development you get the notification without the click-through.
+
+**Foreground messages are not rendered for you.** FCM does not display a notification while your
+app is in the foreground — implement `onMessage` (web) / `onMessageReceived` (mobile) and render
+your own toast, or your users will report push as broken when the dashboard tab is active.
+
 ## Related
 
+- [FCM End-to-End Flow](../../flows/push-notifications.md) — **when the client should call these
+  endpoints**, token expiry and rotation, and the reaping/retention model
 - [Firebase / FCM credentials setup](../../external-app-creds/01-firebase-fcm.md)
 - [Booking API](./booking.md) — the reschedule alerts that use these tokens
 - [Tenant scoping for VB_AGENT callers](./vb_agent_tenant_scoping.md)

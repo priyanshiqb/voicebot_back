@@ -247,6 +247,59 @@ def send_cancellation(booking_id):
     )
 
 
+def emit_admin_push(booking, notification_type, dedup_key, title, body, **envelope):
+    """Enqueue an internal push once for ``dedup_key``. True iff enqueued this call.
+
+    Push had none of this: no dedup key, no row, no retry. ``NotificationLog`` even
+    carried an ``FCM`` channel that no production code ever wrote, so the only
+    evidence a push happened was ``sent += 1`` returned into the void. A retried
+    Celery task re-pushed, and "did the on-call admin get the alert?" had no answer.
+
+    Deliberately the same shape as :func:`_emit` — get-or-create PENDING, skip if
+    already SENT, skip if a task for this row is still in flight — because the
+    guarantee wanted is the same one, and two idempotency mechanisms that differ in
+    detail is how one of them ends up wrong.
+    """
+    now = timezone.now()
+    log, created = NotificationLog.objects.get_or_create(
+        tenant=booking.tenant,
+        dedup_key=dedup_key,
+        defaults={
+            "booking": booking,
+            "channel": NotificationLog.Channel.FCM,
+            "notification_type": notification_type,
+            # No address exists for a push — the audience is resolved at send time
+            # from whichever admin devices are live. The literal records that.
+            "recipient": "fcm:tenant-admins",
+            "status": NotificationLog.Status.PENDING,
+        },
+    )
+    if not created:
+        if log.status == NotificationLog.Status.SENT:
+            return False
+        if (
+            log.status == NotificationLog.Status.PENDING
+            and log.updated_at
+            and log.updated_at > now - PENDING_IN_FLIGHT_GRACE
+        ):
+            return False
+
+    from core.tasks import send_push_to_admins_task
+
+    log.status = NotificationLog.Status.PENDING
+    log.error = ""
+    log.save(update_fields=["status", "error", "updated_at"])
+
+    send_push_to_admins_task.delay(
+        str(booking.tenant_id),
+        title,
+        body,
+        notification_log_id=str(log.id),
+        **envelope,
+    )
+    return True
+
+
 def send_reschedule_request(booking_id):
     """Customer-facing 'please pick a new time' notice with a tokenized link."""
     booking = _load(booking_id)

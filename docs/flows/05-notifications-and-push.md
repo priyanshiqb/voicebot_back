@@ -3,10 +3,15 @@
 **Actor:** the system. **Goal:** notify customers (email + `.ics`) and internal staff
 (FCM push) at each booking event, exactly once.
 
-> **Once-only:** every send is guarded by `NotificationLog` (unique per tenant +
+> **Once-only:** every **email** send is guarded by `NotificationLog` (unique per tenant +
 > `dedup_key`), so retries and duplicate triggers never double-send. Notifications are
 > emitted **explicitly from services** (not from a blanket signal), so internal saves
 > like audit stamping don't spuriously fire them.
+
+> **Push is guarded the same way.** Internal FCM alerts write their own `NotificationLog`
+> row (`channel=FCM`, key prefixed `push:` so it cannot collide with the email for the same
+> event), and the push tasks retry like the email ones. See
+> [FCM End-to-End](push-notifications.md).
 
 > ## ⚠️ Prerequisite: the tenant must have configured a mail sender
 >
@@ -62,6 +67,10 @@ No endpoint — fully automatic.
 
 ## Push (FCM) — internal alerts
 
+> For the full token lifecycle — when the client generates and re-sends a token, how we
+> detect dead ones, and what still needs building — see
+> **[FCM End-to-End](push-notifications.md)**.
+
 ### Step — register a device
 `POST /device-tokens/` — body: `token`, `platform` (`ANDROID`/`IOS`/`WEB`).
 - `201` → registered (idempotent upsert: re-posting reactivates).
@@ -83,7 +92,9 @@ no-ops (email still goes out). Nothing breaks.
 
 - **Dedup keys:** `"{booking}:{type}[:{recipient|offset|host|token}]"`, or
   `"group:{group_id}:{type}"` for COLLECTIVE meetings.
-- **Retries:** email/push tasks retry with backoff; the log prevents a second delivery.
+- **Retries:** email and push tasks both retry with backoff (`max_retries=3`); the log
+  prevents a second delivery. A push that FCM accepts for zero devices is recorded `FAILED`,
+  not `SENT`, so it stays re-enqueueable.
 - **Group meetings:** one confirmation / cancellation per meeting (not per host row).
 
 ---

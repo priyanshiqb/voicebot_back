@@ -6,6 +6,16 @@ from django.contrib.auth import authenticate
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+    device_token = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional FCM registration token for the device signing out. Supplying "
+            "it stops push notifications reaching this device; omitting it leaves "
+            "the device subscribed, which on a shared browser means the next person "
+            "sees alerts meant for you."
+        ),
+    )
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()

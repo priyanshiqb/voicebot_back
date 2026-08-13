@@ -136,6 +136,10 @@ Signs one device out.
   so the access token stops working **immediately** rather than at its 60-minute expiry.
 - The refresh token is **not** blacklisted, but a refresh attempt fails anyway because
   [refresh](./auth.md#3-refresh) requires an active session.
+- **Push notifications to that device stop.** A registered FCM device token records the session it
+  was registered under, so revoking the session deactivates it. The device goes quiet immediately
+  rather than continuing to show alerts to whoever is holding it. See
+  [Device Tokens](../core/device_token.md).
 
 > **You can revoke the session you are currently using.** Nothing prevents it, and the effect is an
 > immediate logout — your next request returns `401`. Use `is_current` to warn the user first.
