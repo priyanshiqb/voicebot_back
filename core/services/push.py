@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 
 _app_ready = False
 
+#: Why the credential failed to load, when one is set but unusable. Surfaced by
+#: the diagnostic endpoint so "push is on but nothing arrives" has an answer.
+_init_error = None
+
 #: FCM's hard ceiling for one multicast call.
 FCM_MULTICAST_LIMIT = 500
 
@@ -68,20 +72,50 @@ TRANSIENT_ERRORS = (
 )
 
 
+def _build_credential(credentials, value):
+    """Accept either a path to the service-account JSON, or the JSON itself.
+
+    A path is what the documentation asks for and what a mounted secret gives you.
+    Inline JSON is accepted because plenty of platforms only offer environment
+    variables — and because pasting the file's contents into ``FIREBASE_CREDENTIALS``
+    is the obvious thing to try, so it should either work or say why, not blow up
+    inside ``Certificate()`` with a message about a filename.
+    """
+    value = value.strip()
+    if value.startswith("{"):
+        return credentials.Certificate(json.loads(value))
+    return credentials.Certificate(value)
+
+
 def _ensure_app():
-    """Initialise the Firebase app once. Returns False if push isn't configured."""
-    global _app_ready
+    """Initialise the Firebase app once. Returns False if push isn't usable.
+
+    Distinguishes *unset* from *broken*. An unset credential is a deliberate
+    "push is off here" and stays quiet; a credential that is set but cannot be
+    loaded is a misconfiguration, so it is recorded in ``_init_error`` and logged
+    at error level. Returning False either way keeps a bad value from raising
+    through every send — the diagnostic endpoint reports the reason instead.
+    """
+    global _app_ready, _init_error
     if _app_ready:
         return True
-    creds_path = getattr(settings, "FIREBASE_CREDENTIALS", "")
-    if not creds_path:
+    raw = getattr(settings, "FIREBASE_CREDENTIALS", "")
+    if not raw:
         return False
+
     import firebase_admin
     from firebase_admin import credentials
 
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(creds_path))
+    try:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(_build_credential(credentials, raw))
+    except Exception as exc:  # noqa: BLE001
+        _init_error = f"{type(exc).__name__}: {exc}"[:300]
+        logger.error("FCM credentials are set but could not be loaded: %s", _init_error)
+        return False
+
     _app_ready = True
+    _init_error = None
     return True
 
 
@@ -219,8 +253,15 @@ def _send(
     collapse_key=None,
     priority="high",
     route=None,
+    detailed=False,
 ):
     """Deliver to every token. Returns the number FCM accepted.
+
+    ``detailed=True`` returns ``(accepted, outcomes)`` instead, where ``outcomes``
+    maps each token to what happened to it. Only the diagnostic *test* endpoint
+    asks for that — a caller sending a real notification has nothing useful to do
+    with per-device verdicts, and the default keeps the plain-integer contract every
+    other call site and test relies on.
 
     Failure handling is the substance here:
 
@@ -237,10 +278,10 @@ def _send(
     """
     tokens = [t for t in tokens if t]
     if not tokens:
-        return 0
+        return (0, {}) if detailed else 0
     if not _ensure_app():
         logger.info("FCM not configured; skipping %d push(es)", len(tokens))
-        return 0
+        return (0, {}) if detailed else 0
 
     from firebase_admin import messaging
 
@@ -262,6 +303,7 @@ def _send(
     )
 
     sent = 0
+    outcomes = {}
     for chunk in _chunks(tokens, FCM_MULTICAST_LIMIT):
         try:
             batch = messaging.send_each_for_multicast(
@@ -278,26 +320,47 @@ def _send(
             # The call itself failed — credentials, network, a malformed envelope.
             # Nothing is known about any individual token, so nothing is penalised.
             logger.warning("FCM multicast call failed for %d token(s): %s", len(chunk), exc)
+            for token in chunk:
+                outcomes[token] = {
+                    "accepted": False,
+                    "kind": "transient",
+                    "detail": f"The send call itself failed: {exc}"[:200],
+                }
             continue
 
-        sent += _apply_results(chunk, batch.responses)
+        accepted, chunk_outcomes = _apply_results(chunk, batch.responses)
+        sent += accepted
+        outcomes.update(chunk_outcomes)
 
-    return sent
+    return (sent, outcomes) if detailed else sent
 
 
 def _apply_results(chunk, responses):
-    """Attribute per-token outcomes and update the rows. Returns the accepted count."""
+    """Attribute per-token outcomes and update the rows.
+
+    Returns ``(accepted, outcomes)``. ``outcomes`` is built for every token whether
+    or not anyone asked for it — it costs a dict entry, and building it only on
+    demand would mean the diagnostic path and the production path take different
+    branches through the exact logic a diagnostic exists to inspect.
+    """
     accepted = 0
     permanent, ambiguous = [], []
+    outcomes = {}
 
     for token, result in zip(chunk, responses):
         if result.success:
             accepted += 1
             token_service.record_success(token)
+            outcomes[token] = {"accepted": True, "kind": None, "detail": None}
             continue
 
         exc = result.exception
         kind = _classify(exc)
+        outcomes[token] = {
+            "accepted": False,
+            "kind": kind,
+            "detail": f"{type(exc).__name__}: {exc}"[:200],
+        }
         if kind == "permanent":
             permanent.append((token, type(exc).__name__))
         elif kind == "ambiguous":
@@ -321,7 +384,7 @@ def _apply_results(chunk, responses):
         for token, reason in ambiguous:
             token_service.record_ambiguous_failure(token, f"INVALID_ARGUMENT: {reason}")
 
-    return accepted
+    return accepted, outcomes
 
 
 def probe_token(token):
@@ -353,6 +416,129 @@ def probe_token(token):
             return False
         logger.info("probe inconclusive for a device token: %s", exc)
         return None
+
+
+def is_configured():
+    """Whether push is set up on this server at all.
+
+    Distinct from a send returning ``0``. Without this, a test that reaches zero
+    devices is indistinguishable from a server where ``FIREBASE_CREDENTIALS`` was
+    never set — and telling those two apart is the entire point of a test endpoint.
+    """
+    return bool(getattr(settings, "FIREBASE_CREDENTIALS", ""))
+
+
+def configuration_error():
+    """The reason a *set* credential is unusable, or None.
+
+    Forces initialisation so the answer reflects reality rather than whatever the
+    module happened to try earlier. "Configured" and "working" are different
+    claims, and only this one distinguishes them.
+    """
+    if not is_configured():
+        return None
+    if _ensure_app():
+        # Initialisation succeeded, so whatever _init_error holds is stale — an
+        # earlier failed attempt, or another test. Success is the authority.
+        return None
+    return _init_error or "Firebase credentials could not be loaded."
+
+
+#: Deliberately short. A test push that arrives tomorrow proves nothing about
+#: whether the device was reachable when the user pressed the button, and an alert
+#: surfacing hours later reads as a real notification rather than a diagnostic.
+TEST_TTL_SECONDS = 300
+
+TEST_TITLE = "Test notification"
+TEST_BODY = "Push notifications are working on this device."
+
+
+def send_test_to_tokens(tokens):
+    """Send the diagnostic push to explicit tokens. Returns ``(accepted, outcomes)``.
+
+    The single definition of what a test push *is*, shared by the API endpoint and
+    the admin action. Two copies would drift, and the first symptom would be a
+    developer proving push works from one of them while it fails from the other.
+    """
+    return _send(
+        list(tokens),
+        TEST_TITLE,
+        TEST_BODY,
+        data={"type": "test"},
+        ttl_seconds=TEST_TTL_SECONDS,
+        # No collapse key: two presses of "send test" must produce two
+        # notifications, or the button appears broken the second time.
+        collapse_key=None,
+        detailed=True,
+    )
+
+
+def send_test_to_user(tenant, user, token=None):
+    """Send a diagnostic push to the caller's own devices. Returns a report.
+
+    Reports rather than returning a bare count, because every interesting answer
+    here is a *why*: push is switched off server-side, you have devices but none we
+    would deliver to, or this specific handset was rejected by FCM.
+
+    Deliberately **not** deduplicated through ``NotificationLog`` — this is a
+    diagnostic, and a dedup key would make the second press of a "send test" button
+    silently do nothing, which is the opposite of what a test is for.
+
+    Scoped to ``user`` by the caller. Nothing here widens that.
+    """
+    owned = DeviceToken.objects.filter(tenant=tenant, user=user, is_deleted=False)
+
+    if token:
+        # An explicitly named token is sent to **verbatim**, registered or not, and
+        # regardless of staleness. The caller is holding a string and asking "does
+        # this one work?" — answering "you have no deliverable device" would be
+        # true and useless, and routing through the lookup makes the DB state a
+        # variable in a test whose entire purpose is to isolate FCM.
+        targets = [token]
+        matched = {device.token: device for device in owned.filter(token=token)}
+        registered = len(matched)
+    else:
+        devices = list(token_service.deliverable(owned).order_by("-last_seen_at"))
+        targets = [device.token for device in devices]
+        matched = {device.token: device for device in devices}
+        registered = owned.count()
+
+    report = {
+        "push_enabled": is_configured(),
+        "configuration_error": configuration_error(),
+        "registered": registered,
+        "targeted": len(targets),
+        "accepted": 0,
+        "results": [],
+    }
+    if not report["push_enabled"] or report["configuration_error"] or not targets:
+        return report
+
+    sent, outcomes = send_test_to_tokens(targets)
+
+    report["accepted"] = sent
+    for target in targets:
+        outcome = outcomes.get(target, {})
+        device = matched.get(target)
+        if device is not None:
+            device.refresh_from_db(fields=["is_active", "last_error"])
+        report["results"].append(
+            {
+                "id": str(device.id) if device else None,
+                "platform": device.platform if device else None,
+                "last_seen_at": device.last_seen_at if device else None,
+                # False means "we sent to this string but hold no row for it under
+                # your account" — worth knowing, because such a device will never
+                # receive a *real* notification, only this test.
+                "known_device": device is not None,
+                "accepted": bool(outcome.get("accepted")),
+                "detail": outcome.get("detail"),
+                # A failed test can retire the device on the spot. Saying so stops
+                # the next call reporting "0 registered" as if it were unrelated.
+                "deactivated": bool(device and not device.is_active),
+            }
+        )
+    return report
 
 
 def send_to_user(tenant, user, title, body, data=None, **envelope):

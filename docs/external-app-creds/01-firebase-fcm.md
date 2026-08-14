@@ -35,8 +35,17 @@ registration tokens — see the last section; those are **not** backend `.env` v
 |--------------|-------|-----------------|----------------|-------------|
 | The **path** to the downloaded JSON key | Service accounts → Generate new private key | `FIREBASE_CREDENTIALS` | `FIREBASE_CREDENTIALS` | [push.py](../../core/services/push.py) `_ensure_app()` → `credentials.Certificate(path)` |
 
-> The value is a **filesystem path to the JSON**, *not* the JSON contents and *not* individual
-> fields. `firebase-admin` reads the whole file. Keep the file readable by the app process only.
+> **Either a filesystem path, or the JSON itself.** A path is preferred — it keeps the key out
+> of the environment and out of `docker compose config` output. Inline JSON (a value starting
+> with `{`) is also accepted, because some platforms only offer environment variables; it is
+> detected and parsed rather than being mistaken for a filename.
+>
+> It is never individual fields. Keep the file readable by the app process only.
+
+> **Verify it end to end with `POST /api/v1/core/device-tokens/test/`.** That endpoint reports
+> `configuration_error` when the credential is set but cannot be loaded — a bad path, JSON that
+> will not parse, a key rejected by Google — which is otherwise invisible until a real
+> notification silently fails to arrive.
 
 ### `.env`
 ```dotenv

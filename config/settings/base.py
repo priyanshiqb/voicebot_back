@@ -293,7 +293,7 @@ REST_FRAMEWORK = {
     # on every app start, which makes an unbounded loop there indistinguishable
     # from normal traffic until the table is full of junk.
     "DEFAULT_THROTTLE_RATES": {
-        "device_token_register": env.str("DEVICE_TOKEN_REGISTER_RATE", default="60/hour"),
+        "device_token_register": env.str("DEVICE_TOKEN_REGISTER_RATE", default="600/hour"),
     },
     # Subclasses drf-spectacular's AutoSchema to document the X-Tenant-ID header on the
     # operations agent tokens can reach, driven off each viewset's

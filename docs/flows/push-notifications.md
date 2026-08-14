@@ -544,7 +544,15 @@ decision:** preferences (6.4), multi-tenant double ping (6.5).
 
 > **Blank `FIREBASE_CREDENTIALS` fails open and silent.** Registration still returns `201`
 > in that environment, so a successful register in staging proves nothing about whether push
-> works there. Verify with a real send, not a real registration.
+> works there. Verify with a real send, not a real registration —
+> **`POST /api/v1/core/device-tokens/test/`** is exactly that: it reports whether push is
+> configured, whether the credential actually loads, how many of your devices we would
+> deliver to, and what FCM said about each. See
+> [Device Tokens API §4b](../apiDocs/core/device_token.md).
+>
+> A credential that is *set but unloadable* — wrong path, malformed JSON — is a third state,
+> distinct from both "off" and "working", and the test endpoint names it rather than
+> reporting a bare zero.
 
 ---
 

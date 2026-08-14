@@ -1,5 +1,9 @@
 * [Welcome](README.md)
 
+* **🚀 Release Notes**
+  * [Overview & Conventions](release-note/README.md)
+  * [1.0.1](release-note/1.0.1.md)
+
 * **⚡ Command Runbook**
   * [Setup, Stack, Tests & Commands](runbook.md)
 
@@ -105,3 +109,5 @@
 
 <!-- * **📐 Architecture**
   * [S3 Storage Service](architecture/s3-storage-service.md) -->
+
+

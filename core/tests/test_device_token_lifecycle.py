@@ -23,6 +23,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from core.models.device_token import DeviceToken
 from core.services import device_tokens as token_service
 from core.services import push
+from core.views.device_token import DeviceTokenViewSet
 from tenant.models.Tenant import Tenant
 from tenant.models.TenantUserMapping import TenantUserMapping
 from user.models import CustomUser as User
@@ -652,6 +653,368 @@ class LogoutDeviceTests(DeviceTokenFixtureMixin, APITestCase):
                 format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class TestNotificationEndpointTests(DeviceTokenFixtureMixin, APITestCase):
+    """`POST /device-tokens/test/` — the only call that answers "will I receive one?".
+
+    Registration returning 201 proves the token was *stored*, never that a push will
+    arrive. The three outcomes are kept distinct on purpose: push off server-side,
+    caller has no deliverable device, and an attempt was actually made. Collapsing
+    them into one "0 sent" response would reproduce exactly the ambiguity this
+    endpoint exists to remove.
+    """
+
+    URL = "/api/v1/core/device-tokens/test/"
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.tenant, self.user = self.make_tenant_user("testpush")
+        self.other = User.objects.create_user(
+            username="other-test", email="other-test@example.com", password="password"
+        )
+        TenantUserMapping.objects.create(user=self.other, tenant=self.tenant)
+        self.client.force_authenticate(user=self.user)
+
+        # Treat Firebase as present and healthy for the whole class; the tests here
+        # are about the endpoint's behaviour, not about credential loading. Done in
+        # setUp rather than per-test because `_init_error` is a module global and a
+        # stale value would otherwise decide the outcome of unrelated cases.
+        healthy = patch.object(push, "_ensure_app", return_value=True)
+        healthy.start()
+        self.addCleanup(healthy.stop)
+        push._init_error = None
+        self.addCleanup(setattr, push, "_init_error", None)
+
+    def send(self, results=None, body=None):
+        with patch("firebase_admin.messaging.send_each_for_multicast") as call:
+            call.return_value = batch_of(*(results or [FakeResult()]))
+            response = self.client.post(self.URL, body or {}, format="json")
+        return response, call
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_a_successful_test_reports_per_device(self):
+        self.make_token(self.tenant, self.user, "dev-a", platform="WEB")
+        response, call = self.send()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data["data"]
+        self.assertTrue(data["push_enabled"])
+        self.assertEqual(data["targeted"], 1)
+        self.assertEqual(data["accepted"], 1)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertTrue(data["results"][0]["accepted"])
+        self.assertEqual(data["results"][0]["platform"], "WEB")
+        self.assertEqual(call.call_args[0][0].tokens, ["dev-a"])
+
+    @override_settings(FIREBASE_CREDENTIALS="")
+    def test_push_switched_off_server_side_is_503_not_a_quiet_zero(self):
+        """The distinction the endpoint exists for.
+
+        A `200 {"accepted": 0}` here would be indistinguishable from "your device is
+        broken", and would send the user chasing a client-side problem that does not
+        exist.
+        """
+        self.make_token(self.tenant, self.user, "dev-a")
+        response = self.client.post(self.URL, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("not configured", response.data["message"])
+        self.assertFalse(response.data["errors"]["push_enabled"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/nonexistent/creds.json")
+    def test_credentials_set_but_unloadable_is_its_own_503(self):
+        """"Set but broken" must not be reported as "not configured".
+
+        Telling an operator push is unconfigured when the variable is right there
+        sends them hunting for a missing setting instead of a bad one. The real
+        cause — a path that does not exist, JSON that will not parse — is echoed
+        back.
+        """
+        self.make_token(self.tenant, self.user, "dev-a")
+        with patch.object(push, "_ensure_app", return_value=False):
+            push._init_error = "FileNotFoundError: /nonexistent/creds.json"
+            response = self.client.post(self.URL, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("could not be loaded", response.data["message"])
+        self.assertTrue(response.data["errors"]["push_enabled"])
+        self.assertIn("FileNotFoundError", response.data["errors"]["configuration_error"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_no_registered_device_is_400_with_an_actionable_message(self):
+        response = self.client.post(self.URL, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("no registered device", response.data["message"])
+        self.assertEqual(response.data["errors"]["registered"], 0)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json", DEVICE_TOKEN_STALE_DAYS=60)
+    def test_registered_but_stale_says_so_rather_than_none_registered(self):
+        """"You have 2 devices, none reachable" is a different problem from "you have 0"."""
+        self.make_token(self.tenant, self.user, "old-a", last_seen_days_ago=90)
+        self.make_token(self.tenant, self.user, "old-b", last_seen_days_ago=90)
+
+        response = self.client.post(self.URL, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("2 registered device(s)", response.data["message"])
+        self.assertEqual(response.data["errors"]["registered"], 2)
+        self.assertEqual(response.data["errors"]["targeted"], 0)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_a_rejected_device_is_reported_and_retired(self):
+        self.make_token(self.tenant, self.user, "dev-dead")
+        response, _ = self.send(results=[FakeResult(False, UnregisteredError("gone"))])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.data["data"]["results"][0]
+        self.assertFalse(result["accepted"])
+        self.assertIn("UnregisteredError", result["detail"])
+        self.assertTrue(result["deactivated"])
+        self.assertFalse(DeviceToken.objects.get(token="dev-dead").is_active)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_a_transient_failure_reports_without_retiring(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        response, _ = self.send(results=[FakeResult(False, QuotaExceededError("busy"))])
+
+        result = response.data["data"]["results"][0]
+        self.assertFalse(result["accepted"])
+        self.assertFalse(result["deactivated"])
+        self.assertTrue(DeviceToken.objects.get(token="dev-a").is_active)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_it_only_ever_targets_your_own_devices(self):
+        self.make_token(self.tenant, self.user, "mine")
+        self.make_token(self.tenant, self.other, "theirs")
+
+        _, call = self.send()
+        self.assertEqual(call.call_args[0][0].tokens, ["mine"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_naming_one_device_tests_only_that_one(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        self.make_token(self.tenant, self.user, "dev-b")
+
+        _, call = self.send(body={"token": "dev-b"})
+        self.assertEqual(call.call_args[0][0].tokens, ["dev-b"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_an_explicit_token_is_sent_to_verbatim_even_if_unregistered(self):
+        """The point of naming a token: no lookup, no staleness rule, no guessing.
+
+        A caller holding a string the app just produced needs to know whether *that
+        string* works. Answering "you have no deliverable device" would be true and
+        useless, and routing through the database makes its state a variable in a
+        test whose whole purpose is to isolate FCM.
+        """
+        _, call = self.send(body={"token": "never-registered"})
+
+        self.assertEqual(call.call_args[0][0].tokens, ["never-registered"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_an_unregistered_token_is_flagged_as_such(self):
+        """Sent, but say so — a token with no row never gets a *real* notification."""
+        response, _ = self.send(body={"token": "never-registered"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.data["data"]["results"][0]
+        self.assertFalse(result["known_device"])
+        self.assertIsNone(result["id"])
+        self.assertTrue(result["accepted"])
+        self.assertEqual(response.data["data"]["registered"], 0)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_a_registered_token_still_reports_its_device(self):
+        self.make_token(self.tenant, self.user, "mine", platform="IOS")
+        response, _ = self.send(body={"token": "mine"})
+
+        result = response.data["data"]["results"][0]
+        self.assertTrue(result["known_device"])
+        self.assertEqual(result["platform"], "IOS")
+        self.assertIsNotNone(result["id"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json", DEVICE_TOKEN_STALE_DAYS=60)
+    def test_naming_a_stale_token_still_sends(self):
+        """Staleness governs the *fan-out*, not an explicitly named token.
+
+        A device that aged out is precisely the one someone needs to test, and
+        refusing would leave them with no way to find out whether it still works.
+        """
+        self.make_token(self.tenant, self.user, "old", last_seen_days_ago=200)
+        _, call = self.send(body={"token": "old"})
+
+        self.assertEqual(call.call_args[0][0].tokens, ["old"])
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_the_test_push_is_not_collapsed(self):
+        """Two presses must produce two notifications.
+
+        A collapse key would make the second press silently replace the first, and
+        the button would look broken exactly when someone is trying to prove it
+        works.
+        """
+        self.make_token(self.tenant, self.user, "dev-a")
+        _, call = self.send()
+        message = call.call_args[0][0]
+        self.assertIsNone(message.android.collapse_key)
+        self.assertNotIn("Topic", message.webpush.headers)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_the_test_push_expires_quickly(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        _, call = self.send()
+        self.assertEqual(
+            call.call_args[0][0].android.ttl, timedelta(seconds=push.TEST_TTL_SECONDS)
+        )
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_the_test_send_is_deliberately_not_rate_limited(self):
+        """Repeated presses must keep working.
+
+        A limit here bites hardest while push is still being wired up — precisely
+        when someone needs to press the button over and over. Asserted rather than
+        merely omitted, so re-adding a throttle is a visible decision instead of a
+        silent regression in someone's setup loop.
+        """
+        self.make_token(self.tenant, self.user, "dev-a")
+
+        with patch("firebase_admin.messaging.send_each_for_multicast") as call:
+            call.return_value = batch_of(FakeResult())
+            codes = [
+                self.client.post(self.URL, {}, format="json").status_code
+                for _ in range(12)
+            ]
+
+        self.assertEqual(codes, [status.HTTP_200_OK] * 12)
+        self.assertNotIn("test", DeviceTokenViewSet.THROTTLE_SCOPES)
+
+    def test_it_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.post(self.URL, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class AdminActionTests(DeviceTokenFixtureMixin, TestCase):
+    """The admin actions must behave exactly like the API path, not approximately.
+
+    They exist for the case the API cannot serve: the endpoint only ever targets the
+    caller's own devices, which is useless when the question is why *someone else's*
+    handset is silent.
+    """
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from core.admin.device_token_admin import DeviceTokenAdmin
+
+        self.tenant, self.user = self.make_tenant_user("admin")
+        self.admin = DeviceTokenAdmin(DeviceToken, AdminSite())
+        self.messages = []
+
+        # message_user needs a real messages backend; capturing is simpler and lets
+        # the assertions read what an operator would actually see.
+        self.admin.message_user = lambda request, msg, level=None, **kw: self.messages.append(
+            (level, msg)
+        )
+        self.request = type("R", (), {"user": self.user})()
+
+        healthy = patch.object(push, "_ensure_app", return_value=True)
+        healthy.start()
+        self.addCleanup(healthy.stop)
+        push._init_error = None
+        self.addCleanup(setattr, push, "_init_error", None)
+
+    def texts(self):
+        return " | ".join(text for _, text in self.messages)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_the_action_sends_and_reports_each_device(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        self.make_token(self.tenant, self.user, "dev-b")
+
+        with patch("firebase_admin.messaging.send_each_for_multicast") as call:
+            call.return_value = batch_of(
+                FakeResult(), FakeResult(False, UnregisteredError("gone"))
+            )
+            self.admin.send_test_notification(
+                self.request, DeviceToken.objects.order_by("token")
+            )
+
+        self.assertIn("Accepted by FCM", self.texts())
+        self.assertIn("Not accepted", self.texts())
+        self.assertIn("UnregisteredError", self.texts())
+        self.assertFalse(DeviceToken.objects.get(token="dev-b").is_active)
+
+    @override_settings(FIREBASE_CREDENTIALS="")
+    def test_the_action_refuses_when_push_is_off(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        with patch("firebase_admin.messaging.send_each_for_multicast") as call:
+            self.admin.send_test_notification(self.request, DeviceToken.objects.all())
+
+        self.assertFalse(call.called)
+        self.assertIn("not configured", self.texts())
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_a_broken_credential_is_named_not_reported_as_unset(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+        with patch.object(push, "_ensure_app", return_value=False):
+            push._init_error = "FileNotFoundError: nope.json"
+            self.admin.send_test_notification(self.request, DeviceToken.objects.all())
+
+        self.assertIn("could not be loaded", self.texts())
+        self.assertIn("FileNotFoundError", self.texts())
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_the_admin_and_the_api_send_the_same_message(self):
+        """One definition of "a test push", or the two paths drift.
+
+        The first symptom of drift would be push proving healthy from one of them
+        while failing from the other, with nothing to explain the difference.
+        """
+        self.make_token(self.tenant, self.user, "dev-a")
+
+        with patch("firebase_admin.messaging.send_each_for_multicast") as call:
+            call.return_value = batch_of(FakeResult())
+            self.admin.send_test_notification(self.request, DeviceToken.objects.all())
+            from_admin = call.call_args[0][0]
+
+            call.reset_mock()
+            call.return_value = batch_of(FakeResult())
+            push.send_test_to_user(self.tenant, self.user)
+            from_api = call.call_args[0][0]
+
+        self.assertEqual(from_admin.notification.title, from_api.notification.title)
+        self.assertEqual(from_admin.notification.body, from_api.notification.body)
+        self.assertEqual(from_admin.data, from_api.data)
+        self.assertEqual(from_admin.android.ttl, from_api.android.ttl)
+        self.assertIsNone(from_admin.android.collapse_key)
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_validate_reports_alive_dead_and_inconclusive_distinctly(self):
+        self.make_token(self.tenant, self.user, "dev-a")
+
+        for verdict, expected in ((True, "Alive"), (False, "Dead"), (None, "Inconclusive")):
+            self.messages = []
+            with patch.object(push, "probe_token", return_value=verdict):
+                self.admin.validate_with_fcm(self.request, DeviceToken.objects.all())
+            self.assertIn(expected, self.texts(), f"verdict={verdict}")
+
+    @override_settings(FIREBASE_CREDENTIALS="/tmp/fake.json")
+    def test_validate_delivers_nothing(self):
+        """It is the counterpart to sending, so it must not send."""
+        self.make_token(self.tenant, self.user, "dev-a")
+        with patch("firebase_admin.messaging.send_each_for_multicast") as multicast, patch(
+            "firebase_admin.messaging.send"
+        ) as single:
+            self.admin.validate_with_fcm(self.request, DeviceToken.objects.all())
+
+        self.assertFalse(multicast.called)
+        self.assertTrue(single.called)
+        self.assertTrue(single.call_args.kwargs.get("dry_run"))
 
 
 def at_rate(rate):

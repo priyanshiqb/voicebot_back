@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
   
   <!-- Premium Themeable Docsify Styling -->
-  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css">
   
   <style>
     :root {
@@ -53,6 +53,41 @@
       background: #0270a5 !important;
       box-shadow: 0 2px 4px rgba(2, 132, 199, 0.15) !important;
     }
+
+    /* Section- and endpoint-level copy buttons (release notes). */
+    .vb-copy-anchor {
+      text-align: right;
+      margin: 4px 0 -6px;
+      position: relative;
+      z-index: 9;
+    }
+
+    .vb-copy-btn {
+      padding: 4px 11px;
+      border-radius: 6px;
+      border: 1px solid var(--theme-color);
+      background: transparent;
+      color: var(--theme-color);
+      cursor: pointer;
+      font-size: 11.5px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .vb-copy-btn:hover {
+      background: var(--theme-color);
+      color: #fff;
+      box-shadow: 0 3px 10px rgba(2, 132, 199, 0.22);
+      transform: translateY(-1px);
+    }
+
+    .vb-copy-btn:active {
+      transform: scale(0.94) translateY(0);
+      background: #0270a5;
+    }
   </style>
 </head>
 <body>
@@ -77,6 +112,112 @@
         successText: 'Copied'
       },
       plugins: [
+        // Section- and endpoint-level copy buttons.
+        //
+        // Markdown declares a copyable region with paired HTML comments:
+        //     <!--copy:start id="unique-id" label="Copy this"-->
+        //     ...markdown...
+        //     <!--copy:end-->
+        // They are invisible on GitHub, so the file stays readable there.
+        //
+        // Registered FIRST on purpose: it strips the markers before the
+        // page-copy plugin below captures `rawMarkdown`, so "Copy Page
+        // Markdown" yields clean text rather than a page full of directives.
+        //
+        // Parsed with a stack rather than a regex so regions can NEST — a whole
+        // section is copyable and so is each endpoint inside it, which a
+        // non-greedy regex could not express.
+        function(hook) {
+          var blocks = {};
+          var START = /^\s*<!--\s*copy:start\s+id="([^"]+)"(?:\s+label="([^"]*)")?\s*-->\s*$/;
+          var END = /^\s*<!--\s*copy:end\s*-->\s*$/;
+
+          var ICON_COPY = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+          var ICON_DONE = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+          function copyText(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              return navigator.clipboard.writeText(text);
+            }
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent';
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              var ok = document.execCommand('copy');
+              document.body.removeChild(ta);
+              return ok ? Promise.resolve() : Promise.reject(new Error('execCommand failed'));
+            } catch (err) {
+              document.body.removeChild(ta);
+              return Promise.reject(err);
+            }
+          }
+
+          hook.beforeEach(function(content) {
+            blocks = {};
+            if (content.indexOf('copy:start') === -1) return content;
+
+            var out = [];
+            var stack = [];
+
+            content.split('\n').forEach(function(line) {
+              var open = line.match(START);
+              if (open) {
+                stack.push({ id: open[1], label: open[2] || 'Copy', buf: [] });
+                out.push(
+                  '<div class="vb-copy-anchor" data-copy-id="' + open[1] +
+                  '" data-copy-label="' + (open[2] || 'Copy') + '"></div>'
+                );
+                return;
+              }
+              if (END.test(line)) {
+                var done = stack.pop();
+                if (done) {
+                  var body = done.buf.join('\n').trim();
+                  blocks[done.id] = body;
+                  // Fold the child's text into its parent so an enclosing
+                  // region copies everything it visually contains.
+                  if (stack.length) stack[stack.length - 1].buf.push(body);
+                }
+                return;
+              }
+              out.push(line);
+              if (stack.length) stack[stack.length - 1].buf.push(line);
+            });
+
+            return out.join('\n');
+          });
+
+          hook.doneEach(function() {
+            document.querySelectorAll('.vb-copy-anchor').forEach(function(anchor) {
+              if (anchor.getAttribute('data-rendered')) return;
+              anchor.setAttribute('data-rendered', '1');
+
+              var id = anchor.getAttribute('data-copy-id');
+              var label = anchor.getAttribute('data-copy-label') || 'Copy';
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'vb-copy-btn';
+              btn.innerHTML = ICON_COPY + ' ' + label;
+
+              btn.addEventListener('click', function() {
+                var text = blocks[id];
+                if (text == null) return;
+                copyText(text).then(function() {
+                  btn.innerHTML = ICON_DONE + ' Copied!';
+                  setTimeout(function() {
+                    btn.innerHTML = ICON_COPY + ' ' + label;
+                  }, 2000);
+                }).catch(function(err) {
+                  console.error('Could not copy section: ', err);
+                });
+              });
+
+              anchor.appendChild(btn);
+            });
+          });
+        },
         function(hook, vm) {
           var rawMarkdown = '';
           hook.beforeEach(function(content) {
@@ -169,12 +310,12 @@
     }
   </script>
   <!-- Docsify Core -->
-  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
   <!-- Plugins -->
-  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
-  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@3"></script>
   <!-- Mermaid for the scheduling flow diagrams -->
-  <script src="//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>
     if (window.mermaid) {
       window.mermaid.initialize({ startOnLoad: false });

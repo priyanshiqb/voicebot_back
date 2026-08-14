@@ -96,6 +96,7 @@ All authenticated endpoints are under `/api/v1/core/` and return the wrapped env
 | DELETE | `calendar-integrations/{id}/` | Yes | Disconnect (revoke) |
 | GET/POST | `device-tokens/` | Yes | Register an FCM device token |
 | POST | `device-tokens/deactivate/` | Yes | Deactivate a device token |
+| POST | `device-tokens/test/` | Yes | Send yourself a test push and report per-device outcome |
 | POST | `calendar-webhook/google/` | No² | Google push notifications |
 | GET/POST | `public/reschedule/{token}/` | No³ | Customer self-reschedule |
 

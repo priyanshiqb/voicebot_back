@@ -76,9 +76,16 @@ No endpoint — fully automatic.
 - `201` → registered (idempotent upsert: re-posting reactivates).
 - **Next:** the user now receives push alerts.
 
+### Step — verify it actually works
+`POST /device-tokens/test/` → sends a real push to your own devices and reports each
+outcome. **Registration returning `201` proves storage, not delivery** — this is the only
+call that distinguishes "push is off server-side" from "your credential is broken" from
+"your device aged out".
+
 ### Step — deactivate
 `POST /device-tokens/deactivate/` — body: `token` → `200`. (Tokens are also
-auto-deactivated when FCM reports them unregistered/invalid.)
+auto-deactivated when FCM reports them unregistered/invalid, when the login session behind
+them ends, and when they go stale.)
 
 ### When pushes fire
 | Event | From flow | Target |

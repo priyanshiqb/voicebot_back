@@ -2,7 +2,7 @@ from unittest import skipUnless
 from unittest.mock import patch
 
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from core.models.device_token import DeviceToken
@@ -103,11 +103,57 @@ class PushSendTests(TestCase):
         self.assertFalse(device.is_active)
 
     def test_send_noop_without_config(self):
-        # FIREBASE_CREDENTIALS is empty in tests -> _ensure_app False -> 0 sent.
+        """An unset credential disables push quietly.
+
+        The setting is overridden rather than assumed empty: a developer whose real
+        `.env` sets FIREBASE_CREDENTIALS would otherwise have this test try to load
+        their actual credentials. `_app_ready` is a module global, so it is reset
+        and restored too — without that, whether this test exercises `_ensure_app`
+        at all depends on which tests ran before it.
+        """
         DeviceToken.objects.create(
             tenant=self.tenant, user=self.user, token="tok-2", platform="WEB"
         )
-        self.assertEqual(push.send_to_user(self.tenant, self.user, "t", "b"), 0)
+        previous = push._app_ready
+        push._app_ready = False
+        self.addCleanup(setattr, push, "_app_ready", previous)
+
+        with override_settings(FIREBASE_CREDENTIALS=""):
+            self.assertEqual(push.send_to_user(self.tenant, self.user, "t", "b"), 0)
+
+    def test_a_credential_that_cannot_be_loaded_is_reported_not_raised(self):
+        """A broken credential must not take down every send.
+
+        Before this, `_ensure_app` let `Certificate()` raise straight through
+        `_send` into the caller — a Celery task, or a request. It is now caught,
+        recorded, and surfaced by the diagnostic endpoint, so "push is on but
+        nothing arrives" has an answer instead of a stack trace.
+        """
+        previous = push._app_ready
+        push._app_ready = False
+        self.addCleanup(setattr, push, "_app_ready", previous)
+        self.addCleanup(setattr, push, "_init_error", None)
+
+        with override_settings(FIREBASE_CREDENTIALS="/nonexistent/creds.json"):
+            self.assertEqual(push.send_to_user(self.tenant, self.user, "t", "b"), 0)
+            self.assertIsNotNone(push.configuration_error())
+
+    def test_inline_json_credentials_are_accepted(self):
+        """Pasting the service-account JSON into the env var is the obvious mistake.
+
+        It is accepted rather than rejected — plenty of platforms only offer
+        environment variables — but it must be recognised as JSON rather than
+        handed to `Certificate()` as if it were a filename.
+        """
+        from unittest.mock import MagicMock
+
+        creds = MagicMock()
+        push._build_credential(creds, '  {"type": "service_account"}  ')
+        creds.Certificate.assert_called_once_with({"type": "service_account"})
+
+        creds.reset_mock()
+        push._build_credential(creds, "/run/secrets/firebase.json")
+        creds.Certificate.assert_called_once_with("/run/secrets/firebase.json")
 
 
 @REQUIRES_PG

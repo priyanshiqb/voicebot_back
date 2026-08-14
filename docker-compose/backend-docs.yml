@@ -1,12 +1,24 @@
 services:
   # 13. Developer Documentation Web Portal (Docsify)
+  #
+  # Caddy rather than nginx so the basic-auth credential uses the same bcrypt
+  # format as the gateway. The auth lives in this container because the port
+  # below is published directly on the host and therefore bypasses the gateway
+  # entirely — see docker-config/docs.Caddyfile.
   backend-docs:
-    image: nginx:alpine
+    image: caddy:2.7-alpine
     container_name: docs-voicebot
     profiles:
       - backend-docs
+    environment:
+      # Default to the gateway credential so an existing deployment still comes
+      # up after this change. Set these to something distinct if documentation
+      # readers should not also hold the Prometheus/Loki credential.
+      - DOCS_BASIC_AUTH_USER=${DOCS_BASIC_AUTH_USER:-${GATEWAY_BASIC_AUTH_USER}}
+      - DOCS_BASIC_AUTH_PASSWORD_HASH=${DOCS_BASIC_AUTH_PASSWORD_HASH:-${GATEWAY_BASIC_AUTH_PASSWORD_HASH}}
     volumes:
-      - ../docs:/usr/share/nginx/html:ro
+      - ../docs:/usr/share/caddy:ro
+      - ../docker-config/docs.Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
       - "${DOCS_BIND_IP:-${BIND_IP}}:${DOCS_PORT:-8088}:80"
     restart: always

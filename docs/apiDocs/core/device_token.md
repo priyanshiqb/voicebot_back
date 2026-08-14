@@ -34,6 +34,7 @@ Three things shape every endpoint on this page:
 - `GET /api/v1/core/device-tokens/{id}/` - Retrieve one of your devices
 - `POST /api/v1/core/device-tokens/` - Register (upsert) a device token
 - `POST /api/v1/core/device-tokens/deactivate/` - Stop pushes to one token, keep the row
+- `POST /api/v1/core/device-tokens/test/` - Send yourself a test push and report what happened
 - `DELETE /api/v1/core/device-tokens/{id}/` - Soft-delete a device token
 - `GET /api/v1/core/device-tokens/dropdown/` - Get label/value list (your tokens)
 - `POST /api/v1/core/device-tokens/bulk_delete/` - Bulk soft-delete your tokens
@@ -276,7 +277,7 @@ history survive, and the next successful registration (§2) flips it back on.
 > **Scoped to `tenant` + `user` + `token`.** You cannot deactivate someone else's device even by
 > guessing the string; the call simply no-ops with a `200`.
 
-### Five ways a token gets deactivated
+### Seven ways a token gets deactivated
 
 Only the first is an API call. `is_active: false` no longer means one thing — **read
 `last_error` to find out which happened**:
@@ -305,6 +306,107 @@ Only the first is an API call. `is_active: false` no longer means one thing — 
 Consequence for clients: a device can go inactive between sessions without the user doing anything.
 **Re-registering on every app start (§2) is what heals it** — and it heals all six cases,
 clearing `last_error` and the strike count along with the flag.
+
+---
+
+### 4b. Send a Test Notification
+
+**The only call that answers "will I actually receive notifications?"** Registration returning
+`201` proves the token was *stored* — never that a push will arrive. This sends a real
+notification to your own devices and reports what happened to each one.
+
+- **Path**: `POST /api/v1/core/device-tokens/test/`
+- **Headers**: `Authorization: Bearer <token>`
+- **Request Payload** (all optional):
+  ```json
+  { "token": "fcm-registration-token-abc123" }
+  ```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `token` | string | Test **one** device instead of all of yours. | Optional. Must be a token you registered — another user's is treated as not found (`400`), never as an error that reveals it exists. |
+
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Test notification accepted by FCM for 1 of 2 device(s).",
+    "data": {
+      "push_enabled": true,
+      "configuration_error": null,
+      "registered": 3,
+      "targeted": 2,
+      "accepted": 1,
+      "results": [
+        { "id": "d1aa…", "platform": "WEB", "last_seen_at": "2026-08-13T09:00:00Z",
+          "accepted": true,  "detail": null, "deactivated": false },
+        { "id": "e2bb…", "platform": "IOS", "last_seen_at": "2026-08-01T09:00:00Z",
+          "accepted": false, "detail": "UnregisteredError: Requested entity was not found.",
+          "deactivated": true }
+      ]
+    },
+    "errors": null
+  }
+  ```
+
+### Reading the counts
+
+They differ on purpose, and the gaps are the diagnosis:
+
+| Field | Meaning |
+|---|---|
+| `registered` | Every non-deleted device you have in this tenant — **including** inactive and stale ones |
+| `targeted` | How many we actually attempted: active, not deleted, **and** re-registered within `DEVICE_TOKEN_STALE_DAYS` |
+| `accepted` | How many FCM took |
+
+`registered: 3, targeted: 2` means one device is inactive or has aged out. `targeted: 2,
+accepted: 1` means FCM rejected one — `results[].detail` says why, and `deactivated: true`
+means that attempt retired it on the spot.
+
+### Why the failures are separate status codes
+
+A single "0 sent" response would be useless — it cannot distinguish a server with push
+switched off from a broken handset, and would send you debugging the wrong thing:
+
+| Status | Meaning | Who fixes it |
+|---|---|---|
+| **503** | `push_enabled: false` — `FIREBASE_CREDENTIALS` is unset on this server | Operator |
+| **503** | `configuration_error` is set — credentials **are** configured but could not be loaded. The reason is echoed back | Operator |
+| **400** | You have no deliverable device. `registered: 0` means none at all; `registered > 0` means they are all inactive or stale — open the app to re-register | You |
+| **200** | An attempt was made. `results` says what each device did | — |
+
+> **Not rate-limited.** Unlike registration, this endpoint has no throttle — a limit bites
+> hardest while push is still being wired up, which is exactly when you need to press it
+> repeatedly.
+
+### The same two checks from the Django admin
+
+The endpoint only ever targets **your own** devices, which is the right scope for a
+user-facing button and useless when the question is why *somebody else's* handset is silent.
+The `Device Token` admin carries two actions for that, still tenant-scoped:
+
+| Action | What it does |
+|---|---|
+| **Send a test notification** | A real send to the selected rows — identical message to the endpoint, shared code, so the two cannot drift |
+| **Validate the token(s) with FCM** | A validate-only probe. **Delivers nothing** and reports alive / dead / inconclusive |
+
+Use them together when a test is *accepted* but never arrives. "Accepted" only means FCM took
+the message; **"alive" means FCM still recognises the device**, which is the stronger claim
+and the one that separates a server-side problem from a client-side one:
+
+| Send | Validate | Where the fault is |
+|---|---|---|
+| accepted | alive | **The client.** Service worker, foreground handling, origin, or OS notification settings |
+| accepted | dead | The token is stale — re-register on the device |
+| not accepted | — | `detail` on the result says why |
+
+> **`accepted: true` is not proof of delivery.** It means FCM took the message. The send API
+> issues no per-device receipt, so a device that is switched off, has notifications muted, or
+> whose app never renders the foreground message will still show as accepted.
+
+> **The test push is deliberately un-collapsed and short-lived.** No collapse key, so pressing
+> the button twice produces two notifications rather than the second silently replacing the
+> first; and a 5-minute TTL, so a test cannot arrive hours later looking like a real alert.
 
 ---
 

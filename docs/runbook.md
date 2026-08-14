@@ -98,6 +98,55 @@ docker compose exec backend-dev python manage.py shell
 
 ---
 
+## 3b. The documentation portal (this site)
+
+Served by the `backend-docs` profile on `DOCS_PORT` (default **8088**), and protected by
+**HTTP basic auth enforced inside the container** — not at the gateway, because the port is
+published straight onto the host and never passes through Caddy's gateway routes.
+
+```bash
+docker compose --profile backend-docs up -d
+# then http://127.0.0.1:8088  →  browser prompts for credentials
+```
+
+### Setting the credential
+
+```bash
+# 1. Generate a bcrypt hash
+docker run --rm caddy:2.7-alpine caddy hash-password --plaintext 'your-password'
+#    → $2a$14$z.VBN2Dcyz...
+
+# 2. DOUBLE every "$" and put it in .env
+#    DOCS_BASIC_AUTH_USER=docs
+#    DOCS_BASIC_AUTH_PASSWORD_HASH=$$2a$$14$$z.VBN2Dcyz...
+
+# 3. Recreate the container so it picks up the new config
+docker compose --profile backend-docs up -d --force-recreate backend-docs
+```
+
+> **Doubling the `$` is mandatory, and it is the one thing people get wrong.** A bcrypt hash
+> is full of `$`, and compose reads a single `$` as variable interpolation. Store the doubled
+> form; compose collapses it back to single on the way into the container.
+>
+> Verify what actually arrived:
+> ```bash
+> docker compose --profile backend-docs run --rm --no-deps --entrypoint sh backend-docs \
+>   -c 'echo $DOCS_BASIC_AUTH_PASSWORD_HASH'
+> ```
+> It should print **single** dollars — `$2b$12$…`. If it prints `$$2b$$12$$…`, the value in
+> `.env` was not doubled.
+
+Both keys default to `GATEWAY_BASIC_AUTH_*`, so an existing deployment keeps working without
+any change. Set them explicitly if documentation readers should not also hold the
+Prometheus / Loki / RedisInsight credential.
+
+> ⚠️ **Publishing a port bypasses the gateway.** This applies to more than docs: `loki`,
+> `prometheus`, `grafana`, `redis-insight` and `minio` all publish host ports too, so the
+> `basicauth` on their `*.{DOMAIN}` routes does **not** protect direct access to those ports.
+> Keep `BIND_IP=127.0.0.1` unless you specifically intend LAN exposure.
+
+---
+
 ## 4. Database & migrations
 
 ```bash
@@ -330,6 +379,8 @@ That is a deliberate, documented state — see [File Uploads](flows/file-upload.
 | Uploads silently land in `./media` | An S3 key was set to an **empty** value, flipping `USE_S3_STORAGE` off | Omit the key entirely, or set all four together |
 | Tests pass but production is broken | A mock returned a different shape than the real service | Pin the real contract in a test — see `core/tests/test_storage_service_contract.py` |
 | A schema decorator "did nothing" | `--fail-on-warn` aborted before writing the file, so you read a stale one | Generate without the flag, then inspect |
+| Docs portal stuck on **"Loading Developer Portal…"** | A `//cdn.jsdelivr.net` URL in `docs/index.html` resolves to `http://` over plain HTTP, which the CSP's `https:` source rejects — every script is blocked | Use explicit `https://` for all external assets in `index.html`; then hard-refresh (`Ctrl+Shift+R`) |
+| Docs 401 with the right password | The bcrypt hash is not a hash of that password. **You cannot compare two bcrypt hashes** — they are salted | Regenerate with the password single-quoted, double the `$`, `--force-recreate` |
 
 ---
 

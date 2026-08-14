@@ -128,6 +128,23 @@
 	reverse_proxy minio:9001
 }
 
+# 7b. Developer Documentation Portal (Docsify)
+#
+# Deliberately NO `import basic_auth` here. The docs container enforces its own,
+# because it publishes DOCS_PORT on the host and that path never reaches this
+# gateway — so the container has to be the enforcement point regardless.
+#
+# Stacking gateway auth on top would break as soon as DOCS_BASIC_AUTH_* differs
+# from GATEWAY_BASIC_AUTH_*: Caddy forwards the Authorization header it just
+# validated, the container measures it against a different credential, and the
+# user gets a 401 they cannot satisfy. One challenge, one credential.
+{$SCHEME}docs{$ENV_NAME}.{$DOMAIN} {
+	import error_handler
+	import security_headers
+	import compression
+	reverse_proxy backend-docs:80
+}
+
 # 8. Web Frontend (Next.js Application)
 {$SCHEME}app{$ENV_NAME}.{$DOMAIN} {
 	import error_handler
