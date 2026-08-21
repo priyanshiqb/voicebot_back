@@ -58,6 +58,12 @@ from core.serializers.agent import (
     AgentListSerializer,
     AgentDropdownSerializer,
 )
+from core.serializers.in_app_notification import (
+    InAppNotificationRefSerializer,
+    InAppNotificationSerializer,
+    InAppNotificationListSerializer,
+    InAppNotificationDropdownSerializer,
+)
 
 __all__ = [
     "KBTextRefSerializer",
@@ -98,5 +104,9 @@ __all__ = [
     "AgentSerializer",
     "AgentListSerializer",
     "AgentDropdownSerializer",
+    "InAppNotificationRefSerializer",
+    "InAppNotificationSerializer",
+    "InAppNotificationListSerializer",
+    "InAppNotificationDropdownSerializer",
 ]
 

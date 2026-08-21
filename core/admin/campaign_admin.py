@@ -84,7 +84,7 @@ class CampaignAdmin(TenantBaseAdmin):
                 "fields": (
                     "status",
                     "total_members",
-                    "queued_count",
+                    "pending_count",
                     "suppressed_count",
                     "completed_count",
                     "failed_count",

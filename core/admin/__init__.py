@@ -20,6 +20,7 @@ from core.admin.availability_profile_admin import (
 from core.admin.availability_exception_admin import AvailabilityExceptionAdmin
 from core.admin.booking_admin import BookingAdmin
 from core.admin.notification_log_admin import NotificationLogAdmin
+from core.admin.in_app_notification_admin import InAppNotificationAdmin
 from core.admin.calendar_integration_admin import CalendarIntegrationAdmin
 from core.admin.device_token_admin import DeviceTokenAdmin
 from core.admin.custom_voice_admin import CustomVoiceAdmin
@@ -67,6 +68,7 @@ __all__ = [
     "AvailabilityExceptionAdmin",
     "BookingAdmin",
     "NotificationLogAdmin",
+    "InAppNotificationAdmin",
     "CalendarIntegrationAdmin",
     "DeviceTokenAdmin",
     "CustomVoiceAdmin",

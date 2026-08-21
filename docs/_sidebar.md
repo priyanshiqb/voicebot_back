@@ -4,6 +4,19 @@
   * [Overview & Conventions](release-note/README.md)
   * [1.0.1](release-note/1.0.1.md)
 
+* **📊 Executive Dashboard**
+  * [BRD v3.1 Implementation Plan](dashboard/implementation-plan.md)
+  * [Module Specifications](dashboard/README.md)
+  * [01 - Industry & Journeys](dashboard/modules/01-industry.md)
+  * [02 - Lead Lifecycle](dashboard/modules/02-lead.md)
+  * [03 - CTA Tracking](dashboard/modules/03-cta.md)
+  * [04 - Revenue & Forecast](dashboard/modules/04-revenue.md)
+  * [05 - Cost & Unit Economics](dashboard/modules/05-cost.md)
+  * [06 - Analytics & Metrics](dashboard/modules/06-analytics.md)
+  * [07 - Insights Engine](dashboard/modules/07-insights.md)
+  * [08 - Alerts & Action Center](dashboard/modules/08-alerts.md)
+  * [09 - Existing Module Changes](dashboard/modules/09-existing-changes.md)
+
 * **⚡ Command Runbook**
   * [Setup, Stack, Tests & Commands](runbook.md)
 
@@ -46,6 +59,7 @@
   * [Bookings](apiDocs/core/booking.md)
   * [Calendar Integrations](apiDocs/core/calendar_integration.md)
   * [Device Tokens - Push](apiDocs/core/device_token.md)
+  * [In-App Notifications](apiDocs/core/in_app_notification.md)
   * [Public Reschedule](apiDocs/core/public_reschedule.md)
 
 * **🔑 External App Credentials**

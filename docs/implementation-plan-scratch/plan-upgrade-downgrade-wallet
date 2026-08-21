@@ -1,0 +1,99 @@
+# Subscription, Credits & Wallet Ledger Implementation Plan
+
+This document outlines the complete architectural flow for managing subscriptions, plan proration, and a centralized credit wallet ledger system.
+
+## 1. Database Model Additions
+
+### A. The Plan Level (Defining the Rules)
+**File:** `onboard/models/plan.py`
+We will add granular settings to dictate exactly how credits behave during lifecycle events.
+- `allocated_credits` (Integer): Base credits granted per billing cycle.
+- `cost_per_additional_credit` (Decimal): The price to charge the user when they want to manually top up their credits.
+- `allow_rollover_on_renewal` (Boolean): Do unused credits roll over when the cycle naturally renews?
+- `allow_rollover_on_upgrade` (Boolean): Do unused credits carry over to the new plan when upgrading?
+- `allow_rollover_on_downgrade` (Boolean): Do unused credits carry over to the new plan when downgrading?
+- `allow_use_after_expiry` (Boolean): Can the tenant spend remaining credits if the subscription expires?
+
+### B. The Subscription Level (State Tracking)
+**File:** `onboard/models/subscription.py`
+The active subscription acts as the anchor for the tenant's current limits.
+- `credit_balance` (Integer): Denormalized tracker of currently available credits for fast reads (avoids summing the whole ledger on every API call).
+- `canceled_at` (Datetime): When the subscription was voided (due to upgrade, downgrade, or churn).
+
+### C. The Centralized Wallet Ledger (Audit & History)
+**File:** `tenant/models/credit_ledger.py` [NEW]
+A centralized, append-only ledger that guarantees financial integrity for credits.
+- `tenant` (FK): The organization.
+- `subscription` (FK): The subscription this transaction occurred under.
+- `entry_type` (Enum): `INITIAL_PURCHASE`, `RENEWAL_ALLOCATION`, `UPGRADE_ROLLOVER`, `DOWNGRADE_ROLLOVER`, `MANUAL_TOP_UP`, `USAGE_DEDUCTION`, `EXPIRY_FORFEIT`.
+- `amount` (Integer): Positive for addition, negative for deduction.
+- `balance_after` (Integer): The calculated balance *after* this row is inserted.
+- `reference_id` (String): E.g., Razorpay Order ID, or the UUID of the API call that used the credit.
+
+### D. The Transaction Level (Billing)
+**File:** `onboard/models/transaction.py`
+- Add `transaction_type` (Enum): `ONBOARDING`, `UPGRADE`, `DOWNGRADE`, `RENEWAL`, `TOP_UP`.
+
+---
+
+## 2. API Endpoints & Workflows
+
+### A. Purchasing a Plan (Onboarding)
+1. User pays for Plan A via Razorpay.
+2. `Subscription` created with `credit_balance = Plan A.allocated_credits`.
+3. `CreditLedger` row created: type `INITIAL_PURCHASE`, amount `+100`, balance `100`.
+
+### B. Manual Credit Top-Ups
+**New Endpoints in `tenant/views/wallet.py`:**
+1. `POST /api/v1/tenant/wallet/top-up/`: 
+   - Accepts the `credit_amount` the user wants to buy.
+   - Calculates the cost (`credit_amount` × `Plan.cost_per_additional_credit`).
+   - Generates a Razorpay order.
+2. **Webhook execution:** Upon successful payment of a `TOP_UP` transaction, the system adds the credits to the `Subscription` and logs a `MANUAL_TOP_UP` entry in the `CreditLedger`.
+
+### C. Changing Plans (The Core Flow)
+**New Endpoints in `tenant/views/subscription.py`:**
+- `GET /api/v1/tenant/subscription/eligible-plans/`: Lists plans.
+- `POST /api/v1/tenant/subscription/preview-change/`: 
+  - Calculates proration (price difference).
+  - Calculates *credit impact* (shows user: "You will carry over X credits" or "You will forfeit X credits" based on the `rollover_allowed_on_upgrade/downgrade` flag of their *current* plan).
+- `POST /api/v1/tenant/subscription/change-plan/`:
+  - **If money is owed (Upgrade):** Creates Razorpay Order for prorated difference. The change happens on the webhook.
+  - **If no money owed (Downgrade):** Schedules the downgrade to execute at the exact moment the current billing cycle expires (by setting `scheduled_plan_id`).
+
+### C. Execution Engine (Upgrade / Downgrade Processing)
+When the plan change is executed (immediately for upgrades via webhook, or via a nightly CRON task for scheduled downgrades), the backend performs an atomic database transaction:
+1. **Analyze Old Sub:** Read `credit_balance` from the old `Subscription`.
+2. **Close Old Sub:** Set `canceled_at = now`, `status = CANCELLED` (or `EXPIRED`).
+3. **Rollover Calculation:** 
+   - Check the *Old Plan's* rollover rules (e.g. `allow_rollover_on_upgrade` or `downgrade`).
+   - If `True`, `rollover_credits = old_balance`. If `False`, `rollover_credits = 0`.
+   - If forfeited, log a `CreditLedger` entry: `EXPIRY_FORFEIT`, amount `-old_balance`.
+4. **Create New Sub:** Generate new `Subscription` linked to the New Plan.
+5. **Fund New Sub:** 
+   - Log `CreditLedger` entry: `UPGRADE_ROLLOVER` or `DOWNGRADE_ROLLOVER` (amount = `rollover_credits`).
+   - Log `CreditLedger` entry: `INITIAL_PURCHASE` or `RENEWAL_ALLOCATION` (amount = `New Plan.allocated_credits`).
+   - Set New `Subscription.credit_balance = rollover_credits + allocated_credits`.
+
+### D. Using Credits
+When the user triggers a Voicebot call or action that costs a credit:
+1. Verify `Subscription.credit_balance >= cost`. (If expired, also check `allow_use_after_expiry`).
+2. Deduct from `Subscription.credit_balance`.
+3. Log `CreditLedger` entry: `USAGE_DEDUCTION` (amount = `-cost`).
+
+### E. The Billing Engine (Manual Orders - Future Proofed)
+Since the Razorpay Auto-Pay mandate feature is not yet approved for your account, we will build a **Manual Order Engine** that is designed to be easily swappable with automated Subscriptions later.
+
+1. **Onboarding / Purchase:** 
+   - We continue generating standard Razorpay Orders (`order_xxx`).
+   - We track the `end_date` of the `Subscription` strictly in our database.
+2. **Manual Renewals & Expiry:**
+   - Instead of listening for a webhook to auto-renew, the user will see a "Renew Plan" button in their dashboard when their subscription nears expiry.
+   - Clicking this generates a `RENEWAL` Order. Upon payment, we extend the `end_date` and deposit new credits into the Wallet Ledger.
+   - If they do not pay by the `end_date`, a scheduled CRON task will mark the `Subscription` as `EXPIRED` and restrict access.
+3. **Upgrades / Downgrades (Our Custom Proration):**
+   - Because we are using one-off orders, Razorpay cannot calculate proration for us.
+   - Our backend `tenant/services/proration.py` will calculate the exact price difference for an upgrade mid-cycle.
+   - We generate an `UPGRADE` Order for that specific difference. When the user pays it, our webhook handles the cancellation of the old sub and activation of the new one (with the Wallet Ledger handling credit rollovers).
+4. **Future Migration:**
+   - Because we are decoupling the *Financial Audit* (Wallet Ledger) and the *State* (Subscription model) from Razorpay's specific implementation, migrating to auto-pay later simply means swapping out step 1 to create a `sub_xxx` and step 2 to listen for a webhook instead of a manual button click!

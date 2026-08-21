@@ -23,6 +23,7 @@ from core.models.booking import Booking
 from core.models.booking_participant import BookingParticipant
 from core.models.booking_event import BookingEvent
 from core.models.notification_log import NotificationLog
+from core.models.in_app_notification import InAppNotification
 from core.models.calendar_integration import CalendarIntegration
 from core.models.external_busy_block import ExternalBusyBlock
 from core.models.device_token import DeviceToken
@@ -72,6 +73,7 @@ __all__ = [
     "BookingParticipant",
     "BookingEvent",
     "NotificationLog",
+    "InAppNotification",
     "CalendarIntegration",
     "ExternalBusyBlock",
     "DeviceToken",

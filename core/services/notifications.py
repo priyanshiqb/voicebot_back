@@ -18,6 +18,7 @@ from core.models.booking import Booking
 from core.models.booking_event import BookingEvent
 from core.models.booking_participant import BookingParticipant
 from core.models.notification_log import NotificationLog
+from core.models.in_app_notification import InAppNotification
 from core.services import events, ics
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,36 @@ def _record_unsent(booking, notification_type, dedup_key, recipients):
     )
 
 
+def _create_in_app_notifications(booking, notification_type, title, body, emails=None, admin_only=False):
+    from user.models import CustomUser
+    
+    users_to_notify = []
+    if admin_only:
+        users_to_notify = list(CustomUser.objects.filter(
+            tenant_mapping__tenant=booking.tenant,
+            user_type=CustomUser.UserType.ADMIN
+        ))
+    elif emails:
+        users_to_notify = list(CustomUser.objects.filter(
+            email__in=emails,
+            tenant_mapping__tenant=booking.tenant
+        ))
+
+    if not users_to_notify:
+        return
+
+    InAppNotification.objects.bulk_create([
+        InAppNotification(
+            tenant=booking.tenant,
+            user=user,
+            title=title,
+            body=body,
+            notification_type=notification_type,
+        )
+        for user in users_to_notify
+    ])
+
+
 def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_content=None):
     """Enqueue an email once for the given dedup_key. Returns True iff enqueued this call.
 
@@ -196,6 +227,14 @@ def _emit(booking, notification_type, dedup_key, subject, body, recipients, ics_
     log.status = NotificationLog.Status.PENDING
     log.error = ""
     log.save(update_fields=["status", "error", "updated_at"])
+
+    _create_in_app_notifications(
+        booking,
+        notification_type,
+        subject,
+        body,
+        emails=recipients
+    )
 
     send_scheduling_email_task.delay(
         subject=subject,
@@ -289,6 +328,14 @@ def emit_admin_push(booking, notification_type, dedup_key, title, body, **envelo
     log.status = NotificationLog.Status.PENDING
     log.error = ""
     log.save(update_fields=["status", "error", "updated_at"])
+
+    _create_in_app_notifications(
+        booking,
+        notification_type,
+        title,
+        body,
+        admin_only=True
+    )
 
     send_push_to_admins_task.delay(
         str(booking.tenant_id),
