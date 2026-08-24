@@ -112,20 +112,20 @@
 	reverse_proxy loki:3100
 }
 
-# 7. MinIO S3 Emulator Services
-{$SCHEME}minio{$ENV_NAME}.{$DOMAIN} {
+# 7. Azurite — local Azure Blob Storage emulator
+#
+# One route, not two: Azurite ships no web console (MinIO's second route served one).
+# Browse local blobs with Azure Storage Explorer or `az storage blob list` instead.
+#
+# No `import compression`. Blobs are stored and returned as-is, and re-encoding a
+# response here would make the byte count the gateway serves disagree with the one
+# confirm-upload measured against the size ceiling.
+{$SCHEME}azurite{$ENV_NAME}.{$DOMAIN} {
 	import error_handler
 	import security_headers
-	import compression
-	reverse_proxy minio:9000 {
+	reverse_proxy azurite:10000 {
 		header_up Host {upstream_hostport}
 	}
-}
-{$SCHEME}minio-console{$ENV_NAME}.{$DOMAIN} {
-	import error_handler
-	import security_headers
-	import compression
-	reverse_proxy minio:9001
 }
 
 # 7b. Developer Documentation Portal (Docsify)

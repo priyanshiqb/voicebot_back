@@ -21,7 +21,7 @@ docker-compose.yml
 
 # Runtime state directories. These are gitignored but were NOT dockerignored, so
 # `COPY . .` baked them into the image: .data/ alone is ~850 MB holding the live
-# Postgres cluster, Redis dumps, MinIO objects, Grafana's DB and Caddy's private
+# Postgres cluster, Redis dumps, Azurite blobs, Grafana's DB and Caddy's private
 # CA key material. Anyone who could pull the image got an offline copy of everything.
 .data/
 media/

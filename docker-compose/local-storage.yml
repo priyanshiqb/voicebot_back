@@ -1,22 +1,60 @@
 services:
-  # MinIO S3-Compatible Storage Emulator
-  minio:
-    image: minio/minio:latest
-    container_name: minio-voicebot
+  # Azurite — local Azure Blob Storage emulator
+  #
+  # Replaces the MinIO/S3 emulator. Azurite speaks the Azure Blob REST API and does
+  # NOT implement the S3 API, so it is only usable once the storage layer is ported
+  # (see docs/implementation-plan-scratch/azure-blob-migration-plan.md, steps 5-6).
+  # Until then this profile starts a working emulator that the app cannot yet talk to.
+  #
+  # Credentials are Azurite's built-in well-known development account and are not
+  # configurable here on purpose:
+  #     account : devstoreaccount1
+  #     key     : Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+  # Every Azure tool recognises that pair, which is why it is left as the default
+  # rather than wired to the app's variables the way MinIO's root user was. To mirror
+  # a production account name instead, set AZURITE_ACCOUNTS in the environment as
+  # "name:base64key" — an invalid base64 key makes the container exit at boot.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: azurite-voicebot
     profiles:
       - emulators
+    # Blob only. Nothing here uses queue or table storage, and each extra listener is
+    # one more published port to collide with.
+    #
+    # --skipApiVersionCheck: azure-storage-blob ships new x-ms-version values faster
+    # than Azurite adopts them, and the mismatch surfaces as an opaque 400 rather than
+    # as "unsupported version".
+    #
+    # Deliberately NOT --loose. Loose mode stops enforcing required headers, so an
+    # upload missing `x-ms-blob-type: BlockBlob` would succeed locally and fail against
+    # real Azure — exactly the class of bug a local emulator exists to catch.
+    command: >
+      azurite-blob
+      --blobHost 0.0.0.0
+      --blobPort 10000
+      --location /data
+      --skipApiVersionCheck
     volumes:
-      - ../.data/minio:/data
+      - ../.data/azurite:/data
     ports:
-      - "${MINIO_BIND_IP:-${BIND_IP}}:${MINIO_PORT:-9000}:9000"
-      - "${MINIO_BIND_IP:-${BIND_IP}}:${MINIO_CONSOLE_PORT:-9001}:9001"
-    environment:
-      MINIO_ROOT_USER: "${S3_ACCESS_KEY_ID:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${S3_SECRET_ACCESS_KEY:-minioadmin}"
-    command: server /data --console-address ":9001"
+      - "${AZURITE_BIND_IP:-${BIND_IP}}:${AZURITE_BLOB_PORT:-10000}:10000"
     restart: always
     networks:
       - backend
+    # node is the only interpreter guaranteed in this image — no curl, and busybox nc
+    # here has no -z. A bare TCP connect is the check that does not depend on either.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('net').connect(10000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      retries: 5
+      timeout: 5s
     logging:
       driver: "json-file"
       options:

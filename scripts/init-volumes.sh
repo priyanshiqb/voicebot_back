@@ -21,7 +21,7 @@ mkdir -p "$BASE_DIR/.data/redisinsight"
 mkdir -p "$BASE_DIR/.data/prometheus"
 mkdir -p "$BASE_DIR/.data/caddy/data"
 mkdir -p "$BASE_DIR/.data/caddy/config"
-mkdir -p "$BASE_DIR/.data/minio"
+mkdir -p "$BASE_DIR/.data/azurite"
 
 echo "Setting ownership..."
 
@@ -43,8 +43,8 @@ chown -R 1000:1000 "$BASE_DIR/.data/redisinsight" || true
 # Prometheus (UID 65534 nobody)
 chown -R 65534:65534 "$BASE_DIR/.data/prometheus" || true
 
-# MinIO
-chown -R 1000:1000 "$BASE_DIR/.data/minio" || true
+# Azurite (node image, runs as root by default; 1000 keeps it writable if that changes)
+chown -R 1000:1000 "$BASE_DIR/.data/azurite" || true
 
 echo "Setting permissions..."
 
@@ -56,7 +56,7 @@ chmod -R 775 "$BASE_DIR/.data/grafana"
 chmod -R 775 "$BASE_DIR/.data/loki"
 chmod -R 775 "$BASE_DIR/.data/pgadmin"
 chmod -R 775 "$BASE_DIR/.data/prometheus"
-chmod -R 775 "$BASE_DIR/.data/minio"
+chmod -R 775 "$BASE_DIR/.data/azurite"
 
 echo ""
 echo "Directory status:"
