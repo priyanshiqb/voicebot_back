@@ -197,6 +197,54 @@ def _fail(campaign, message):
     return campaign
 
 
+def _has_credit_for_campaign(campaign):
+    """Whether this tenant can pay for at least one call on this campaign's bot.
+
+    A deliberately shallow check — one minute at the agent's tier — rather than an
+    estimate of the whole audience. Estimating the total would need a guess at average
+    call length, and a campaign is not all-or-nothing: it dials until the credits run
+    out, and the tenant can top up mid-run. What this catches is the case worth
+    catching, which is starting a campaign with an empty or frozen wallet.
+
+    Returns True when enforcement is off, whatever the balance — the refusal is
+    logged by the service and the campaign proceeds, which is what metering-before-
+    blocking means.
+    """
+    from wallet.services import policy
+    from wallet.services import wallet as wallet_service
+    from wallet.services.exceptions import (
+        InsufficientCredits,
+        RateNotConfigured,
+        WalletFrozen,
+    )
+
+    agent = getattr(campaign, "agent", None)
+    tier = getattr(agent, "service_tier", None) or policy.DEFAULT_TIER
+
+    try:
+        wallet_service.assert_can_consume(
+            campaign.tenant_id, operation=tier, quantity=60
+        )
+    except (InsufficientCredits, WalletFrozen) as exc:
+        logger.warning(
+            "campaign %s not started: %s", campaign.pk, exc
+        )
+        return False
+    except RateNotConfigured:
+        # The plan cannot price this bot's tier. Blocking here would take a
+        # configuration mistake and turn it into a silently skipped campaign that
+        # nobody is told about; the call path raises loudly enough on its own.
+        logger.exception(
+            "campaign %s: no rate configured for %s; starting anyway",
+            campaign.pk, tier,
+        )
+    except Exception:
+        # A credit check must never be why a campaign fails to run.
+        logger.exception("campaign %s: credit pre-flight errored; starting anyway", campaign.pk)
+
+    return True
+
+
 def start_due_campaigns():
     """
     Beat sweep: launch campaigns whose scheduled start has arrived.
@@ -220,6 +268,17 @@ def start_due_campaigns():
             # Re-check under the lock; another worker may have taken it already.
             if campaign is None or campaign.status != Campaign.Status.SCHEDULED:
                 continue
+
+            # Credit pre-flight. Checked before the campaign starts rather than at the
+            # first call, because a campaign that dials half its audience and then
+            # stops mid-run is worse for the tenant than one that never started: the
+            # contacts already called cannot be un-called.
+            #
+            # While `credits_enforced` is off this only logs, so nothing is blocked
+            # until the rates have been proven against real traffic.
+            if not _has_credit_for_campaign(campaign):
+                continue
+
             campaign.status = Campaign.Status.MATERIALIZING
             campaign.save(update_fields=["status", "updated_at"])
 

@@ -72,6 +72,40 @@ class CampaignRunnerViewSet(
     def _get_campaign(self):
         return get_object_or_404(self.get_queryset(), pk=self.kwargs["pk"])
 
+    def _credit_context(self, campaign):
+        """What this campaign's calls cost, and what the tenant has left.
+
+        Included so the runner can pace itself and surface a useful message rather
+        than discovering an empty wallet one failed call at a time. It is advisory:
+        nothing here is load-bearing, and a runner ignoring it is charged exactly the
+        same. Never raises — a billing lookup must not be able to break a handoff.
+        """
+        from wallet.services import policy
+        from wallet.services import wallet as wallet_service
+
+        tier = getattr(campaign.agent, "service_tier", None) or policy.DEFAULT_TIER
+
+        try:
+            wallet = wallet_service.for_tenant(campaign.tenant_id)
+            context = {
+                "balance": wallet.balance,
+                "is_frozen": wallet.is_frozen,
+                "service_tier": tier,
+                "credits_per_minute": None,
+            }
+            try:
+                context["credits_per_minute"] = wallet_service.quote(
+                    campaign.tenant_id, operation=tier, quantity=60
+                ).credits
+            except Exception:
+                logger.warning(
+                    "campaign %s: could not price tier %s", campaign.pk, tier
+                )
+            return context
+        except Exception:
+            logger.exception("campaign %s: credit context unavailable", campaign.pk)
+            return None
+
     @extend_schema(
         summary="Get campaign context",
         description=(
@@ -113,6 +147,11 @@ class CampaignRunnerViewSet(
 
         payload = {
             "campaign": RunnerCampaignContextSerializer(campaign).data,
+            # Additive on purpose: a runner that does not know about this key keeps
+            # working unchanged. It is informational — the runner is not asked to
+            # enforce anything, because the authoritative refusal happens here and the
+            # charge happens when the call log lands.
+            "credits": self._credit_context(campaign),
         }
 
         page = self.paginate_queryset(members)

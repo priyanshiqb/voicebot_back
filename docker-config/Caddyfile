@@ -114,7 +114,7 @@
 
 # 7. Azurite — local Azure Blob Storage emulator
 #
-# One route, not two: Azurite ships no web console (MinIO's second route served one).
+# One route, not two: Azurite ships no web console (MinIOs second route served one).
 # Browse local blobs with Azure Storage Explorer or `az storage blob list` instead.
 #
 # No `import compression`. Blobs are stored and returned as-is, and re-encoding a

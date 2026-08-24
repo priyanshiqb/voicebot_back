@@ -202,9 +202,57 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             assert_agent_in_tenant(agent, tenant)
 
             serializer.save(tenant=tenant)
+            self._charge_credits(serializer.instance)
             return
 
         super().perform_create(serializer)
+        self._charge_credits(serializer.instance)
+
+    def _charge_credits(self, call_log):
+        """Deduct the cost of this call from the tenant's wallet.
+
+        **Never allowed to fail the request.** The call already happened and the log is
+        already saved; raising here would make the runner retry a POST whose row is
+        committed, and every retry would be a fresh attempt to charge for the same
+        call. A billing problem is ours to reconcile, not the runner's to retry into —
+        so anything unexpected is logged and swallowed, and `report_unrated_calls`
+        sweeps up what was missed.
+
+        Idempotent by `provider_call_id`, which is already unique on the model. A
+        re-posted call writes nothing the second time.
+        """
+        from wallet.services import policy
+        from wallet.services import wallet as wallet_service
+
+        try:
+            billable = policy.operation_for_call(call_log)
+            if billable is None:
+                # No duration yet — nothing to rate. This viewset is POST-only, so a
+                # call log is written once; a row arriving with no duration means the
+                # runner did not have one, and it will be reported as unrated rather
+                # than guessed at.
+                logger.info(
+                    "call %s has no duration; not charged", call_log.provider_call_id
+                )
+                return
+
+            operation, quantity = billable
+            wallet_service.consume(
+                call_log.tenant_id,
+                operation=operation,
+                quantity=quantity,
+                reference_id=call_log.provider_call_id,
+                metadata={
+                    "agent_id": str(call_log.agent_id),
+                    "direction": call_log.direction,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "failed to charge credits for call %s (tenant %s)",
+                call_log.provider_call_id,
+                call_log.tenant_id,
+            )
 
     @extend_schema(exclude=True)
     def bulk_delete(self, request, *args, **kwargs):
