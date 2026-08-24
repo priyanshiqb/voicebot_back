@@ -114,13 +114,9 @@ class CreateOrderJustInTimeView(ResponseMixin, APIView):
             # Create Tenant and Tenant User Mapping cleanly
             tenant = create_tenant_and_mapping(temp_user, user)
 
-            # Create Subscription record for the new tenant with a plan snapshot
-            from onboard.models import Subscription
-            Subscription.objects.create(
-                tenant=tenant,
-                plan=plan,
-                status=Subscription.SubscriptionStatusChoices.ACTIVE
-            )
+            # Subscription, rate card and the cycle's credits, in one place.
+            from onboard.services import subscriptions as subscription_service
+            subscription_service.activate(tenant, plan, transaction=transaction)
 
             # Link BillingAddress and Transaction to the new active CustomUser
             BillingAddress.objects.filter(temp_user=temp_user).update(user=user, temp_user=None)

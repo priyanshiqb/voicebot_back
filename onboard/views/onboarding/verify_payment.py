@@ -176,12 +176,11 @@ class VerifyPaymentView(ResponseMixin, APIView):
                 # Create Tenant and Tenant User Mapping cleanly
                 tenant = create_tenant_and_mapping(temp_user, user)
 
-                # Create Subscription record for the new tenant with a plan snapshot
-                from onboard.models import Subscription
-                Subscription.objects.create(
-                    tenant=tenant,
-                    plan=temp_user.selected_plan,
-                    status=Subscription.SubscriptionStatusChoices.ACTIVE
+                # Subscription, rate card and the cycle's credits, in one place.
+                # Idempotent against the webhook doing the same thing first.
+                from onboard.services import subscriptions as subscription_service
+                subscription_service.activate(
+                    tenant, temp_user.selected_plan, transaction=transaction
                 )
 
                 # Link BillingAddress and Transaction to the new active CustomUser
