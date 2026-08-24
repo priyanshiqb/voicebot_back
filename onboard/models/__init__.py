@@ -1,4 +1,6 @@
 from .plan import Plan
+from .plan_entitlement import PlanEntitlement
+from .tenant_entitlement import TenantEntitlement
 from .temp_user import TempUser
 from .billing_address import BillingAddress
 from .transaction import Transaction
@@ -14,7 +16,7 @@ from .admin3 import Admin3
 from .place import Place
 
 __all__ = [
-    "Plan", "TempUser", "BillingAddress", "Transaction", 
+    "Plan", "PlanEntitlement", "TenantEntitlement", "TempUser", "BillingAddress", "Transaction", 
     "RazorpayWebhookLog", "Subscription", "Timezone", "get_default_timezone",
     "Language", "get_default_language",
     "Country", "Admin1", "Admin2", "Admin3", "Place"

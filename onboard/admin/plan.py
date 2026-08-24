@@ -1,5 +1,6 @@
 from django.contrib import admin
 from onboard.models.plan import Plan
+from onboard.admin.plan_entitlement import PlanEntitlementInline
 from utils.admin.base_admin_core import BaseAdminCore
 
 
@@ -11,6 +12,7 @@ class PlanAdmin(BaseAdminCore):
     list displays, and calculated read-only parameters.
     """
     model = Plan
+    inlines = [PlanEntitlementInline]
 
     list_display = (
         "code",
@@ -83,6 +85,22 @@ class PlanAdmin(BaseAdminCore):
                 "tax_amount_display",
                 "total_price_display",
             )
+        }),
+        ("Credits & Rollover", {
+            "fields": (
+                "allocated_credits",
+                "cost_per_additional_credit",
+                "low_balance_threshold",
+                "max_rollover_credits",
+                "allow_rollover_on_renewal",
+                "allow_rollover_on_upgrade",
+                "allow_rollover_on_downgrade",
+                "allow_use_after_expiry",
+            ),
+            "description": (
+                "What a cycle grants and what happens to leftovers. Per-minute prices "
+                "are not here — they are Credit Rate rows for this plan."
+            ),
         }),
         ("Timestamps", {
             "fields": (

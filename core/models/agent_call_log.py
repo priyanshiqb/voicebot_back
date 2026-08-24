@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
+from core.constants.service_tier import ServiceTier
 from tenant.common.models.tenant_base_model_core import TenantBaseModelCore
 
 class AgentCallLog(TenantBaseModelCore):
@@ -74,6 +75,20 @@ class AgentCallLog(TenantBaseModelCore):
     duration_seconds = models.PositiveIntegerField(
         default=0,
         help_text=_("The duration of the call in seconds.")
+    )
+    service_tier = models.CharField(
+        max_length=32,
+        choices=ServiceTier.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text=_(
+            "The tier this call was actually served on, as reported by the runner. "
+            "This is what the call is billed at, because a call configured for low "
+            "latency may have been served on the standard model instead. Null means "
+            "the runner did not report it, and billing falls back to the agent's "
+            "configured tier."
+        ),
     )
     outcome = models.CharField(
         max_length=255,

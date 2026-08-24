@@ -1,6 +1,7 @@
 from django.core.validators import MinLengthValidator, MaxLengthValidator, RegexValidator
 from django.db import models
 
+from core.constants.service_tier import ServiceTier
 from core.models.campaign import Campaign
 from tenant.common.models.tenant_base_model import TenantBaseModel
 
@@ -65,6 +66,18 @@ class Agent(TenantBaseModel):
         blank=True,
         null=True,
         help_text="Identifier for the chosen agent voice.",
+    )
+    service_tier = models.CharField(
+        max_length=32,
+        choices=ServiceTier.choices,
+        default=ServiceTier.CONVERSATION_HIGH_LATENCY,
+        db_index=True,
+        help_text=(
+            "How this bot is served, and therefore what a minute of its calls costs. "
+            "Every plan prices all three tiers, so this is a cost choice rather than "
+            "an entitlement. The tier a call is actually billed at comes from the call "
+            "log; this is the intent and the fallback."
+        ),
     )
     timezone = models.ForeignKey(
         "onboard.Timezone",

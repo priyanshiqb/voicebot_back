@@ -48,20 +48,6 @@
       "is_active": true
     },
     {
-      "code": "pay_as_you_go_inr",
-      "name": "Pay As You Go INR",
-      "description": "Metered usage-based charging in INR.",
-      "base_price": "0.00",
-      "discount_percentage": "0.00",
-      "tax_percentage": "0.00",
-      "currency": "INR",
-      "billing_cycle": "monthly",
-      "plan_type": "pay_as_you_go",
-      "sort_order": 4,
-      "is_most_popular": false,
-      "is_active": true
-    },
-    {
       "code": "starter_inr_yearly",
       "name": "Starter INR Yearly",
       "description": "Perfect for individuals and small startups - Billed Yearly.",

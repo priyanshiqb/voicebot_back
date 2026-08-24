@@ -22,6 +22,12 @@ class Plan(BaseModelCore):
         """
         PAID = "paid", "Paid"
         FREE = "free", "Free"
+        # No plan currently uses this. Retained deliberately: pay-as-you-go is
+        # expressible entirely as field values — allocated_credits=0, top-ups
+        # enabled, allow_use_after_expiry=True, renews_without_payment=True — so
+        # reinstating it is a data change. Its configuration is preserved in
+        # json_files/plan_pay_as_you_go.json. Nothing branches on this member, and
+        # nothing should: see renews_without_payment below.
         PAY_AS_YOU_GO = "pay_as_you_go", "Pay As You Go"
 
     class CurrencyChoices(models.TextChoices):
@@ -90,10 +96,90 @@ class Plan(BaseModelCore):
         help_text="Flag indicating whether this plan is marked as the most popular choice."
     )
 
+    # ------------------------------------------------------------------ #
+    # Credits
+    #
+    # What a cycle grants and what happens to leftovers. Per-operation
+    # *prices* are not here — they are CreditRate rows pointing at this
+    # plan, because prices need version history and these do not: they are
+    # frozen into Subscription.plan_snapshot when a tenant subscribes.
+    # ------------------------------------------------------------------ #
+    allocated_credits = models.PositiveIntegerField(
+        default=0,
+        help_text="Credits granted at the start of every billing cycle on this plan."
+    )
+    cost_per_additional_credit = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text=(
+            "Pre-tax price of one credit when topping up mid-cycle. "
+            "0.00 disables top-ups on this plan."
+        )
+    )
+    max_rollover_credits = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text=(
+            "Ceiling on credits carried into the next cycle. Null means uncapped. "
+            "Without a cap, a light user on an annual plan can bank a year of credits "
+            "and then run them down while paying nothing."
+        )
+    )
+    allow_rollover_on_renewal = models.BooleanField(
+        default=False,
+        help_text="Do unused plan credits survive a same-plan renewal?"
+    )
+    allow_rollover_on_upgrade = models.BooleanField(
+        default=True,
+        help_text="Do unused plan credits carry over when moving to a higher plan?"
+    )
+    allow_rollover_on_downgrade = models.BooleanField(
+        default=False,
+        help_text="Do unused plan credits carry over when moving to a lower plan?"
+    )
+    allow_use_after_expiry = models.BooleanField(
+        default=False,
+        help_text=(
+            "May the tenant keep spending a remaining balance once the subscription "
+            "has lapsed? Required for pay-as-you-go, where purchased credits must "
+            "stay spendable."
+        )
+    )
+    low_balance_threshold = models.PositiveIntegerField(
+        default=0,
+        help_text="Alert the tenant at or below this balance. 0 disables the alert."
+    )
+    renews_without_payment = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether the cycle rolls over on its own, with no order and no payment. "
+            "False means the subscription expires at end_date and access stops until "
+            "the tenant pays.\n\n"
+            "This is what separates the two kinds of zero-cost plan, which is "
+            "otherwise impossible to tell apart from the price alone: a free trial "
+            "costs nothing and is *meant* to end, while pay-as-you-go costs nothing "
+            "up front and must never end, because the tenant may be holding credits "
+            "they paid cash for. Keeping it a field rather than a branch on plan_type "
+            "means adding pay-as-you-go back is data, not code."
+        )
+    )
+
     class Meta(BaseModelCore.Meta):
         verbose_name = "Plan"
         verbose_name_plural = "Plans"
         ordering = ["sort_order", "-created_at"]
+        constraints = [
+            # A priced plan that renews itself for free would silently stop billing.
+            # base_price rather than total_price because the latter is a property and
+            # cannot be constrained; a plan with a zero base is zero-cost whatever
+            # the discount and tax do to it.
+            models.CheckConstraint(
+                condition=models.Q(renews_without_payment=False)
+                | models.Q(base_price=Decimal("0.00")),
+                name="ck_plan_free_renewal_only_when_zero_cost",
+            ),
+        ]
 
     @property
     def discount_amount(self):

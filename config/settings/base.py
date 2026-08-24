@@ -119,6 +119,7 @@ INSTALLED_APPS = [
     "tenant",
     "onboard",
     "core",
+    "wallet",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -310,6 +311,13 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "TransactionStatusEnum": "onboard.models.transaction.Transaction.TransactionStatusChoices",
         "SubscriptionStatusEnum": "onboard.models.subscription.Subscription.SubscriptionStatusChoices",
+
+        # Credit wallet
+        "CreditEntryTypeEnum": "wallet.models.credit_ledger.CreditLedger.EntryType",
+        "CreditBucketEnum": "wallet.models.credit_ledger.CreditLedger.Bucket",
+        "CreditOperationEnum": "wallet.models.credit_rate.CreditRate.Operation",
+        "CreditUnitEnum": "wallet.models.credit_rate.CreditRate.Unit",
+        "CreditRoundingEnum": "wallet.models.credit_rate.CreditRate.Rounding",
         "KBETLTrackerStatusEnum": "core.models.kb_etl_tracker.KBETLTracker.OverallStatus",
         
         # Types
@@ -592,8 +600,10 @@ CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=2
 #
 # Defaults to PUT because switching is a BREAKING CHANGE for the frontend — POST needs
 # multipart form data with the returned fields, file part last — so backend and client
-# have to ship together. Verify the object store supports POST Object first: MinIO does;
-# check Cloudflare R2 against its current S3 compatibility list before flipping.
+# have to ship together. Verify the object store supports POST Object first: check
+# Cloudflare R2 against its current S3 compatibility list before flipping. Note that
+# Azure Blob has no POST-policy equivalent at all, so this option goes away with the
+# migration — see docs/implementation-plan-scratch/azure-blob-migration-plan.md §2.
 # `manage.py check` warns while this is PUT.
 UPLOAD_PRESIGN_METHOD = env.str("UPLOAD_PRESIGN_METHOD", default="PUT")
 

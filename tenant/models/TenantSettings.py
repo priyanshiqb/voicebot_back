@@ -37,6 +37,20 @@ class TenantSettings(TenantBaseModel):
         ),
     )
 
+    credits_enforced = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether a shortfall of credits actually blocks work for this tenant. "
+            "Metering runs regardless — every call is rated and written to the credit "
+            "ledger from day one — but while this is False a tenant who cannot afford "
+            "an action is only logged, never refused. It exists so the credit rates can "
+            "be checked against a full cycle of real traffic before a wrong number "
+            "stops a paying customer's campaign, and it doubles as a per-tenant escape "
+            "hatch when a billing bug needs unblocking without disabling metering for "
+            "everyone."
+        ),
+    )
+
     class Meta(TenantBaseModel.Meta):
         db_table = "tenant_settings"
         verbose_name = "Tenant Settings"

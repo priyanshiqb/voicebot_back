@@ -9,10 +9,19 @@ class RazorpayWebhookLog(BaseModelCore):
     """
     event_id = models.CharField(
         max_length=255,
+        unique=True,
         blank=True,
         null=True,
         db_index=True,
-        help_text="The unique event ID supplied by Razorpay."
+        help_text=(
+            "The unique event ID supplied by Razorpay, and the outer idempotency "
+            "guard. Razorpay retries aggressively, so the handler creates this row "
+            "with get_or_create and returns 200 immediately when it already exists — "
+            "without which a redelivered capture credits a tenant twice.\n\n"
+            "Postgres permits many NULLs in a unique column, which is what we want: "
+            "an event with no id falls through to normal processing, where the credit "
+            "ledger's own (entry_type, reference_id) constraint is the real guard."
+        )
     )
     event_type = models.CharField(
         max_length=255,

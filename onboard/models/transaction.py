@@ -14,6 +14,19 @@ class Transaction(BaseModelCore):
         FAILED = "failed", "Failed"
         CANCELED = "canceled", "Canceled"
 
+    class TransactionTypeChoices(models.TextChoices):
+        """What this payment is for.
+
+        The webhook dispatches on this. Without it every captured payment looks like
+        a signup, which is what the handler assumed when onboarding was the only
+        thing anyone could pay for.
+        """
+        ONBOARDING = "onboarding", "Onboarding"
+        RENEWAL = "renewal", "Renewal"
+        UPGRADE = "upgrade", "Upgrade"
+        TOP_UP = "top_up", "Credit Top-Up"
+        ADDON = "addon", "Entitlement Add-On"
+
     razorpay_order_id = models.CharField(
         max_length=255,
         unique=True,
@@ -68,9 +81,79 @@ class Transaction(BaseModelCore):
         help_text="Logged JSON response payloads from webhook events for debugging."
     )
 
+    # --- what this payment is for --------------------------------------------
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=TransactionTypeChoices.choices,
+        default=TransactionTypeChoices.ONBOARDING,
+        db_index=True,
+        help_text="What this payment buys. The webhook dispatches on it."
+    )
+    tenant = models.ForeignKey(
+        "tenant.Tenant",
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name="transactions",
+        help_text=(
+            "Who is paying. Null only for onboarding, where the tenant does not exist "
+            "until the payment clears — enforced by a check constraint, because a "
+            "renewal or top-up that loses its tenant is a payment captured and "
+            "credited to nobody."
+        )
+    )
+    subscription = models.ForeignKey(
+        "onboard.Subscription",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="transactions",
+        help_text="The subscription this payment relates to."
+    )
+    target_plan = models.ForeignKey(
+        "onboard.Plan",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="target_transactions",
+        help_text=(
+            "The plan being moved TO on an upgrade. Deliberately separate from `plan`, "
+            "which already means 'what they had' on a renewal and 'what they bought' "
+            "on onboarding — overloading it a third time makes every query ambiguous."
+        )
+    )
+    credits_purchased = models.PositiveIntegerField(
+        default=0,
+        help_text="Credits bought. Top-ups only."
+    )
+    amount_breakdown = models.JSONField(
+        blank=True,
+        null=True,
+        help_text=(
+            "How the amount was computed — old plan price, unused ratio, days "
+            "remaining, add-on blocks. When a tenant disputes a prorated charge six "
+            "weeks later, this is the only record of how the number was produced."
+        )
+    )
+    expires_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text=(
+            "When an unpaid order stops being valid. Without it a stale PENDING "
+            "transaction blocks the tenant from starting another one indefinitely."
+        )
+    )
+
     class Meta:
         db_table = "onboard_transaction"
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(transaction_type="onboarding")
+                | models.Q(tenant__isnull=False),
+                name="ck_transaction_tenant_required_post_onboarding",
+            ),
+        ]
 
     def __str__(self):
         return f"Order {self.razorpay_order_id} - {self.status} (INR {self.amount})"
