@@ -1,6 +1,10 @@
 from django.contrib import admin
 from onboard.models.plan import Plan
 from onboard.admin.plan_entitlement import PlanEntitlementInline
+# Presentation-layer import only. A plan's rate card and its entitlements are one
+# editing task, and splitting them across two pages means pricing a plan from
+# memory. No model or service in onboard depends on wallet.
+from wallet.admin.credit_rate import CreditRateInline
 from utils.admin.base_admin_core import BaseAdminCore
 
 
@@ -12,7 +16,7 @@ class PlanAdmin(BaseAdminCore):
     list displays, and calculated read-only parameters.
     """
     model = Plan
-    inlines = [PlanEntitlementInline]
+    inlines = [CreditRateInline, PlanEntitlementInline]
 
     list_display = (
         "code",
