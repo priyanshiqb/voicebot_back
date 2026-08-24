@@ -59,13 +59,14 @@ class Subscription(BaseModelCore):
         help_text="Start date and time of the subscription period."
     )
     end_date = models.DateTimeField(
-        blank=True,
-        null=True,
         help_text=(
             "When this billing cycle ends. Derived from start_date plus the plan's "
-            "billing cycle when not set explicitly. Expiry, renewal windows and "
-            "proration are all functions of this, so a subscription without one has "
-            "no billing cycle to reason about."
+            "billing cycle when not set explicitly. "
+            "Non-nullable, deliberately: expiry, renewal windows and proration are all "
+            "functions of this, so a subscription without one has no billing cycle to "
+            "reason about — and every row in this table was in exactly that state "
+            "until it was backfilled. save() fills it when unset, so the database "
+            "constraint is a backstop rather than a burden on callers."
         )
     )
     plan_snapshot = models.JSONField(
