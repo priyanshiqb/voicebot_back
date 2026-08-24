@@ -7,6 +7,9 @@ class OnboardConfig(AppConfig):
 
     def ready(self):
         import onboard.signals
+
+        # Deploy-time validation for payment settings that fail silently.
+        import onboard.checks  # noqa: F401
         
         # Asynchronously update Bloom Filter on project start
         import sys

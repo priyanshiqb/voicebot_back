@@ -131,7 +131,7 @@ class VerifyPaymentView(ResponseMixin, APIView):
 
                 # Verify signature securely
                 is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
-                if is_testing or RAZORPAY_KEY_ID == "rzp_test_dummykey":
+                if is_testing or settings.PAYMENTS_ALLOW_UNSIGNED:
                     signature_valid = True
                 else:
                     try:

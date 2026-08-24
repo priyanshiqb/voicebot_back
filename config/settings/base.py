@@ -493,8 +493,27 @@ TENANT_SMTP_ALLOW_PRIVATE_HOSTS = env.bool(
 SMTP_TEST_THROTTLE_PER_HOUR = env.int("SMTP_TEST_THROTTLE_PER_HOUR", default=5)
 
 # Razorpay Credentials
-RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID", "rzp_test_dummykey")
-RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET", "dummysecret")
+# Razorpay. No defaults, deliberately.
+#
+# RAZORPAY_KEY_ID used to default to "rzp_test_dummykey", and three views treated
+# that exact value as "skip signature verification". A deploy that forgot the env var
+# therefore did not fail — it silently accepted any unsigned webhook as genuine, so
+# anyone able to POST to the endpoint could mint a paid subscription. env.str() with
+# no default raises ImproperlyConfigured at import instead: an unset credential now
+# stops the process rather than quietly disabling a security control.
+RAZORPAY_KEY_ID = env.str("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = env.str("RAZORPAY_KEY_SECRET")
+
+# Required whenever signatures are actually verified. Kept optional at import so a
+# dev box running with PAYMENTS_ALLOW_UNSIGNED does not need a secret it never uses;
+# production.py and onboard/checks.py both refuse an empty value when it is needed.
+RAZORPAY_WEBHOOK_SECRET = env.str("RAZORPAY_WEBHOOK_SECRET", default="")
+
+# Whether unsigned payment callbacks are accepted. Defaults to False — a default that
+# fails closed is fine, a default that fails open is what caused the hole above.
+# Replaces the old "is the key the dummy one?" inference: whether signatures are
+# checked is now a deliberate setting, not a side effect of what a credential equals.
+PAYMENTS_ALLOW_UNSIGNED = env.bool("PAYMENTS_ALLOW_UNSIGNED", default=False)
 
 # Django Defender Configuration (Brute Force Protection)
 DEFENDER_REDIS_URL = CACHE_REDIS_URL

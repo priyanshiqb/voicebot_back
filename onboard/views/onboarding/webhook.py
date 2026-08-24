@@ -35,13 +35,16 @@ class RazorpayWebhookView(ResponseMixin, APIView):
         event_id = request.data.get("id")
         event = request.data.get("event")
 
+        # An explicit setting, not an inference from what a credential happens to
+        # equal. `test in sys.argv` stays as a second guard for suites that do not
+        # load the test settings module.
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
-        if is_testing or RAZORPAY_KEY_ID == "rzp_test_dummykey":
+        if is_testing or settings.PAYMENTS_ALLOW_UNSIGNED:
             signature_valid = True
         else:
             try:
                 razorpay_client.utility.verify_webhook_signature(
-                    payload, signature, getattr(settings, "RAZORPAY_WEBHOOK_SECRET", "dummy_webhook_secret")
+                    payload, signature, settings.RAZORPAY_WEBHOOK_SECRET
                 )
                 signature_valid = True
             except Exception:

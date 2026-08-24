@@ -46,6 +46,11 @@ TENANT_SMTP_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 # dedicated tests that switch this back off.
 TENANT_SMTP_ALLOW_PRIVATE_HOSTS = True
 
+# No real payment gateway in tests: order creation is stubbed and callbacks are
+# accepted unsigned. Explicit here rather than inferred from a dummy credential,
+# which is what used to leave production open when an env var went missing.
+PAYMENTS_ALLOW_UNSIGNED = True
+
 # Execute Celery tasks synchronously in-process during tests.
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True

@@ -149,8 +149,10 @@ class CreateOrderJustInTimeView(ResponseMixin, APIView):
             )
 
         # Handle testing / offline fallback gracefully
+        # Stubbing the gateway is the same decision as accepting unsigned callbacks:
+        # both mean "this environment is not talking to real Razorpay".
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
-        if is_testing or not RAZORPAY_KEY_ID or RAZORPAY_KEY_ID == "rzp_test_dummykey":
+        if is_testing or settings.PAYMENTS_ALLOW_UNSIGNED:
             razorpay_order_id = f"order_{uuid.uuid4().hex[:14]}"
         else:
             try:

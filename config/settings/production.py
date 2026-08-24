@@ -1,5 +1,6 @@
 from .base import *
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 DEBUG = False
 
@@ -55,3 +56,29 @@ LOGGING = {
         },
     },
 }
+
+
+# --------------------------------------------------------------------------- #
+# Payments
+# --------------------------------------------------------------------------- #
+# Refuse to start rather than run a payment endpoint that accepts anything.
+#
+# `onboard/checks.py` covers this too, but a check can be skipped — `migrate
+# --skip-checks`, a management command with `requires_system_checks = []`, a WSGI
+# server that never runs them. This raises at import, so there is no path into a
+# production process with verification disabled.
+#
+# The .env file has promised this guard for some time; until now it did not exist.
+if PAYMENTS_ALLOW_UNSIGNED:  # noqa: F405
+    raise ImproperlyConfigured(
+        "PAYMENTS_ALLOW_UNSIGNED must not be enabled under production settings. "
+        "It disables Razorpay signature verification, so any unsigned request to "
+        "the webhook would be accepted as a genuine payment."
+    )
+
+if not RAZORPAY_WEBHOOK_SECRET:  # noqa: F405
+    raise ImproperlyConfigured(
+        "RAZORPAY_WEBHOOK_SECRET is required in production. Without it every "
+        "genuine webhook fails signature verification and is rejected, so payments "
+        "capture at Razorpay while nothing happens here."
+    )

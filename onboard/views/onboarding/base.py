@@ -3,9 +3,10 @@ from django.conf import settings
 import razorpay
 from onboard.models import TempUser
 
-# Initialize Razorpay Client safely
-RAZORPAY_KEY_ID = getattr(settings, "RAZORPAY_KEY_ID", "rzp_test_dummykey")
-RAZORPAY_KEY_SECRET = getattr(settings, "RAZORPAY_KEY_SECRET", "dummysecret")
+# Settings raise at import if these are unset, so there is nothing to fall back to —
+# and a getattr default here would reintroduce exactly the hole the settings removed.
+RAZORPAY_KEY_ID = settings.RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET = settings.RAZORPAY_KEY_SECRET
 
 try:
     razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
