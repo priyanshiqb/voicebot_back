@@ -17,7 +17,16 @@
       "plan_type": "free",
       "sort_order": 1,
       "is_most_popular": false,
-      "is_active": true
+      "is_active": true,
+      "allocated_credits": 100,
+      "cost_per_additional_credit": "0.00",
+      "max_rollover_credits": null,
+      "allow_rollover_on_renewal": false,
+      "allow_rollover_on_upgrade": true,
+      "allow_rollover_on_downgrade": false,
+      "allow_use_after_expiry": false,
+      "low_balance_threshold": 20,
+      "renews_without_payment": false
     },
     {
       "code": "starter_inr",
@@ -31,7 +40,16 @@
       "plan_type": "paid",
       "sort_order": 2,
       "is_most_popular": false,
-      "is_active": true
+      "is_active": true,
+      "allocated_credits": 1000,
+      "cost_per_additional_credit": "1.20",
+      "max_rollover_credits": 1000,
+      "allow_rollover_on_renewal": false,
+      "allow_rollover_on_upgrade": true,
+      "allow_rollover_on_downgrade": false,
+      "allow_use_after_expiry": false,
+      "low_balance_threshold": 100,
+      "renews_without_payment": false
     },
     {
       "code": "professional_inr",
@@ -45,7 +63,16 @@
       "plan_type": "paid",
       "sort_order": 3,
       "is_most_popular": true,
-      "is_active": true
+      "is_active": true,
+      "allocated_credits": 3500,
+      "cost_per_additional_credit": "1.00",
+      "max_rollover_credits": 3500,
+      "allow_rollover_on_renewal": true,
+      "allow_rollover_on_upgrade": true,
+      "allow_rollover_on_downgrade": false,
+      "allow_use_after_expiry": false,
+      "low_balance_threshold": 350,
+      "renews_without_payment": false
     },
     {
       "code": "starter_inr_yearly",
@@ -59,7 +86,16 @@
       "plan_type": "paid",
       "sort_order": 5,
       "is_most_popular": false,
-      "is_active": true
+      "is_active": true,
+      "allocated_credits": 12000,
+      "cost_per_additional_credit": "1.20",
+      "max_rollover_credits": 12000,
+      "allow_rollover_on_renewal": false,
+      "allow_rollover_on_upgrade": true,
+      "allow_rollover_on_downgrade": false,
+      "allow_use_after_expiry": false,
+      "low_balance_threshold": 1200,
+      "renews_without_payment": false
     },
     {
       "code": "professional_inr_yearly",
@@ -73,7 +109,16 @@
       "plan_type": "paid",
       "sort_order": 6,
       "is_most_popular": true,
-      "is_active": true
+      "is_active": true,
+      "allocated_credits": 42000,
+      "cost_per_additional_credit": "1.00",
+      "max_rollover_credits": 42000,
+      "allow_rollover_on_renewal": true,
+      "allow_rollover_on_upgrade": true,
+      "allow_rollover_on_downgrade": false,
+      "allow_use_after_expiry": false,
+      "low_balance_threshold": 4200,
+      "renews_without_payment": false
     }
   ]
 }

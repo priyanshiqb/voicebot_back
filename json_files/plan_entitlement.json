@@ -1,0 +1,406 @@
+{
+  "_note": "What each plan includes of each resource, and what more of it costs per cycle in rupees. Gauges - never credits.",
+  "app_label": "onboard",
+  "model": "planentitlement",
+  "unique_fields": [
+    "plan_id",
+    "resource"
+  ],
+  "fk": [
+    {
+      "field": "plan",
+      "app_label": "onboard",
+      "model": "plan",
+      "lookup_fields": [
+        "code"
+      ]
+    }
+  ],
+  "data": [
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "agent",
+      "included_quantity": 1,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 1,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "contact",
+      "included_quantity": 100,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 10,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 1,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 1,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "free_plan"
+      },
+      "resource": "user",
+      "included_quantity": 1,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "agent",
+      "included_quantity": 3,
+      "is_addon_available": true,
+      "price_per_additional": "299.00",
+      "addon_step": 1,
+      "max_additional": 7
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 10,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "contact",
+      "included_quantity": 5000,
+      "is_addon_available": true,
+      "price_per_additional": "99.00",
+      "addon_step": 5000,
+      "max_additional": 45000
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 100,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 100,
+      "max_additional": 900
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 5,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 1,
+      "max_additional": 10
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 10,
+      "max_additional": 90
+    },
+    {
+      "plan": {
+        "code": "starter_inr"
+      },
+      "resource": "user",
+      "included_quantity": 3,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 1,
+      "max_additional": 12
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "agent",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "249.00",
+      "addon_step": 1,
+      "max_additional": 40
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 50,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "contact",
+      "included_quantity": 50000,
+      "is_addon_available": true,
+      "price_per_additional": "79.00",
+      "addon_step": 10000,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 500,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 100,
+      "max_additional": 4500
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 25,
+      "is_addon_available": true,
+      "price_per_additional": "99.00",
+      "addon_step": 1,
+      "max_additional": 75
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 50,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 10,
+      "max_additional": 450
+    },
+    {
+      "plan": {
+        "code": "professional_inr"
+      },
+      "resource": "user",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 1,
+      "max_additional": 40
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "agent",
+      "included_quantity": 3,
+      "is_addon_available": true,
+      "price_per_additional": "299.00",
+      "addon_step": 1,
+      "max_additional": 7
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 10,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "contact",
+      "included_quantity": 5000,
+      "is_addon_available": true,
+      "price_per_additional": "99.00",
+      "addon_step": 5000,
+      "max_additional": 45000
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 100,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 100,
+      "max_additional": 900
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 5,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 1,
+      "max_additional": 10
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 10,
+      "max_additional": 90
+    },
+    {
+      "plan": {
+        "code": "starter_inr_yearly"
+      },
+      "resource": "user",
+      "included_quantity": 3,
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 1,
+      "max_additional": 12
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "agent",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "249.00",
+      "addon_step": 1,
+      "max_additional": 40
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 50,
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "contact",
+      "included_quantity": 50000,
+      "is_addon_available": true,
+      "price_per_additional": "79.00",
+      "addon_step": 10000,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 500,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 100,
+      "max_additional": 4500
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 25,
+      "is_addon_available": true,
+      "price_per_additional": "99.00",
+      "addon_step": 1,
+      "max_additional": 75
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 50,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 10,
+      "max_additional": 450
+    },
+    {
+      "plan": {
+        "code": "professional_inr_yearly"
+      },
+      "resource": "user",
+      "included_quantity": 10,
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 1,
+      "max_additional": 40
+    }
+  ]
+}
