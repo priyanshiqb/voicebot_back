@@ -16,6 +16,9 @@ Three things govern this API:
 - **`total_price` is what gets charged.** [create-order](./signup_flow.md#10-create-the-order)
   multiplies it by 100 and hands that to the gateway, so a plan whose `total_price` is `0.00`
   bypasses payment entirely and completes onboarding on the spot.
+- **A plan is more than a price.** It also carries what it grants — credits, per-minute
+  rates, and an allowance of every countable resource. All of it is on the list
+  response, because a plan you cannot compare on those is just a number with a name.
 
 ## Endpoints Summary
 
@@ -61,6 +64,93 @@ Worked example — `base_price: 4000.00`, `discount_percentage: 0.00`, `tax_perc
 > **`plan_type` does not determine price.** A plan typed `free` with a non-zero `base_price` will
 > still be charged, and a `paid` plan priced at zero will skip the gateway. What matters is
 > `total_price`.
+
+---
+
+## What a plan grants
+
+Beyond price, every plan carries three groups of fields. **All of them are on the list
+response**, so a pricing page needs one call.
+
+### Credits — writable
+
+| Field | Type | What it means |
+|---|---|---|
+| `allocated_credits` | integer | Credits granted at the start of **every** billing cycle |
+| `cost_per_additional_credit` | decimal string | Pre-tax price of one credit on a mid-cycle top-up. **`0.00` disables top-ups** on this plan — the answer to "I need more" becomes "upgrade" |
+| `max_rollover_credits` | integer \| null | Ceiling on credits carried into the next cycle. `null` is uncapped — without a cap a light user on an annual plan can bank a year's worth |
+| `allow_rollover_on_renewal` | boolean | Whether unspent plan credits survive a renewal |
+| `allow_rollover_on_upgrade` | boolean | …an upgrade |
+| `allow_rollover_on_downgrade` | boolean | …a downgrade |
+| `allow_use_after_expiry` | boolean | Whether credits stay spendable once the cycle lapses. This is what separates pay-as-you-go from a trial that is meant to end |
+| `low_balance_threshold` | integer | Warn the tenant at or below this balance. `0` disables the alert *(detail response only)* |
+
+These govern only the **allocated** bucket. Credits bought with cash always survive —
+see [Wallet → two buckets](../billing/wallet.md#two-buckets-one-balance).
+
+### `entitlements` — read-only
+
+What the plan includes of each countable resource, and what more of it costs. One entry
+per resource, sorted by name.
+
+```json
+"entitlements": [
+  { "resource": "agent", "included": 2, "reset_period": "none",
+    "addon_available": true, "price_per_block": "500.00",
+    "block_size": 1, "max_additional": 10 },
+  { "resource": "campaign_monthly", "included": 10, "reset_period": "monthly",
+    "addon_available": false, "price_per_block": "0.00",
+    "block_size": 1, "max_additional": null }
+]
+```
+
+| Field | What it means |
+|---|---|
+| `resource` | `agent`, `user`, `contact`, `knowledge_base`, `crawl_page`, `campaign_monthly`, `storage_gb` |
+| `included` | How many the plan grants. **`null` means unlimited** — a distinct value from a very large number, because otherwise somebody eventually hits it |
+| `reset_period` | What the number *means*. `none` is a standing total — three agents is three agents, and deleting one gives the seat back. `daily`, `weekly`, `monthly`, `quarterly`, `half_yearly` or `yearly` make it a windowed allowance: the *act* is counted from when it happened, and deleting the row does not give it back |
+| `addon_available` | Whether more can be bought. `false` means upgrading is the only route |
+| `price_per_block` | Pre-tax rupees per block, **recurring every cycle** |
+| `block_size` | Units per block, rounded up — a 10 GB block bills two blocks for 12 GB |
+| `max_additional` | Ceiling on extras, or `null` for none. Caps a plan below the next tier's included amount, so a Starter tenant cannot assemble a Professional footprint at add-on prices |
+
+Edited through the plan's admin page, not this endpoint — "10 agents, +1 at ₹299" is a
+sentence about a plan, and a separate API would have you cross-referencing seven rows
+against the plan you are actually pricing.
+
+> **Read `reset_period` before rendering the number.** "10" is a different offer
+> depending on whether it refills monthly or yearly, so a pricing page that prints the
+> figure alone is printing half a fact. Windows are anchored to each tenant's own
+> subscription rather than the calendar, so an allowance never straddles a billing
+> cycle — and the period is frozen onto the subscription alongside the number, so
+> changing a plan's window never re-interprets an allowance somebody is already
+> living under.
+
+### `rates` — read-only
+
+The per-minute credit price of each call tier on this plan. Only the **currently
+effective** rate appears; superseded ones stay in the catalogue and out of here.
+
+```json
+"rates": [
+  { "operation": "conversation_high_latency", "unit": "per_minute",
+    "credits_per_unit": 5, "minimum_units": 1 },
+  { "operation": "conversation_low_latency",  "unit": "per_minute",
+    "credits_per_unit": 10, "minimum_units": 1 },
+  { "operation": "static_reel", "unit": "per_minute",
+    "credits_per_unit": 2, "minimum_units": 1 }
+]
+```
+
+**A plan missing a rate for a tier cannot price a call on it** — every call on that tier
+raises for every tenant on the plan. `python manage.py audit_billing_readiness` reports
+which plans have holes.
+
+> **Editing a rate here is not possible, and editing one anywhere does not change what
+> existing subscribers pay.** The rate card is copied onto the wallet when a
+> subscription activates, renews or changes plan. A price change reaches a tenant at
+> their next renewal, never mid-cycle. See
+> [Billing → Where the price comes from](../billing/README.md#where-the-price-comes-from).
 
 ---
 
@@ -113,7 +203,24 @@ The pricing page. **Public** — no token required.
         "sort_order": 2,
         "is_most_popular": true,
         "is_active": true,
-        "created_at": "2026-06-03T18:00:00Z"
+        "created_at": "2026-06-03T18:00:00Z",
+
+        "allocated_credits": 4000,
+        "cost_per_additional_credit": "1.00",
+        "max_rollover_credits": 2000,
+        "allow_rollover_on_renewal": true,
+        "allow_rollover_on_upgrade": true,
+        "allow_rollover_on_downgrade": false,
+        "allow_use_after_expiry": false,
+
+        "entitlements": [
+          { "resource": "agent", "included": 2, "addon_available": true,
+            "price_per_block": "500.00", "block_size": 1, "max_additional": 10 }
+        ],
+        "rates": [
+          { "operation": "conversation_high_latency", "unit": "per_minute",
+            "credits_per_unit": 5, "minimum_units": 1 }
+        ]
       }
     ],
     "errors": null,
@@ -138,7 +245,8 @@ The pricing page. **Public** — no token required.
 ### 2. Retrieve a Plan
 
 - **Path**: `GET /api/v1/onboard/plans/{id}/` — **public**.
-- **Success Response (200 OK)**: as §1, plus `description`, `currency_display`, and `updated_at`.
+- **Success Response (200 OK)**: as §1, plus `description`, `currency_display`,
+  `low_balance_threshold`, and `updated_at`.
 
 | Status | When | `message` |
 |---|---|---|
@@ -169,9 +277,23 @@ The pricing page. **Public** — no token required.
     "billing_cycle": "monthly",
     "plan_type": "paid",
     "sort_order": 2,
-    "is_most_popular": true
+    "is_most_popular": true,
+
+    "allocated_credits": 4000,
+    "cost_per_additional_credit": "1.00",
+    "max_rollover_credits": 2000,
+    "allow_rollover_on_renewal": true,
+    "allow_rollover_on_upgrade": true,
+    "allow_rollover_on_downgrade": false,
+    "allow_use_after_expiry": false,
+    "low_balance_threshold": 200
   }
   ```
+
+> **Creating a plan does not give it a rate card or allowances.** `entitlements` and
+> `rates` are read-only here and start empty — a plan created through this endpoint
+> **cannot price a call** until its rates are added in the admin. Configure both before
+> anyone subscribes.
 
 ### Request fields
 
@@ -191,9 +313,22 @@ The pricing page. **Public** — no token required.
 | `sort_order` | integer | Display position. Lower comes first. | Optional, default `0`. Must be ≥ 0. |
 | `is_most_popular` | boolean | Renders the "most popular" badge. | Optional, default `false`. **Not exclusive** — you can flag several plans at once. |
 | `is_active` | boolean | Whether the plan may be listed and selected. | Optional, default `true`. |
+| `allocated_credits` | integer | Credits granted every cycle. | Optional, default `0`. Must be ≥ 0. |
+| `cost_per_additional_credit` | decimal | Pre-tax price of one top-up credit. | Optional, default `0.00`. **`0.00` disables top-ups.** |
+| `max_rollover_credits` | integer \| null | Cap on credits carried forward. | Optional, nullable. `null` is uncapped. |
+| `allow_rollover_on_renewal` | boolean | Unspent plan credits survive a renewal. | Optional, default `false`. |
+| `allow_rollover_on_upgrade` | boolean | …an upgrade. | Optional, default `false`. |
+| `allow_rollover_on_downgrade` | boolean | …a downgrade. | Optional, default `false`. |
+| `allow_use_after_expiry` | boolean | Credits stay spendable after the cycle lapses. | Optional, default `false`. |
+| `low_balance_threshold` | integer | Alert at or below this balance. | Optional, default `0` — which disables the alert. |
 
 **Read-only — computed:** `discount_amount`, `net_base_price`, `tax_amount`, `total_price`, plus
-`id`, `created_at`, `updated_at`, and the three `*_display` fields.
+`id`, `created_at`, `updated_at`, the three `*_display` fields, and **`entitlements` and
+`rates`**.
+
+> **`renews_without_payment` is not exposed on this API.** It makes a zero-cost cycle
+> roll over instead of expiring — the pay-as-you-go and free-tier shape — and a database
+> constraint refuses it on any plan with a non-zero `base_price`. Set it in the admin.
 
 | Status | When | `message` | `errors` |
 |---|---|---|---|
@@ -312,9 +447,13 @@ option without a second call.
 | 2 | **`plan_type` is decorative.** What gets charged is `total_price`, not the type. | A plan labelled `free` with a price still charges; one labelled `paid` at zero skips payment silently. |
 | 3 | **Deleting a plan has no in-use guard**, and its `code` and `name` stay reserved permanently. | Retired codes cannot be reused, and in-flight signups can be left pointing at an unselectable plan. |
 | 4 | **`is_most_popular` is not exclusive.** | Several plans can carry the badge at once. |
-| 5 | **Editing a live plan's price affects unpaid in-flight orders.** | A user who created an order and then paid could be charged an amount that differs from what they were shown. |
+| 5 | **Editing a live plan's price affects unpaid in-flight orders.** | A user who created an order and then paid could be charged an amount that differs from what they were shown. Existing *subscribers* are unaffected — their terms are frozen on the subscription. |
+| 6 | **A plan can be created with no rates and no allowances**, and nothing refuses it. | Every call by a tenant on that plan raises `RateNotConfigured`, and `entitlements` comes back empty so no limit applies. Run `audit_billing_readiness` after adding a plan. |
+| 7 | **`allocated_credits` and the rollover flags are writable but their effect is frozen at subscribe time.** | Changing them alters what *new and renewing* subscribers get, never a live cycle. That is deliberate — but it means the pricing page and an existing tenant's terms can legitimately disagree. |
 
 ## Related
 
 - [Signup flow](./signup_flow.md) — where a plan is selected and charged
 - [Razorpay webhook](./webhooks.md) — how payment completion is confirmed
+- [Billing overview](../billing/README.md) — credits vs entitlements, and what a minute costs
+- [Subscription API](../billing/subscription.md) — how a tenant moves between these plans

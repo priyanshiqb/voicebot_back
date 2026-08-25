@@ -51,6 +51,17 @@ class TenantSettings(TenantBaseModel):
         ),
     )
 
+    entitlements_enforced = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether exceeding a plan limit actually blocks this tenant. Usage is "
+            "counted either way; while this is False an over-limit tenant is only "
+            "logged. Off by default because switching caps on for accounts that are "
+            "already over them would break working setups with no warning — check a "
+            "tenant's usage before enabling it for them."
+        ),
+    )
+
     class Meta(TenantBaseModel.Meta):
         db_table = "tenant_settings"
         verbose_name = "Tenant Settings"

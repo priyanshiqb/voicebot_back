@@ -1,3 +1,5 @@
+from onboard.constants.entitlement_resource import EntitlementResource
+from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 from rest_framework.decorators import action
 from rest_framework import filters
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
@@ -138,11 +140,13 @@ class AgentFilter(django_filters.FilterSet):
         }
     )
 )
-class AgentViewSet(ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSet):
+class AgentViewSet(EntitlementGuardMixin, ImportExportMixin, VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Agent Management API.
     Provides complete row-level isolation and multi-tenant scoping for Agents.
     """
+    entitlement_resource = EntitlementResource.AGENT
+
     resource_class = AgentResource
     queryset = Agent.objects.annotate(
         total_languages_count=Coalesce(JsonbArrayLength('languages'), 0, output_field=IntegerField())

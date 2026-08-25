@@ -38,6 +38,14 @@
   * [Contact Import - Bulk CSV](apiDocs/core/contact_import.md)
   * [Company Directory](apiDocs/core/directory_contact.md)
 
+* **💳 Billing & Credits**
+  * [Plans & Pricing — decisions needed](pricing/plan-and-pricing-decisions.md)
+  * [Overview & Mental Model](apiDocs/billing/README.md)
+  * [Wallet & Credit Ledger](apiDocs/billing/wallet.md)
+  * [Subscription Lifecycle](apiDocs/billing/subscription.md)
+  * [Top-Ups & Add-Ons](apiDocs/billing/purchases.md)
+  * [Razorpay Webhook](apiDocs/onboard/webhooks.md)
+
 * **🛒 Product & Service Catalog**
   * [Catalog Items](apiDocs/core/catalog_item.md)
   * [Catalog Variants - Pricing](apiDocs/core/catalog_variant.md)

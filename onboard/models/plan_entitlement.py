@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db import models
 
 from onboard.constants.entitlement_resource import EntitlementResource
+from onboard.constants.reset_period import ResetPeriod
 from utils.models.base_model_core import BaseModelCore
 
 
@@ -53,6 +54,24 @@ class PlanEntitlement(BaseModelCore):
             "How many the plan includes at no extra cost. Null means unlimited, in "
             "which case add-ons must be off — you cannot sell more of something a "
             "tenant already has without limit."
+        ),
+    )
+
+    reset_period = models.CharField(
+        max_length=16,
+        choices=ResetPeriod.choices,
+        default=ResetPeriod.NONE,
+        help_text=(
+            "How often this allowance refills. NONE is a standing total: three "
+            "agents means three agents, and deleting one gives the seat back — "
+            "right for anything a tenant *holds*. Any other value makes it "
+            "windowed, meaning what is limited is the *act* rather than the row, "
+            "so it is counted from when the act happened and deleting the row "
+            "does not give the allowance back. Starting a campaign is the "
+            "example — the calls went out whether or not the campaign still "
+            "exists. Windows are anchored to the tenant's own subscription "
+            "rather than the calendar, so each one sits inside a billing cycle "
+            "instead of straddling one."
         ),
     )
 

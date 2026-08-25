@@ -1,3 +1,5 @@
+from onboard.constants.entitlement_resource import EntitlementResource
+from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 import logging
 
 from rest_framework.decorators import action
@@ -82,11 +84,26 @@ logger = logging.getLogger(__name__)
         }
     )
 )
-class KnowledgeBaseViewSet(TenantBaseViewSet):
+class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
     """
     Knowledge Base Management API.
     Provides complete row-level isolation and multi-tenant scoping for aggregate Knowledge Bases.
     """
+    entitlement_resource = EntitlementResource.KNOWLEDGE_BASE
+
+    def entitlement_requests(self, serializer):
+        """A knowledge base plus every website crawled into it.
+
+        Websites arrive nested in the same payload, so checking only the container
+        would let a tenant hold any number of crawled pages by putting them all in
+        one knowledge base.
+        """
+        websites = serializer.validated_data.get("websites") or []
+        return {
+            EntitlementResource.KNOWLEDGE_BASE: 1,
+            EntitlementResource.CRAWL_PAGE: len(websites),
+        }
+
     queryset = KnowledgeBase.objects.all()
     serializer_class = KnowledgeBaseSerializer
     list_serializer_class = KnowledgeBaseListSerializer

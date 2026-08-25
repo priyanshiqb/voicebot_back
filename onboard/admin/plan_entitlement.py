@@ -16,6 +16,7 @@ class PlanEntitlementInline(admin.TabularInline):
     fields = (
         "resource",
         "included_quantity",
+        "reset_period",
         "is_addon_available",
         "price_per_additional",
         "addon_step",
@@ -37,21 +38,36 @@ class PlanEntitlementAdmin(BaseAdminCore):
         "plan",
         "resource",
         "included_quantity_display",
+        "reset_period",
         "is_addon_available",
         "price_per_additional",
         "addon_step",
         "max_additional",
         "is_active",
     )
-    list_filter = ("resource", "is_addon_available", "plan") + BaseAdminCore.list_filter
+    list_filter = (
+        "resource", "reset_period", "is_addon_available", "plan",
+    ) + BaseAdminCore.list_filter
     search_fields = ("plan__code", "plan__name", "resource") + BaseAdminCore.search_fields
     list_select_related = ("plan",)
     ordering = ("plan", "resource")
 
     fieldsets = (
         ("Allowance", {
-            "fields": ("id", "plan", "resource", "included_quantity", "is_active"),
-            "description": "Leave the included quantity blank for unlimited.",
+            "fields": (
+                "id", "plan", "resource", "included_quantity", "reset_period",
+                "is_active",
+            ),
+            "description": (
+                "Leave the included quantity blank for unlimited.\n\n"
+                "The reset period decides what the number *means*. Left at "
+                "\u201cNever\u201d it is a standing total \u2014 three agents means "
+                "three agents, and deleting one gives the seat back. Any other value "
+                "makes it a windowed allowance, counted from when the act happened, "
+                "so deleting the row does not hand it back. Ten a month and ten a "
+                "year are the same number and very different products, which is why "
+                "the period is frozen onto each subscription alongside the figure."
+            ),
         }),
         ("Add-On Pricing", {
             "fields": (

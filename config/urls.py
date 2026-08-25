@@ -21,6 +21,7 @@ api_v1_patterns = [
     path("core/", include("core.urls")),
     path("tenant/", include("tenant.urls")),
     path("billing/", include("wallet.urls")),
+    path("billing/", include("onboard.urls.billing")),
 ]
 
 from django.http import JsonResponse

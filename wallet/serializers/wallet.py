@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from wallet.models.credit_rate import CreditRate
 from wallet.models.wallet import Wallet
 
 
@@ -63,7 +64,12 @@ class WalletRateCardSerializer(serializers.Serializer):
 class CreditQuoteRequestSerializer(serializers.Serializer):
     """Ask what something would cost before doing it."""
 
-    operation = serializers.CharField(
+    # A ChoiceField rather than a CharField so a typo is a 400 here, not a 409 from
+    # the rating service. The two are different failures: "that is not an operation"
+    # is the caller's mistake, "this plan does not price it" is the platform's state,
+    # and a client that cannot tell them apart cannot show a useful message.
+    operation = serializers.ChoiceField(
+        choices=CreditRate.Operation.choices,
         help_text="A call tier: static_reel, conversation_high_latency, conversation_low_latency.",
     )
     quantity = serializers.IntegerField(

@@ -197,6 +197,40 @@ def _fail(campaign, message):
     return campaign
 
 
+def _within_campaign_allowance(campaign):
+    """Whether the plan still allows another campaign to be started.
+
+    **This is the authoritative check, not the one on the create endpoint.** The
+    allowance limits the act of *starting* a campaign, and this is where that act
+    happens — a draft sitting unlaunched has consumed nothing. Checking only at
+    creation would also mean a campaign scheduled last month could start this month
+    without ever being counted against either window.
+
+    Returns True when enforcement is off, whatever the count. The refusal is logged
+    and the campaign proceeds, which is what metering-before-blocking means.
+    """
+    from onboard.constants.entitlement_resource import EntitlementResource
+    from onboard.services import entitlements as entitlement_service
+
+    try:
+        # requested=0, not 1. This campaign already exists and is already counted
+        # against the window — it was counted the moment it was created. Asking for
+        # one more would refuse the last campaign of every allowance.
+        entitlement_service.check(
+            campaign.tenant_id, EntitlementResource.CAMPAIGN_MONTHLY, requested=0
+        )
+    except entitlement_service.QuotaExceeded as exc:
+        logger.warning("campaign %s not started: %s", campaign.pk, exc)
+        return False
+    except Exception:
+        # Fail open, exactly as the credit pre-flight does. A quota lookup must never
+        # be the reason a paid-for campaign silently does not run.
+        logger.exception(
+            "campaign %s: allowance check failed; starting anyway", campaign.pk
+        )
+    return True
+
+
 def _has_credit_for_campaign(campaign):
     """Whether this tenant can pay for at least one call on this campaign's bot.
 
@@ -277,6 +311,12 @@ def start_due_campaigns():
             # While `credits_enforced` is off this only logs, so nothing is blocked
             # until the rates have been proven against real traffic.
             if not _has_credit_for_campaign(campaign):
+                continue
+
+            # Plan allowance pre-flight, for the same reason and with the same
+            # metering-first behaviour. Starting the campaign is what the allowance
+            # counts, so this is the check that decides it.
+            if not _within_campaign_allowance(campaign):
                 continue
 
             campaign.status = Campaign.Status.MATERIALIZING

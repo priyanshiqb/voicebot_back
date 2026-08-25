@@ -177,10 +177,10 @@ class RazorpayWebhookView(ResponseMixin, APIView):
 
         handler = {
             TxnType.ONBOARDING: self._apply_onboarding,
-            TxnType.RENEWAL: self._apply_unimplemented,
-            TxnType.UPGRADE: self._apply_unimplemented,
-            TxnType.TOP_UP: self._apply_unimplemented,
-            TxnType.ADDON: self._apply_unimplemented,
+            TxnType.TOP_UP: self._apply_top_up,
+            TxnType.ADDON: self._apply_addon,
+            TxnType.RENEWAL: self._apply_renewal,
+            TxnType.UPGRADE: self._apply_upgrade,
         }.get(transaction.transaction_type, self._apply_unimplemented)
 
         handler(transaction)
@@ -250,6 +250,113 @@ class RazorpayWebhookView(ResponseMixin, APIView):
         temp_user.is_onboarded = True
         temp_user.save()
         temp_user.soft_delete()
+
+    def _apply_top_up(self, transaction):
+        """Deposit purchased credits.
+
+        Into the **purchased** bucket, which rollover rules never touch — these were
+        bought with cash, and expiring them at a cycle boundary would be taking money
+        for nothing. The grant is keyed on the order id, so a redelivery credits once.
+        """
+        from wallet.models import CreditLedger
+        from wallet.services import wallet as wallet_service
+
+        credits = transaction.credits_purchased or 0
+        if credits <= 0:
+            logger.error(
+                "top-up order %s carries no credit quantity; nothing to deposit",
+                transaction.razorpay_order_id,
+            )
+            return
+
+        entry = wallet_service.grant(
+            transaction.tenant_id,
+            entry_type=CreditLedger.EntryType.MANUAL_TOP_UP,
+            amount=credits,
+            bucket=CreditLedger.Bucket.PURCHASED,
+            reference_id=transaction.razorpay_order_id,
+            subscription=transaction.subscription,
+            notes="Manual credit top-up",
+        )
+
+        # Only on a real grant — a redelivered webhook returns None, and telling a
+        # tenant twice that their credits arrived is worse than not telling them.
+        if entry is not None:
+            from onboard.services import billing_notifications
+
+            try:
+                billing_notifications.notify_credits_added(
+                    transaction.tenant_id, credits=credits,
+                    reason="Your credit top-up has been applied",
+                )
+            except Exception:
+                logger.warning("top-up notification failed", exc_info=True)
+
+    def _apply_addon(self, transaction):
+        """Grant the extra capacity that was paid for.
+
+        Quantities come from the breakdown frozen when the order was created, not
+        from a fresh calculation: the tenant paid for what they were quoted, and the
+        catalogue may have moved since.
+        """
+        from onboard.services import entitlements as entitlement_service
+
+        breakdown = transaction.amount_breakdown or {}
+        resource = breakdown.get("resource")
+        units = int(breakdown.get("additional_units") or 0)
+
+        if not resource or units <= 0:
+            logger.error(
+                "add-on order %s has no usable breakdown; capacity NOT granted",
+                transaction.razorpay_order_id,
+            )
+            return
+
+        entitlement_service.apply_addon(
+            tenant_id=transaction.tenant_id,
+            subscription=transaction.subscription,
+            resource=resource,
+            additional_units=units,
+            notes=f"Purchased via {transaction.razorpay_order_id}",
+        )
+
+    def _apply_renewal(self, transaction):
+        """Extend the cycle and fund it."""
+        from onboard.services import subscriptions as subscription_service
+
+        if transaction.subscription is None:
+            logger.error(
+                "renewal order %s has no subscription attached; cycle NOT extended",
+                transaction.razorpay_order_id,
+            )
+            return
+
+        subscription_service.renew(transaction.subscription, transaction=transaction)
+
+    def _apply_upgrade(self, transaction):
+        """Move the tenant to the plan they just paid the difference for.
+
+        Any scheduled downgrade is dropped first: one set weeks ago would otherwise
+        fire later and silently undo the upgrade they have just bought.
+        """
+        from onboard.services import subscriptions as subscription_service
+
+        subscription = transaction.subscription
+        if subscription is None or transaction.target_plan is None:
+            logger.error(
+                "upgrade order %s is missing its subscription or target plan; plan "
+                "NOT changed",
+                transaction.razorpay_order_id,
+            )
+            return
+
+        subscription_service.cancel_scheduled_change(subscription)
+        subscription_service.apply_plan_change(
+            subscription,
+            transaction.target_plan,
+            transaction=transaction,
+            reason="upgrade",
+        )
 
     def _apply_unimplemented(self, transaction):
         """A payment type whose handler has not been built yet.

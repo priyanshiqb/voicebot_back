@@ -168,6 +168,12 @@ Members are ordered by `created_at, id` — stable across pages and across re-pu
         "transfer_destinations": null
       }
     },
+    "credits": {
+      "balance": 1030,
+      "is_frozen": false,
+      "service_tier": "conversation_high_latency",
+      "credits_per_minute": 5
+    },
     "members": [
       {
         "id": "9f1c…",
@@ -203,8 +209,25 @@ Members are ordered by `created_at, id` — stable across pages and across re-pu
 | `members[].phone_e164` | The number to dial, frozen at materialisation |
 | `members[].attempt_count` | How many attempts this backend has recorded so far |
 | `members[].status` | `PENDING` or `IN_PROGRESS` only |
+| `credits.balance` | Credits the tenant has left, across both buckets |
+| `credits.is_frozen` | True when spending is blocked — a lapsed cycle, or a support action |
+| `credits.service_tier` | The tier this campaign's bot is billed at |
+| `credits.credits_per_minute` | What a minute on that tier costs *this* tenant. `null` if the plan has no price for it |
 
 `campaign` is repeated on every page — read it once, ignore it thereafter.
+
+### `credits` is advisory
+
+**Nothing here is load-bearing.** A runner that ignores it is charged exactly the same:
+the authoritative refusal happens before the campaign starts, and the charge happens
+when each call log lands. What it buys is the ability to pace and to surface a useful
+message, instead of discovering an empty wallet one failed call at a time.
+
+`credits` is **`null`** when the lookup failed. A billing problem must never be able to
+break a handoff, so the payload arrives without it rather than not arriving.
+
+Charging is metered before it blocks: while `credits_enforced` is off for a tenant, a
+short balance is logged and the campaign runs anyway.
 
 ### Which members are returned
 

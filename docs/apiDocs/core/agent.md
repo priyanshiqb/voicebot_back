@@ -144,6 +144,16 @@ audit fields are **not** included; use Retrieve for those.
 | `add_event_templates` | UUID array | Meeting types this agent may book. | Each must belong to your tenant. |
 | `remove_event_templates` | UUID array | Meeting types to **unlink**. | — |
 
+> **`service_tier` is not settable here.** Every agent carries one — it decides what a
+> minute of its calls costs, and every plan prices all three tiers — but it is not
+> exposed on this endpoint. A new agent gets `conversation_high_latency`, and changing
+> it is a staff action in the admin.
+>
+> The tier a call is *actually billed at* comes from the call log, not from here: a bot
+> configured for realtime may have been served on the standard model, and the tenant
+> pays for what ran. See
+> [Billing → What a minute costs](../billing/README.md#what-a-minute-costs).
+
 #### Read-only relationship fields
 
 `knowledge_bases`, `probing_questions`, and `event_templates` are returned on read as `{id, name}`

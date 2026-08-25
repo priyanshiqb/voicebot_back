@@ -509,6 +509,17 @@ Saves the billing address and phone number, then creates the payment-gateway ord
 The final step for a paid plan. Verifies the gateway signature, then creates the real account,
 tenant, and subscription.
 
+Creating the subscription now does more than write a row. In one transaction it also
+**stamps the plan's rate card onto the tenant's wallet and grants the first cycle's
+credits** — in that order, because a grant that lands before the stamp is credited
+against the previous plan's prices. Without the stamp the tenant's first call cannot be
+priced at all.
+
+> **This endpoint and the [Razorpay webhook](./webhooks.md) both complete onboarding,
+> and either can win.** The work is idempotent from both directions: the transaction row
+> is locked, the credit grant is keyed on the order id, and whichever arrives second
+> finds the registrant already consumed. One account, one subscription, credits once.
+
 - **Path**: `POST /api/v1/onboard/verify/`
 - **Auth**: temp token.
 
@@ -516,7 +527,7 @@ tenant, and subscription.
 |---|---|---|---|
 | `razorpay_order_id` * | string | The order id from step 10. | Required. Must exist and belong to this registration. |
 | `razorpay_payment_id` * | string | The payment id returned by the gateway checkout. | Required. |
-| `razorpay_signature` * | string | The gateway's HMAC signature over the order and payment ids. | Required. Verified against the secret — **except** in test environments and when running with the dummy key, where verification is skipped. |
+| `razorpay_signature` * | string | The gateway's HMAC signature over the order and payment ids. | Required. Verified against `RAZORPAY_KEY_SECRET` unless `PAYMENTS_ALLOW_UNSIGNED` is on — see the note below. |
 
 - **Success Response (200 OK)**:
   ```json
@@ -568,8 +579,21 @@ tenant, and subscription.
 > **A "not yours" transaction is reported as 404, not 403** — the same message as a nonexistent
 > one, so the response cannot be used to probe for other people's order ids.
 
-> **Signature verification is skipped in test mode and with the dummy key.** Make sure
-> `RAZORPAY_KEY_ID` is a real key in any environment that handles real money.
+> **Verification is controlled by a flag, not by what a credential happens to equal.**
+>
+> `PAYMENTS_ALLOW_UNSIGNED` defaults to **`False`** and turns signature checking off
+> when set. The test settings enable it; nothing else should.
+>
+> It used to be inferred from `RAZORPAY_KEY_ID == "rzp_test_dummykey"` — which was also
+> the *default value of the setting*. A deploy that forgot the environment variable
+> therefore accepted any unsigned request as genuine, and anyone able to POST could mint
+> a paid subscription. Both the default and the inference are gone: `RAZORPAY_KEY_ID` and
+> `RAZORPAY_KEY_SECRET` have no defaults at all, so a missing credential now stops the
+> process at import rather than quietly disabling a security control.
+>
+> Two guards enforce it. `config/settings/production.py` refuses to import with the flag
+> on or the webhook secret empty, and `manage.py check` reports `onboard.E001` / `E002`
+> for the same states. **CI needs both Razorpay variables set** or Django will not boot.
 
 ---
 

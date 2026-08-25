@@ -740,6 +740,37 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.start_due_campaigns",
         "schedule": 60.0,  # every minute
     },
+
+    # --- Billing -----------------------------------------------------------
+    # Hourly rather than daily: end_date is a moment, not a date, so a daily sweep
+    # would let a lapsed subscription keep working for up to 24 hours — and delay a
+    # scheduled downgrade by the same amount.
+    "billing-process-cycle": {
+        "task": "onboard.tasks.process_billing_cycle",
+        "schedule": 3600.0,  # hourly
+    },
+    "billing-expire-stale-orders": {
+        "task": "onboard.tasks.expire_stale_billing_orders",
+        "schedule": 3600.0,  # hourly
+    },
+    "billing-renewal-reminders": {
+        "task": "onboard.tasks.send_renewal_reminders",
+        "schedule": 86400.0,  # daily
+    },
+    "wallet-low-balance-alerts": {
+        "task": "wallet.tasks.send_low_balance_alerts",
+        "schedule": 86400.0,  # daily
+    },
+    "wallet-report-unrated-calls": {
+        "task": "wallet.tasks.report_unrated_calls",
+        "schedule": 86400.0,  # daily
+    },
+    # Weekly: drift is rare and the check is a full scan. Reports only — it never
+    # repairs, because auto-correcting would hide the bug that caused the drift.
+    "wallet-reconcile": {
+        "task": "wallet.tasks.reconcile_wallets",
+        "schedule": 604800.0,  # weekly
+    },
 }
 
 # Calendar OAuth token encryption (Fernet). Generate: Fernet.generate_key().decode()

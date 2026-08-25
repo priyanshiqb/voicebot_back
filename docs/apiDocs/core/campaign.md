@@ -450,11 +450,18 @@ Soft delete. The name is freed for reuse immediately.
 |---|---|---|
 | **200** | Soft-deleted. The name is freed for reuse immediately. | `Deleted successfully` |
 | **409** | The campaign is live (`MATERIALIZING`, `HANDING_OFF`, `RUNNING`, or `PAUSED`). Cancel it first. | `This campaign is still running. Cancel it before deleting.` |
+| **409** | The campaign has **ever run** (`started_at` is set). Permanent — there is no later point at which it becomes deletable. | `This campaign has already run and forms part of your billing record, so it cannot be deleted. You can archive it instead.` |
 | **401** / **403** | As elsewhere. | — |
 | **404** | No such campaign, already deleted, or another tenant's. | `Not found.` |
 
-> **`DRAFT`, `SCHEDULED`, and terminal campaigns delete freely.** The guard only covers states
-> where the runner may be acting on the audience right now.
+> **`DRAFT`, `SCHEDULED`, and campaigns that never ran delete freely** — including ones that
+> were cancelled before launch or failed to materialise. Deleting those gives the plan
+> allowance back, because no call was ever placed.
+>
+> **A campaign that ran is a billing record.** `started_at` is stamped once, when the runner
+> takes the campaign, and it is what stops a tenant running their month's campaigns, deleting
+> them, and running the same number again. So the guard is not about the runner still being
+> busy — a `COMPLETED` campaign from six months ago is equally undeletable.
 
 > **Members are not deleted.** They cascade only if the campaign row is hard-deleted, which this
 > is not — the compliance record of who was suppressed and why survives the soft delete.
@@ -492,6 +499,7 @@ deleted.
 | **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
 | **400** | Any id unknown, already deleted, or another tenant's — **nothing is deleted**. | `Some ids are invalid` |
 | **409** | **Any** campaign in the batch is live — **nothing is deleted**. | `This campaign is still running. Cancel it before deleting.` |
+| **409** | **Any** campaign in the batch has ever run — **nothing is deleted**. | `This campaign has already run and forms part of your billing record, so it cannot be deleted. You can archive it instead.` |
 | **401** / **403** | As elsewhere. | — |
 
 > **The 409 does not say which campaign blocked it.** The message is the model's, raised by the
@@ -558,6 +566,7 @@ Full detail object; abbreviated above.
 | **409** | Not in `DRAFT`. Includes the double-click case, where the second request loses the row lock race. | `A campaign in RUNNING cannot be launched.` |
 | **409** | The bot was deleted or deactivated since the campaign was created. | `The bot for this campaign is no longer active.` |
 | **409** | Nobody in the audience can be called. The campaign **stays `DRAFT`** so you can fix the selection and retry. | `This campaign has no contacts that can be called. Everyone selected is either suppressed or has no usable phone number.` |
+| **402** | Launching now would exceed the plan's campaign allowance for the current window. Only on an **immediate** launch; a future-dated one is checked when it becomes due. Not returned while `entitlements_enforced` is off. | `You are using 10 of 10 available campaign monthly. Upgrade your plan or buy more capacity to continue.` |
 | **404** | The campaign was deleted between the lookup and the lock, or is another tenant's. | `Campaign not found.` / `Not found.` |
 | **401** / **403** | As elsewhere. | — |
 | **429** | Throttled. Shares one 30/min budget with `cancel` and `preview-audience`. | `Request was throttled. Expected available in N seconds.` |
@@ -566,6 +575,11 @@ Full detail object; abbreviated above.
 > a scan, but it means a pointless campaign is refused immediately rather than accepted and landing
 > in `FAILED` minutes later with nobody watching.
 
+> **The allowance is re-checked here, not just at create.** A campaign created last month
+> could otherwise start against this month's window without ever being counted against
+> either. The check asks *are you still within your allowance*, not *may you add one more* —
+> this campaign already exists and is already counted.
+>
 > **A `202` is not a promise it will run.** Materialisation happens in a background task and can
 > still fail afterwards — most often because every remaining contact opted out in the gap between
 > launch and the task running. Poll `GET /{id}/` and watch for `FAILED` plus `error_message`.

@@ -3,9 +3,17 @@ from django.contrib import admin
 from django.contrib.admin.helpers import ActionForm
 from django.utils import timezone
 
+from django.forms.models import BaseInlineFormSet
+
 from tenant.common.admin.tenant_base_admin_core import TenantBaseAdminCore
 from wallet.models.credit_ledger import CreditLedger
 from wallet.models.wallet import Wallet
+
+
+class CreditLedgerFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs[:20]
 
 
 class CreditLedgerInline(admin.TabularInline):
@@ -17,6 +25,7 @@ class CreditLedgerInline(admin.TabularInline):
     """
 
     model = CreditLedger
+    formset = CreditLedgerFormSet
     extra = 0
     max_num = 0
     can_delete = False
@@ -24,9 +33,6 @@ class CreditLedgerInline(admin.TabularInline):
     readonly_fields = fields
     ordering = ("-created_at",)
     verbose_name_plural = "Recent movements"
-
-    def get_queryset(self, request):
-        return super().get_queryset(request)[:20]
 
     def has_add_permission(self, request, obj=None):
         return False

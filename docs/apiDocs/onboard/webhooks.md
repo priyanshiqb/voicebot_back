@@ -14,20 +14,62 @@ Its job is to be the **safety net**. The browser normally finishes onboarding by
 paying never makes that call. This webhook completes the same work independently, so a paid
 customer always ends up with an account.
 
+**It now handles every kind of payment, not just signup.** A captured payment is dispatched on
+`Transaction.transaction_type`:
+
+| Type | Effect |
+| :--- | :--- |
+| `onboarding` | Promote the pending registrant, create the tenant, activate the subscription |
+| `renewal` | Extend the cycle, re-stamp the rate card, grant the new allocation |
+| `upgrade` | Apply the plan change, clearing any pending downgrade first |
+| `top_up` | Deposit credits into the **purchased** bucket |
+| `addon` | Grant the extra capacity that was paid for |
+
+Before this dispatch existed, *every* captured payment ran the signup path — so a top-up would have
+tried to promote a `TempUser` that does not exist.
+
+## Idempotency
+
+Razorpay retries aggressively, and a redelivered `payment.captured` used to re-run the whole
+onboarding promotion. Two independent guards now prevent that:
+
+1. **`RazorpayWebhookLog.event_id` is unique.** A duplicate event is recognised at insert and
+   answered `200` without touching anything.
+2. **The credit ledger enforces `(entry_type, reference_id)`.** A genuine redelivery carrying a
+   *fresh* event id still cannot credit twice, because the grant is keyed on the order id.
+
+## Response codes
+
+| Status | When |
+| :--- | :--- |
+| `200` | Processed, already seen, unknown order, unhandled event type, **or processing failed** |
+| `400` | Signature check failed |
+
+**Failures return `200` deliberately.** A `500` makes Razorpay redeliver a payload that will fail
+identically forever, and every redelivery is another chance to half-apply something. The error is
+recorded on the webhook log row and the transaction is rolled back, so the event can be replayed by
+hand once the cause is fixed. Check `RazorpayWebhookLog.error_message` when a payment cleared but
+nothing happened.
+
 ## Configuration
 
 | Setting | Purpose |
 |---|---|
-| `RAZORPAY_WEBHOOK_SECRET` | The shared secret used to verify `X-Razorpay-Signature`. |
-| `RAZORPAY_KEY_ID` | If this is the dummy key, **signature verification is skipped entirely**. |
+| `RAZORPAY_WEBHOOK_SECRET` | The shared secret used to verify `X-Razorpay-Signature`. Required whenever verification is on. |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | API credentials. **No defaults** — Django will not start without them. |
+| `PAYMENTS_ALLOW_UNSIGNED` | Accept callbacks without checking their signature. Defaults to `False`. |
 
 Point Razorpay at `https://<your-host>/api/v1/onboard/webhook/` and subscribe to
 **`payment.captured`** and **`payment.failed`**.
 
-> **Signature verification is bypassed in test mode and with the dummy key.** Any request is then
-> accepted as genuine. Make sure `RAZORPAY_KEY_ID` and `RAZORPAY_WEBHOOK_SECRET` are real in every
-> internet-facing environment — otherwise anyone who finds this URL can forge a `payment.captured`
-> and mint a fully onboarded tenant without paying.
+> **Verification is skipped only when `PAYMENTS_ALLOW_UNSIGNED` is on**, which is correct for local
+> work and required by the test suite. Any request is then accepted as genuine, so anyone who finds
+> this URL could forge a `payment.captured`.
+>
+> It was previously inferred from `RAZORPAY_KEY_ID == "rzp_test_dummykey"` — which was also the
+> settings default, so *forgetting* the credential silently disabled verification. Both the default
+> and the inference are gone. Production settings now raise `ImproperlyConfigured` if the flag is
+> on, and `manage.py check` reports `onboard.E001` whenever it is set outside `DEBUG`.
 
 ---
 
@@ -130,9 +172,9 @@ Both paths complete the same work, and either can win.
 
 | # | Gap | Impact |
 |---|---|---|
-| 1 | **The webhook path takes no database lock**, while `/verify/` uses `select_for_update`. | A webhook and a `/verify/` arriving simultaneously can both pass the "not yet successful" check and attempt to create the user. The unique constraint on `email` means the loser errors rather than duplicating — but it surfaces as a `500` and a Razorpay retry. |
-| 2 | **Signature verification is skipped when `RAZORPAY_KEY_ID` is the dummy key**, with no warning at startup. | A misconfigured deployment accepts forged webhooks, and a forged `payment.captured` creates a real tenant with no payment. |
-| 3 | **`payment.captured` does not verify the amount.** Only the `order_id` is matched. | A payment for less than the order total still completes onboarding. |
+| 1 | ~~The webhook path takes no database lock~~ **RESOLVED.** It now takes `select_for_update` on the transaction, the same row `/verify/` locks, so the two serialise. Whichever arrives second finds the order already successful — or the registrant already consumed — and returns without doing anything. | — |
+| 2 | ~~Signature verification is skipped when `RAZORPAY_KEY_ID` is the dummy key~~ **RESOLVED.** Both the default and the inference are gone; verification is now an explicit `PAYMENTS_ALLOW_UNSIGNED` flag that defaults to off, guarded by production settings and `onboard.E001`. | — |
+| 3 | **`payment.captured` does not verify the amount.** Only the `order_id` is matched. | A payment for less than the order total still completes onboarding. Applies to every payment type, not only signup — a short-paid top-up still deposits the full quantity. |
 | 4 | **`payment.failed` does not notify anyone.** | A customer whose payment failed after closing the tab gets no email; they only discover it by returning to the signup flow. |
 | 5 | **The `create_tenant_and_mapping` subdomain loop is not race-safe** — it queries for a free subdomain then creates. | Two simultaneous signups with the same business name can collide on the unique subdomain, producing a `500` and a retry. |
 

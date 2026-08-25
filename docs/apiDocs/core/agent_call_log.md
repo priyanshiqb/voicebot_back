@@ -41,6 +41,25 @@ raises **405** explicitly rather than silently working.
 
 ---
 
+## Posting a call log charges for it
+
+Creating a log deducts credits from the tenant's wallet. Three things follow from that:
+
+- **`duration_seconds` decides the charge.** A row posted with `0` or no duration is
+  recorded and **not** charged — the runner may not know the length yet. It is picked
+  up by a daily sweep that reports uncharged calls rather than guessing at one.
+- **`service_tier` beats the agent's configured tier.** A bot set to realtime may have
+  been served on the standard model — a capacity fallback, a degraded provider — and
+  the tenant should pay for what actually ran. Send what served the call; omit it and
+  the agent's tier is used.
+- **Billing never fails the request.** The call happened and the log is committed;
+  raising here would make the runner retry a POST whose row already exists, and every
+  retry would be a fresh attempt to charge for the same call. A billing problem is
+  ours to reconcile, not yours to retry into.
+
+`provider_call_id` is the idempotency key for the charge as well as the row, so a
+re-posted call is charged exactly once.
+
 ## Endpoint Details
 
 ### 1. List Call Logs
@@ -198,7 +217,8 @@ The full record, including the transcript and probing-question answers.
 | `direction` * | enum | Who placed the call. | Required. `inbound` or `outbound`, **lowercase**. |
 | `caller_name` | string | The other party's name, if known. | Optional, nullable. Max **255**. |
 | `campaign_id` | string | Free-text campaign tag. **Not a foreign key** — see the note below. | Optional, nullable. Max **255**. |
-| `duration_seconds` | integer | Call length in seconds. | Optional, default `0`. Must be ≥ 0. |
+| `duration_seconds` | integer | Call length in seconds. **This is what the call is billed on** — a row posted without it is not charged at all. | Optional, default `0`. Must be ≥ 0. |
+| `service_tier` | enum | **How the call was actually served**, and therefore what it costs. | Optional, nullable. `static_reel`, `conversation_high_latency`, or `conversation_low_latency`. Falls back to the agent's configured tier, then to `conversation_high_latency`. |
 | `outcome` | string | Your disposition label, e.g. `order_placed`. Stored verbatim; no fixed vocabulary. | Optional, nullable. Max **255**. |
 | `mood` | string | Detected caller sentiment. | Optional, nullable. Max **100**. |
 | `mood_confidence` | float | Confidence in `mood`, nominally 0.0–1.0. | Optional, nullable. **The range is not enforced** — `7.5` is stored as given. |

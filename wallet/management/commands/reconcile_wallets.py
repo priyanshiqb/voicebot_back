@@ -31,14 +31,23 @@ class Command(BaseCommand):
         drifted = 0
         checked = 0
 
+        # Two queries for the whole table, not three per wallet. The readable version
+        # was 3n queries — fine at seventeen wallets, unusable at a hundred thousand,
+        # and this job is a full scan by definition.
+        totals = {}
+        for row in (
+            CreditLedger.all_objects.values("wallet_id", "bucket")
+            .annotate(total=Sum("amount"))
+        ):
+            entry = totals.setdefault(row["wallet_id"], {})
+            entry[row["bucket"]] = row["total"] or 0
+
         for wallet in Wallet.objects.select_related("tenant").iterator():
             checked += 1
-            sums = wallet.entries.aggregate(total=Sum("amount"))
-            total = sums["total"] or 0
-            allocated = wallet.entries.filter(
-                bucket=CreditLedger.Bucket.ALLOCATED).aggregate(s=Sum("amount"))["s"] or 0
-            purchased = wallet.entries.filter(
-                bucket=CreditLedger.Bucket.PURCHASED).aggregate(s=Sum("amount"))["s"] or 0
+            sums = totals.get(wallet.pk, {})
+            allocated = sums.get(CreditLedger.Bucket.ALLOCATED, 0)
+            purchased = sums.get(CreditLedger.Bucket.PURCHASED, 0)
+            total = allocated + purchased
 
             problems = []
             if total != wallet.balance:

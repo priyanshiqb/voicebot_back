@@ -33,6 +33,11 @@ class NotificationLog(TenantBaseModelCore):
         REASSIGNED = "REASSIGNED", "Reassigned"
         CANCELED = "CANCELED", "Canceled"
         RESCHEDULED = "RESCHEDULED", "Rescheduled"
+        # Billing. Distinct from CREDITS because they need different urgency and
+        # often different recipients: BILLING is about money and the plan, CREDITS is
+        # about running out of something mid-campaign.
+        BILLING = "BILLING", "Billing"
+        CREDITS = "CREDITS", "Credits"
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"

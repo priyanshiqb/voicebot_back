@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.models.campaign_member import CampaignMember
+from utils.models.base_model_core import BaseQuerySet
 from tenant.common.models.tenant_base_model import TenantBaseModel
 
 DEFAULT_SCHEDULE_TIMEZONE = "UTC"
@@ -247,7 +248,20 @@ class Campaign(TenantBaseModel):
 
     error_message = models.TextField(blank=True)
 
+    # BaseModelCore's `all_objects` is a plain Manager, so `.delete()` on it is a
+    # real DELETE that raises nothing. Campaign rows are the billing record for
+    # the campaign allowance — `started_at` is what stops a tenant reclaiming a
+    # slot they used — so erasing them in bulk must not be a one-liner. This keeps
+    # soft-deleted rows visible, which the allowance count needs, and refuses the
+    # hard delete exactly as `objects` already does.
+    all_objects = BaseQuerySet.as_manager()
+
     class Meta:
+        # Declaring `all_objects` on the model makes it the newest manager, and
+        # Django would otherwise promote it to `_default_manager` -- which the
+        # admin, related-object lookups and dumpdata all read through. That would
+        # quietly start showing soft-deleted campaigns everywhere. Pin it back.
+        default_manager_name = "objects"
         db_table = "core_campaign"
         verbose_name = "Campaign"
         verbose_name_plural = "Campaigns"
@@ -265,6 +279,11 @@ class Campaign(TenantBaseModel):
         ]
         indexes = [
             models.Index(fields=["tenant", "status"]),
+            # The plan-allowance count filters (tenant, created_at >= window
+            # start). `tenant, status` gets it into the right tenant and then
+            # scans; this covers the window directly, and it runs on every
+            # campaign create.
+            models.Index(fields=["tenant", "created_at"]),
             models.Index(fields=["status", "scheduled_start_at"]),
         ]
 
@@ -335,16 +354,30 @@ class Campaign(TenantBaseModel):
 
     def soft_delete(self, user=None):
         """
-        Refuse while the runner may still be working this campaign's audience.
+        Refuse while the runner may still be working this campaign's audience, and
+        refuse permanently once it has been started at all.
 
         Guarded at the model rather than the viewset because `BaseViewSet.bulk_delete`
         calls `soft_delete()` directly on each object, bypassing `destroy()` entirely.
         A viewset-only check would leave `POST /bulk_delete/` as an open route to
         deleting a live campaign.
+
+        **A campaign that has run is a billing record.** The plan's allowance limits
+        the *act* of starting one, and that act is counted from this row — so allowing
+        it to be deleted would hand the allowance straight back. A tenant on ten
+        campaigns a month could run ten, delete them, and run ten more indefinitely.
+
+        A draft that was never launched consumed nothing and stays deletable, which is
+        what keeps the limit about campaigns run rather than campaigns typed.
         """
         if self.status in self.LIVE_STATUSES:
             raise ValidationError(
                 "This campaign is still running. Cancel it before deleting."
+            )
+        if self.started_at is not None:
+            raise ValidationError(
+                "This campaign has already run and forms part of your billing "
+                "record, so it cannot be deleted. You can archive it instead."
             )
         super().soft_delete(user=user)
 

@@ -1,3 +1,5 @@
+from onboard.constants.entitlement_resource import EntitlementResource
+from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 import django_filters
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -72,13 +74,15 @@ class ContactFilter(django_filters.FilterSet):
         description="Soft-delete a contact. This frees its phone number for reuse.",
     ),
 )
-class ContactViewSet(ImportExportMixin, TenantBaseViewSet):
+class ContactViewSet(EntitlementGuardMixin, ImportExportMixin, TenantBaseViewSet):
     """
     Contact Management API.
 
     Bulk creation is deliberately not exposed here — it goes through the staged
     contact-import flow, which adds conflict review before anything is written.
     """
+    entitlement_resource = EntitlementResource.CONTACT
+
 
     queryset = Contact.objects.all()
     serializer_class = ContactSerializer

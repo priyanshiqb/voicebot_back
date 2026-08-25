@@ -36,6 +36,12 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "direction",
             "campaign_id",
             "duration_seconds",
+            # What actually served this call, which is what it is billed at. The
+            # agent's configured tier is only the fallback: a bot set to realtime may
+            # have been served on the standard model, and the tenant should pay for
+            # what ran. Without this field on the write path the runner has no way to
+            # say so, and the fallback becomes the only answer there is.
+            "service_tier",
             "outcome",
             "mood",
             "mood_confidence",
@@ -69,6 +75,7 @@ class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
             "caller_number",
             "direction",
             "duration_seconds",
+            "service_tier",
             "outcome",
             "started_at"
         ]

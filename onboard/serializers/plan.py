@@ -25,7 +25,50 @@ class PlanRefSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class PlanSerializer(BaseModelCoreSerializer):
+class PlanOfferingMixin(serializers.Serializer):
+    """What a plan actually gives you, beyond its price.
+
+    Shared by the detail and list serializers because the pricing page reads the list
+    endpoint — a plan you cannot compare on credits, limits and per-minute rates is
+    just a number with a name.
+    """
+
+    entitlements = serializers.SerializerMethodField()
+    rates = serializers.SerializerMethodField()
+
+    def get_entitlements(self, obj):
+        """What the plan includes of each resource, and what more of it costs."""
+        return [
+            {
+                "resource": row.resource,
+                "included": row.included_quantity,
+                # Without the period the number is ambiguous — ten a month and ten a
+                # year are the same figure and a very different offer.
+                "reset_period": row.reset_period,
+                "addon_available": row.is_addon_available,
+                "price_per_block": str(row.price_per_additional),
+                "block_size": row.addon_step,
+                "max_additional": row.max_additional,
+            }
+            for row in obj.entitlements.filter(is_deleted=False).order_by("resource")
+        ]
+
+    def get_rates(self, obj):
+        """Per-minute credit price of each call tier on this plan."""
+        return [
+            {
+                "operation": rate.operation,
+                "unit": rate.unit,
+                "credits_per_unit": rate.credits_per_unit,
+                "minimum_units": rate.minimum_units,
+            }
+            for rate in obj.credit_rates.filter(
+                is_deleted=False, effective_to__isnull=True
+            ).order_by("operation")
+        ]
+
+
+class PlanSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
     """
     Main Plan Serializer for detail, create, and update operations.
     Exposes all configuration fields and returns computed financial values as read-only.
@@ -61,11 +104,25 @@ class PlanSerializer(BaseModelCoreSerializer):
             "plan_type_display",
             "sort_order",
             "is_most_popular",
+            # What the plan actually gives you. The pricing page needs these to say
+            # anything more useful than a price.
+            "allocated_credits",
+            "cost_per_additional_credit",
+            "max_rollover_credits",
+            "allow_rollover_on_renewal",
+            "allow_rollover_on_upgrade",
+            "allow_rollover_on_downgrade",
+            "allow_use_after_expiry",
+            "low_balance_threshold",
+            "entitlements",
+            "rates",
             "is_active",
             "created_at",
             "updated_at",
         )
         read_only_fields = BaseModelCoreSerializer.Meta.read_only_fields + (
+            "entitlements",
+            "rates",
             "discount_amount",
             "net_base_price",
             "tax_amount",
@@ -73,7 +130,7 @@ class PlanSerializer(BaseModelCoreSerializer):
         )
 
 
-class PlanListSerializer(BaseModelCoreSerializer):
+class PlanListSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
     """
     Plan List Serializer.
     Tailored representation for listing plans on administrative dashboards.
@@ -101,6 +158,15 @@ class PlanListSerializer(BaseModelCoreSerializer):
             "total_price",
             "currency",
             "billing_cycle",
+            "allocated_credits",
+            "cost_per_additional_credit",
+            "max_rollover_credits",
+            "allow_rollover_on_renewal",
+            "allow_rollover_on_upgrade",
+            "allow_rollover_on_downgrade",
+            "allow_use_after_expiry",
+            "entitlements",
+            "rates",
             "billing_cycle_display",
             "plan_type",
             "plan_type_display",

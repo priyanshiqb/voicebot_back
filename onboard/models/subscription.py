@@ -185,8 +185,16 @@ class Subscription(BaseModelCore):
             "renews_without_payment": self.plan.renews_without_payment,
             # Included allowances, read by the entitlement checker. Purchased extras
             # live on TenantEntitlement; the effective limit is the sum.
+            #
+            # The *window* is frozen beside the number, deliberately. An allowance of
+            # "10" means nothing without knowing whether that is ten a month or ten a
+            # year — and if the period lived only in code, changing it would silently
+            # re-interpret every subscription already sold.
             "entitlements": {
-                e.resource: e.included_quantity
+                e.resource: {
+                    "included": e.included_quantity,
+                    "reset_period": e.reset_period,
+                }
                 for e in self.plan.entitlements.all()
             },
         }
@@ -222,6 +230,36 @@ class Subscription(BaseModelCore):
 
     def included_entitlement(self, resource):
         """Included allowance for one resource, or ``None`` for unlimited."""
+        entry = self._entitlement_entry(resource)
+        if isinstance(entry, dict):
+            return entry.get("included")
+        return entry
+
+    def entitlement_reset_period(self, resource):
+        """How often this allowance refills for *this* subscription.
+
+        Read from the snapshot, so a plan whose period is changed later does not
+        re-interpret an allowance a tenant is already living under. Subscriptions
+        written before the period was frozen fall back to the live plan.
+        """
+        from onboard.constants.reset_period import ResetPeriod
+
+        entry = self._entitlement_entry(resource)
+        if isinstance(entry, dict):
+            return entry.get("reset_period") or ResetPeriod.NONE
+        if self.plan_id:
+            row = self.plan.entitlements.filter(resource=resource).first()
+            if row:
+                return row.reset_period
+        return ResetPeriod.NONE
+
+    def _entitlement_entry(self, resource):
+        """The frozen allowance, in whichever shape the snapshot was written.
+
+        Older snapshots stored a bare number; newer ones store
+        ``{"included": n, "reset_period": ...}``. Both are read here so a migration
+        is never required to keep an existing subscription working.
+        """
         snapshot = (self.plan_snapshot or {}).get("entitlements")
         if snapshot is not None:
             return snapshot.get(resource)

@@ -52,7 +52,7 @@ Services are grouped by **profile**; nothing starts without one.
 | `pgbouncer` | `pgbouncer` | Container-mode Django (`.env` points at it) |
 | `dev` | `backend-dev`, `celery-dev`, `celery-beat-dev` | Full-Docker mode |
 | `prod` | `backend-wsgi`, `backend-asgi`, `celery-prod`, `celery-beat-prod` | Production-shaped run |
-| `emulators` | `minio` | Local S3 instead of the shared R2 bucket |
+| `emulators` | `azurite` | Azure Blob emulator. **Not usable by the app yet** — it does not speak S3; see the migration plan |
 | `gateway` | `caddy` | TLS / routing in front |
 | `pgadmin`, `redis-insight` | admin UIs | Poking at data |
 | `grafana`, `logs-monitoring`, `matrics-monitoring`, `pgexporter`, `redis-exporter` | observability | Dashboards |
@@ -62,7 +62,8 @@ Services are grouped by **profile**; nothing starts without one.
 # Minimum for host-mode development
 docker compose --profile database --profile caches up -d
 
-# Add local object storage (create the bucket once at http://127.0.0.1:9001)
+# Azure Blob emulator. Starts and works, but the app still speaks S3 and cannot
+# use it until the storage layer is ported — keep using the shared R2 bucket.
 docker compose --profile emulators up -d
 
 # Everything in Docker
@@ -141,7 +142,7 @@ any change. Set them explicitly if documentation readers should not also hold th
 Prometheus / Loki / RedisInsight credential.
 
 > ⚠️ **Publishing a port bypasses the gateway.** This applies to more than docs: `loki`,
-> `prometheus`, `grafana`, `redis-insight` and `minio` all publish host ports too, so the
+> `prometheus`, `grafana`, `redis-insight` and `azurite` all publish host ports too, so the
 > `basicauth` on their `*.{DOMAIN}` routes does **not** protect direct access to those ports.
 > Keep `BIND_IP=127.0.0.1` unless you specifically intend LAN exposure.
 
@@ -161,6 +162,32 @@ uv run python manage.py makemigrations --check --dry-run
 uv run python manage.py createsuperuser
 uv run python manage.py dbshell
 ```
+
+### Data migrations run once, against rows you cannot see
+
+`onboard.0025` and `wallet.0004` carry `RunPython` steps that edit live billing state.
+They execute exactly once per environment and then never again, so a bug in one
+corrupts data at the moment it runs with no second chance to notice.
+
+`onboard/tests/test_migrations.py` rewinds the database, builds the "before" world with
+**historical** models, migrates forward and asserts what changed — which is the only
+way to exercise them, because building the test database from zero runs every step
+against no rows at all.
+
+> **`onboard.0025` had a real bug found this way.** Its duplicate-resolution step
+> writes `superseded_by`, and Django creates foreign keys as `DEFERRABLE INITIALLY
+> DEFERRED` on PostgreSQL — so the `AddConstraint` later in the same migration failed
+> with *"cannot CREATE INDEX … because it has pending trigger events"*. It only fired
+> when a tenant actually **had** duplicate active subscriptions, which no environment
+> did when the migration was written. Fixed by flushing the deferred checks before the
+> index is built.
+>
+> If you have already applied `0025` you are unaffected; the fix matters for
+> environments that have not migrated yet.
+
+Before adding a `RunPython` that changes rows in the same migration as a schema
+operation on the same table, check whether the DML queues deferred triggers — or put
+the schema change in its own migration.
 
 ---
 
@@ -229,6 +256,41 @@ uv run python manage.py test core.tests.test_device_token_lifecycle.SessionLinkT
 | `-v 2` | Print each test name as it runs | |
 | `--parallel` | Split across processes | Not verified against this suite; some tests share module-level state |
 
+### Two suites are opt-in, because they leave the machine
+
+Everything else stubs the gateway and Firebase. These two do not, so they are skipped
+unless you ask for them — CI, a plane, and a colleague without credentials all still
+get a green run.
+
+```bash
+# Real Razorpay, in test mode. Creates orders that are never paid.
+RUN_LIVE_GATEWAY_TESTS=1 uv run python manage.py test onboard.tests.test_razorpay_live \
+    --settings=config.settings.test_postgres --noinput
+
+# Real Firebase, using the configured FIREBASE_CREDENTIALS.
+RUN_LIVE_PUSH_TESTS=1 uv run python manage.py test core.tests.billing.test_push_live \
+    --settings=config.settings.test_postgres --noinput
+```
+
+**`RAZORPAY_WEBHOOK_SECRET` gates four of the twelve gateway cases** — the signature
+ones. Without it they skip, and *nothing anywhere* exercises signature verification:
+every other webhook test in the suite runs with `PAYMENTS_ALLOW_UNSIGNED=True`. Set it
+if you are changing anything on that path.
+
+Neither suite completes a payment or delivers to a device. Checkout needs a browser,
+and FCM reports acceptance rather than delivery — both are manual QA.
+
+### Some billing tests are slow, and have to be
+
+`wallet/tests/test_concurrency.py` and `onboard/tests/test_migrations.py` use
+`TransactionTestCase`, which truncates tables between tests and cannot use
+`--keepdb` meaningfully. Roughly a minute and four minutes respectively.
+
+The cost buys the only two things a normal `TestCase` cannot prove: that two
+connections cannot spend the same credit (a `TestCase` rolls back its transaction, so
+the race *cannot happen* there), and that the one-shot data migrations do what they
+claim when they actually find rows.
+
 ### Reading the result correctly
 
 ```bash
@@ -247,7 +309,7 @@ grep -E "^(Ran |OK|FAILED)" /tmp/out.txt
 |---|---|
 | Everything | **Postgres** |
 | `defender` / login-lockout tests | **Redis** — django-defender uses `DEFENDER_REDIS_URL` and ignores the in-memory `CACHES` the test settings set. If Redis is down you get ~14 unrelated-looking failures |
-| Contact-import and upload tests | Nothing — S3 calls fail and are tolerated. The `Could not connect to the endpoint URL: http://127.0.0.1:9000` lines are **expected noise** unless you started the `emulators` profile |
+| Contact-import and upload tests | Nothing — S3 calls fail and are tolerated. `Could not connect to the endpoint URL` lines are **expected noise**; there is no local S3 to start any more |
 | Knowledge-base tests | Nothing — `Failed to contact external ETL server` is likewise expected noise |
 
 ---
@@ -372,7 +434,8 @@ That is a deliberate, documented state — see [File Uploads](flows/file-upload.
 | `EOFError: EOF when reading a line` on test start | A previous run was killed and left its test database | Add `--noinput` |
 | ~14 failures around login/lockout | Redis is down; django-defender uses `DEFENDER_REDIS_URL`, independent of the test cache | Start the `caches` profile |
 | `ArrayField`/constraint errors across many tests | Ran without `--settings=config.settings.test_postgres` | Add the flag |
-| `Could not connect to … 127.0.0.1:9000` | MinIO not running | Expected noise, or start the `emulators` profile |
+| `Could not connect to …` from a storage call | No local S3 exists since MinIO was removed | Expected noise in tests; point `.env` at R2 for real uploads |
+| `azurite-voicebot` restart-loops with `Critical error happens during GC` | Stale Azurite state in `.data/azurite` from an earlier run — its database references extents that no longer exist | `docker compose stop azurite`, delete (or rename) `.data/azurite`, start again. The directory is disposable |
 | `Failed to contact external ETL server` | The ETL service is not running | Expected noise |
 | `could not translate host name "pgbouncer"` | Host mode without `.env.local` | Create it from `.env.local.example` |
 | Login 500s, everything else fine | `REDIS_PORT` wrong in host mode — defender fails on the login path first | Set `REDIS_PORT=5563` |

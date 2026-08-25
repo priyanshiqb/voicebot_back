@@ -1,3 +1,5 @@
+from onboard.constants.entitlement_resource import EntitlementResource
+from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 import logging
 
 import django_filters
@@ -86,7 +88,7 @@ def blocked_fields(campaign, submitted):
         description="Soft delete. Refused with 409 while the campaign is live.",
     ),
 )
-class CampaignViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
+class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBaseViewSet):
     """
     Campaign management.
 
@@ -95,6 +97,8 @@ class CampaignViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     server-derived, and every lifecycle transition is guarded under a row lock so two
     simultaneous requests cannot both win.
     """
+    entitlement_resource = EntitlementResource.CAMPAIGN_MONTHLY
+
 
     queryset = Campaign.objects.all()
     serializer_class = CampaignSerializer
@@ -287,6 +291,17 @@ class CampaignViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                 )
 
             scheduled = locked.scheduled_start_at is not None
+
+            # Only the deferred path reaches start_due_campaigns, where the allowance
+            # and credit checks live. A campaign launched for right now goes straight
+            # to MATERIALIZING, so without this it would start unchecked. requested=0
+            # because this campaign was already counted when it was created; we are
+            # asking "are you still inside your allowance", not "may you add one more".
+            if not scheduled:
+                self.check_entitlement(
+                    EntitlementResource.CAMPAIGN_MONTHLY, requested=0
+                )
+
             locked.handoff_id = campaign_service.new_handoff_id()
             locked.handoff_status = Campaign.HandoffStatus.PENDING
             locked.launched_by = request.user

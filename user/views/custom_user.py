@@ -1,3 +1,5 @@
+from onboard.constants.entitlement_resource import EntitlementResource
+from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 from user.serializers.custom_user import (
     UserSerializer,
     UserListSerializer,
@@ -102,7 +104,9 @@ from rest_framework.decorators import action
         }
     )
 )
-class CustomUserViewSet(BaseViewSet):
+class CustomUserViewSet(EntitlementGuardMixin, BaseViewSet):
+
+    entitlement_resource = EntitlementResource.USER
 
     queryset = CustomUser.objects.all()
 
@@ -167,7 +171,13 @@ class CustomUserViewSet(BaseViewSet):
 
         return queryset.filter(q_filter)
 
-    def perform_create(self, serializer):
+    def perform_create(self, serializer, **kwargs):
+        # Called explicitly: this method overrides the mixin's rather than extending
+        # it, so the seat check would otherwise never run. Before the mapping is
+        # created, not after — a user who has already been added is a user you then
+        # have to remove.
+        self.check_entitlement(EntitlementResource.USER)
+
         user = self.request.user
         from django.db import transaction
 
@@ -213,4 +223,4 @@ class CustomUserViewSet(BaseViewSet):
         user.set_password(new_password)
         user.save()
 
-        return self.success(message="Password changed successfully.")
+        return self.success(message="Password changed successfully.")

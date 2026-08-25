@@ -35,6 +35,23 @@ def resolve_duplicate_active_subscriptions(apps, schema_editor):
         else:
             seen[sub.tenant_id] = sub.pk
 
+    # Flush the deferred foreign-key checks this function just queued.
+    #
+    # Django creates FK constraints as DEFERRABLE INITIALLY DEFERRED on PostgreSQL,
+    # so writing `superseded_by` leaves pending trigger events on
+    # onboard_subscription. The AddConstraint at the end of this migration is a
+    # CREATE UNIQUE INDEX on that same table in the same transaction, and Postgres
+    # refuses it with "cannot CREATE INDEX ... because it has pending trigger
+    # events".
+    #
+    # It only bites when this function actually changes something — which is why it
+    # went unnoticed: the database it was written against had no duplicates, so the
+    # branch never ran. Any environment that *does* have them would have failed the
+    # migration outright.
+    if schema_editor.connection.vendor == "postgresql":
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+
 
 def backfill_cycle_and_snapshot(apps, schema_editor):
     """Give every subscription an end_date, and refreeze its plan terms.
