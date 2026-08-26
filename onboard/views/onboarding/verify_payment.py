@@ -186,6 +186,11 @@ class VerifyPaymentView(ResponseMixin, APIView):
                 # Link BillingAddress and Transaction to the new active CustomUser
                 BillingAddress.objects.filter(temp_user=temp_user).update(user=user, temp_user=None)
                 transaction.user = user
+                # Without this the tenant's very first payment has no tenant on it,
+                # so it never appears in their own billing history — which is
+                # tenant-scoped. The webhook path has always set it; this one, which
+                # is the path most signups actually take, did not.
+                transaction.tenant = tenant
                 transaction.temp_user = None
                 transaction.save()
 

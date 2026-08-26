@@ -3,6 +3,25 @@
 How a campaign moves through its states, where billing observes it, and what
 commercial can set per plan.
 
+**Sections 1-7** are how a campaign behaves and where billing observes it.
+**Sections 8-12** are the configuration reference: what to set, where, and how to read
+usage back.
+
+| | |
+| :--- | :--- |
+| [1. The state machine](#1-the-state-machine) | Statuses, transitions, who writes each |
+| [2. The one field billing depends on](#2-the-one-field-billing-depends-on) | Why `started_at` is load-bearing |
+| [3. Where the allowance is checked](#3-where-the-allowance-is-checked) | Three checkpoints, and why each exists |
+| [4. The counting rule](#4-the-counting-rule) | What consumes a slot and what gives it back |
+| [5. Keeping the record intact](#5-keeping-the-record-intact) | The delete guards, and the manager that enforces them |
+| [6. Known gap: `COMPLETED`](#6-known-gap-nothing-sets-completed) | Nothing sets it. What that does and does not break |
+| [7. The credit side](#7-the-credit-side-which-is-separate) | Why campaigns and credits never talk |
+| [8. What commercial sets](#8-what-commercial-sets-per-plan) | The two settings that matter, and four that do not |
+| [9. How it reaches a tenant](#9-how-the-setting-reaches-a-tenant) | The snapshot, and the window anchor |
+| [10. Every case, measured](#10-every-case-measured) | Probe output for all nine transitions |
+| [11. Reading usage live](#11-reading-usage-live) | The endpoint, the payload, the cost |
+| [12. A naming wart](#12-a-naming-wart-left-alone-deliberately) | Why `campaign_monthly` still says monthly |
+
 ---
 
 ## 1. The state machine
@@ -214,27 +233,216 @@ call, and vice versa.
 
 ## 8. What commercial sets, per plan
 
-Two values on the campaign entitlement:
+One row in `onboard_plan_entitlement` where `resource = campaign_monthly`. Seven columns
+on it, but **only two matter for campaigns today**.
 
-| Setting | Effect |
+| Column | What it does | For campaigns |
+| :--- | :--- | :--- |
+| `included_quantity` | How many the plan grants. `NULL` = unlimited | **Set this** |
+| `reset_period` | What that number *means* | **Set this** |
+| `is_addon_available` | Whether the tenant may buy beyond the included amount | Must stay `false` — see §8.3 |
+| `price_per_additional` | Pre-tax ₹ per block, charged **every cycle** | Inert while add-ons are off |
+| `addon_step` | Block size an add-on is sold in | Inert |
+| `max_additional` | Ceiling on extras, in units not blocks | Inert |
+
+> ⚠️ **The seed plans carry dead add-on values.** The campaign row ships with
+> `price_per_additional=150.00`, `addon_step=5`, `max_additional=50` — none of which is
+> read, because `is_addon_available` is `false`. Do not take their presence as evidence
+> that campaigns are sellable. If campaign add-ons are ever switched on, those numbers
+> need deciding rather than inheriting.
+
+### 8.1 `included_quantity`
+
+How many campaigns the plan grants per window. `NULL` means unlimited — and a DB
+constraint (`ck_entitlement_no_addon_when_unlimited`) refuses unlimited *plus* add-ons,
+because selling more of something already uncapped is incoherent.
+
+### 8.2 `reset_period` — the more important of the two
+
+| Value | Meaning |
 | :--- | :--- |
-| `included_quantity` | How many campaigns in a window. Blank = unlimited |
-| `reset_period` | What that number *means*: `none`, `daily`, `weekly`, `monthly`, `quarterly`, `half_yearly`, `yearly` |
+| `none` | A standing total. Three campaigns **ever** |
+| `daily` | Refills every 24h from the anchor |
+| `weekly` | Every 7 days |
+| `monthly` | Calendar month, so a window opening on the 31st closes on the 30th or 28th rather than drifting |
+| `quarterly` | 3 calendar months |
+| `half_yearly` | 6 calendar months |
+| `yearly` | 12 calendar months |
 
-`none` would make it a standing total — three campaigns ever, and deleting one gives the
-slot back. That is wrong for campaigns, and the migration sets every existing row to
-`monthly`, but the option exists because the same machinery serves all seven resources.
+**The period is half of what the number means.** Ten a month and ten a year are the same
+figure and completely different offers. `monthly` makes the allowance a *quota*; `daily`
+on the same number makes it a *pace* — three a day means nobody fires a month's worth in
+an afternoon.
 
-Both values are **frozen onto `Subscription.plan_snapshot`** at subscribe and at each
-renewal, as `{resource: {"included": n, "reset_period": p}}`. Editing the plan changes
-what new and renewing customers get; nobody's allowance changes under them mid-cycle.
+`none` would make campaigns a standing total, where deleting one hands the slot back. That
+is wrong for an act rather than a holding, and migration `0027` sets every existing row to
+`monthly` — but the option exists because the same machinery serves all seven resources.
 
-Windows are anchored to `subscription.created_at`, not the calendar, and the anchor is
-stable across renewals — so a customer who signed up on the 9th has windows that turn
-over on the 9th, and an allowance never straddles a billing cycle.
+### 8.3 Why `is_addon_available` has to stay off
 
-**Campaigns cannot be bought as an add-on** (`is_addon_available` is false on every plan).
-Add-ons are prorated by time remaining, which is right for a quantity held over time and
-wrong for a count inside a window: a customer buying on day 20 of 30 would pay a third of
-the price and receive the whole allowance. Selling campaigns needs flat pricing — a small
-change, but it has to be asked for.
+Add-ons are **prorated by time remaining**, which is right for a quantity held over time
+and wrong for a count inside a window. A tenant buying storage on day 20 of 30 pays a third
+of the price and gets a third of a month's storage. A tenant buying campaigns on day 20
+would pay a third of the price and receive **the whole allowance**, then have it refill ten
+days later.
+
+Selling campaigns needs flat pricing rather than prorated. That is a small change, but it
+has to be asked for — so today a tenant at their campaign limit must upgrade.
+
+### 8.4 Where to set it
+
+Django admin, two routes:
+
+* **Plans → the plan → Plan Entitlements inline** — the normal route, editing a whole plan
+  at once.
+* **Plan Entitlements** as its own list — filterable by `resource` and `reset_period`,
+  useful for auditing one setting across every plan.
+
+Both surface `reset_period`. There is deliberately **no API for editing plan config**: it
+is commercial configuration, not tenant self-service.
+
+---
+
+## 9. How the setting reaches a tenant
+
+At subscribe **and at every renewal**, both values are stamped onto
+`Subscription.plan_snapshot`:
+
+```json
+{ "entitlements": { "campaign_monthly": { "included": 5, "reset_period": "monthly" } } }
+```
+
+Everything downstream reads the snapshot, never the live plan. So editing a plan changes
+what **new and renewing** tenants get, and nobody's allowance moves under them mid-cycle.
+
+`Subscription.entitlement_reset_period()` and `_entitlement_entry()` read **both** the new
+dict shape and the old bare-number shape, so subscriptions snapshotted before the
+`reset_period` migration keep working and are treated as `none` until they renew.
+
+### The window anchor
+
+Anchored to `subscription.created_at`, **not the calendar**, and the anchor is stable
+across renewals — a tenant who signed up on the 26th has windows that turn over on the
+26th.
+
+Calendar anchoring is what would let a tenant whose cycle runs 5 Aug – 4 Sep collect two
+monthly allowances inside one billing cycle, and twelve inside a yearly one. Anchoring to
+the subscription means every window sits wholly inside a cycle.
+
+`window_start(period, anchor, now)` in `onboard/constants/reset_period.py` does the
+arithmetic — fixed spans for daily/weekly, `relativedelta` for the month-based periods so
+a window never drifts.
+
+---
+
+## 10. Every case, measured
+
+A plan with `included_quantity=5`, `reset_period=monthly`. Actual output from a probe
+against the real code, not a hand-worked example — rerun it any time with:
+
+```bash
+PYTHONPATH=. python docs/implementation-plan-scratch/campaign_usage_probe.py
+```
+
+It works inside a transaction it rolls back, so it is safe against a live database.
+
+```
+action                                        used  remaining
+-------------------------------------------------------------
+start: nothing created                           0          5
+create a draft                                   1          4
+second campaign runs                             2          3
+  ... and completes                              2          3
+delete the draft (never ran)                     1          4
+create then CANCEL before launch                 1          4
+create then FAIL to materialise                  1          4
+launch one (mid-flight, no started_at)           2          3
+CANCEL the one that already ran                  2          3
+```
+
+The last four lines are the whole rule:
+
+* **Cancel and fail cost nothing** — provided nothing was dialled.
+* **Mid-flight still holds its slot**, even though `started_at` is not stamped yet:
+  `MATERIALIZING` is not terminal, so the campaign is still going to run.
+* **Cancelling one that already ran gives nothing back.** The calls went out.
+
+---
+
+## 11. Reading usage live
+
+There is **no separate usage endpoint**. Usage rides along with the subscription:
+
+```
+GET /api/v1/billing/subscription/   ->   data.entitlements[]
+```
+
+```json
+{
+  "resource": "campaign_monthly",
+  "included": 5,
+  "additional": 0,
+  "limit": 5,
+  "recurring_charge": "0.00",
+  "used": 2,
+  "remaining": 3
+}
+```
+
+| Field | Meaning |
+| :--- | :--- |
+| `included` | From the plan snapshot. `null` = unlimited |
+| `additional` | Bought as add-ons. Always `0` for campaigns |
+| `limit` | `included + additional`. `null` = unlimited |
+| `used` | Counted live, right now |
+| `remaining` | `max(limit - used, 0)`. `null` = unlimited |
+| `recurring_charge` | What the add-ons cost per cycle |
+
+Every resource comes back in the same array, so one call drives a whole usage panel:
+
+```
+resource              included  extra  limit  used  left
+--------------------------------------------------------
+agent                        2      0      2     1     1
+user                         3      0      3     1     2
+contact                    100      0    100     0   100
+knowledge_base               2      0      2     0     2
+crawl_page                  50      0     50     0    50
+campaign_monthly             5      0      5     2     3
+storage_gb                   5      0      5     0     5
+```
+
+### In code
+
+```python
+from onboard.services import entitlements as entitlement_service
+
+# every resource, with live usage
+entitlement_service.summary(tenant_id, subscription, with_usage=True)
+
+# one number
+entitlement_service.current_usage(tenant_id, resource, subscription=subscription)
+```
+
+### Why `with_usage` is opt-in
+
+It costs **one query per resource** — seven queries. Fine for a settings page, wrong for a
+hot path, so `summary()` defaults to `with_usage=False` and returns limits alone.
+
+The upside of computing it live is that there is **no counter column, nothing to reset,
+and nothing to reconcile**. The count *is* the state rather than a projection of it, so it
+cannot drift the way `Wallet.balance` can against its ledger — which is exactly why
+`reconcile_wallets` has to exist for credits and has no counterpart here.
+
+`audit_billing_readiness` uses the same call, so a CLI check and the API can never
+disagree.
+
+---
+
+## 12. A naming wart, left alone deliberately
+
+The enum value is literally `campaign_monthly`, which reads as a lie on a plan configured
+`yearly`. Renaming it means a data migration across every `Subscription.plan_snapshot`
+JSON blob and every `TenantEntitlement` row — real risk for a cosmetic gain. The
+`EntitlementResource` docstring calls the name historical and explains what the resource
+actually does.

@@ -18,6 +18,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from onboard.models import Plan, Subscription
+from onboard.services import pricing
 from onboard.services import subscriptions as subscription_service
 from onboard.tests.billing_factories import (
     assert_invariant,
@@ -624,6 +625,91 @@ class PlanChangeTests(LifecycleTestCase):
         result = subscription_service.cancel_scheduled_change(subscription)
 
         self.assertIsNone(result.scheduled_plan_id)
+
+
+class BonusDayTests(LifecycleTestCase):
+    """An upgrade pays full price and buys extra days with what was left over.
+
+    The money side is settled by `pricing.quote_plan_change`; this is about the
+    days actually arriving on the subscription, which is the only place they exist.
+    """
+
+    def test_an_upgrade_with_no_bonus_runs_a_standard_cycle(self):
+        old = subscription_service.activate(self.tenant, self.plan)
+
+        new = subscription_service.apply_plan_change(old, self.bigger)
+
+        self.assertEqual(new.end_date, new.derive_end_date())
+
+    def test_bonus_days_extend_the_cycle(self):
+        old = subscription_service.activate(self.tenant, self.plan)
+
+        new = subscription_service.apply_plan_change(
+            old, self.bigger, bonus_days=Decimal("8")
+        )
+
+        self.assertEqual(new.end_date - new.derive_end_date(), timedelta(days=8))
+
+    def test_a_fractional_day_is_not_rounded_away(self):
+        """A partial day is real money. Dropping it would quietly keep the
+        difference on every upgrade."""
+        old = subscription_service.activate(self.tenant, self.plan)
+
+        new = subscription_service.apply_plan_change(
+            old, self.bigger, bonus_days=Decimal("8.50")
+        )
+
+        self.assertEqual(
+            new.end_date - new.derive_end_date(), timedelta(days=8, hours=12)
+        )
+
+    def test_the_extension_does_not_repeat_at_renewal(self):
+        """The bonus is bought once, with time the tenant had already paid for.
+        Carrying it into the next cycle would hand it to them again for free."""
+        old = subscription_service.activate(self.tenant, self.plan)
+        new = subscription_service.apply_plan_change(
+            old, self.bigger, bonus_days=Decimal("8")
+        )
+        extended_end = new.end_date
+
+        renewed = subscription_service.renew(new)
+
+        # One cycle on from the *extended* end, not from a standard one -- and no
+        # second helping of the bonus. Compared as dates because cycle_delta() is a
+        # relativedelta, which never equals a timedelta even when it spans the same
+        # time.
+        self.assertEqual(
+            renewed.end_date, extended_end + renewed.cycle_delta()
+        )
+
+    def test_a_move_to_a_free_plan_buys_no_days(self):
+        """Nothing costs anything per day on a free plan, so there is no rate to
+        convert the leftover value at. The alternative is an infinite cycle."""
+        free = make_free_plan("lifecycle-free")
+        old = subscription_service.activate(self.tenant, self.plan)
+        old.end_date = timezone.now() + timedelta(days=20)
+        old.save(update_fields=["end_date"])
+
+        quote = pricing.quote_plan_change(old, free)
+
+        self.assertEqual(quote.detail["bonus_days"], Decimal("0.00"))
+
+    def test_the_days_come_from_the_quote_the_tenant_paid_on(self):
+        """Frozen at order time, not recomputed at apply time. Days pass between
+        the two, and recomputing would hand the tenant fewer than they bought."""
+        old = subscription_service.activate(self.tenant, self.plan)
+        old.end_date = timezone.now() + timedelta(days=20)
+        old.save(update_fields=["end_date"])
+
+        quote = pricing.quote_plan_change(old, self.bigger)
+        quoted_days = Decimal(str(quote.as_breakdown()["bonus_days"]))
+
+        self.assertGreater(quoted_days, Decimal("0"))
+        new = subscription_service.apply_plan_change(
+            old, self.bigger, bonus_days=quoted_days
+        )
+        expected = timedelta(seconds=int(quoted_days * 86400))
+        self.assertEqual(new.end_date - new.derive_end_date(), expected)
 
 
 class ExpireTests(LifecycleTestCase):

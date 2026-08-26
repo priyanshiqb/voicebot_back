@@ -62,7 +62,8 @@ def current_or_expired(tenant):
 
 
 @db_transaction.atomic
-def activate(tenant, plan, *, transaction=None, previous=None, notes=""):
+def activate(tenant, plan, *, transaction=None, previous=None, notes="",
+             bonus_days=None):
     """Put a tenant on a plan: subscription, rate card, and the cycle's credits.
 
     Returns the live ``Subscription``.
@@ -102,11 +103,18 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes=""):
         # this method is atomic. Without the savepoint the recovery below could not
         # run any queries.
         with db_transaction.atomic():
+            started = timezone.now()
             subscription = Subscription.objects.create(
                 tenant_id=tenant_id,
                 plan=plan,
                 status=Status.ACTIVE,
-                start_date=timezone.now(),
+                start_date=started,
+                # An upgrade converts the unused value of the old plan into days on
+                # the new one, so this cycle runs long. Computed here rather than
+                # left to `save()`, which only ever fills a blank end_date.
+                end_date=_end_date_with_bonus(
+                    Subscription(plan=plan, start_date=started), bonus_days
+                ),
             )
     except IntegrityError:
         # Another worker created the tenant's subscription between the check above
@@ -244,6 +252,22 @@ def rollover_amount(subscription, *, reason):
     return held, 0, None
 
 
+def _end_date_with_bonus(draft, bonus_days):
+    """One cycle from ``start_date``, plus any days bought with unused value.
+
+    ``bonus_days`` is fractional -- a partial day is real money and rounding it away
+    would quietly keep the difference. Converted to seconds so nothing is lost.
+    """
+    from datetime import timedelta
+    from decimal import Decimal
+
+    draft.generate_plan_snapshot()
+    end = draft.derive_end_date()
+    if not bonus_days:
+        return end
+    return end + timedelta(seconds=int(Decimal(str(bonus_days)) * 86400))
+
+
 def _apply_rollover(subscription, *, reason):
     """Burn whatever the rollover rules do not let the tenant keep."""
     from wallet.models import CreditLedger
@@ -341,7 +365,8 @@ def renew(subscription, *, transaction=None):
 # --------------------------------------------------------------------------- #
 
 @db_transaction.atomic
-def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgrade"):
+def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgrade",
+                      bonus_days=None):
     """Move a tenant to a different plan, now.
 
     Used for an upgrade once its prorated order is paid, and by the scheduler when a
@@ -362,6 +387,7 @@ def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgra
         transaction=transaction,
         previous=subscription,
         notes=f"{reason} from {subscription.plan.code}",
+        bonus_days=bonus_days,
     )
     _announce(lambda: billing_notifications.notify_plan_changed(
         new_subscription, previous_plan_code=subscription.plan.code

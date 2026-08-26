@@ -201,7 +201,12 @@ class CrossCycleTests(YearlyPricingTestCase):
         credit = Decimal(str(quote.detail["credit_from_current"]))
         self.assertLessEqual(credit, self.monthly.net_base_price)
         self.assertEqual(quote.detail["change_type"], pricing.PAID_CHANGE)
-        self.assertEqual(quote.net, self.yearly.net_base_price - credit)
+        # Full yearly price is charged; the month of unused time buys days on the
+        # yearly plan instead of discounting it. A month's worth of value against a
+        # year's daily rate is a small extension, which is exactly right.
+        self.assertEqual(quote.net, self.yearly.net_base_price)
+        self.assertEqual(quote.detail["bonus_value"], credit)
+        self.assertGreater(quote.detail["bonus_days"], Decimal("0"))
 
     def test_yp09_yearly_to_monthly_is_scheduled_and_never_refunded(self):
         """YP-09: **a year of unused time is a large credit, and it must not become
@@ -226,10 +231,10 @@ class CrossCycleTests(YearlyPricingTestCase):
 
         credit = Decimal(str(quote.detail["credit_from_current"]))
         self.assertGreater(credit, self.net / 2 - rounding_allowance(self.net))
-        self.assertEqual(
-            quote.net, self.yearly_pro.net_base_price - credit
-        )
+        self.assertEqual(quote.net, self.yearly_pro.net_base_price)
         self.assertEqual(quote.detail["change_type"], pricing.PAID_CHANGE)
+        # Half a year of the old plan, converted at the new plan's daily rate.
+        self.assertGreater(quote.detail["bonus_days"], Decimal("0"))
 
 
 class CalendarEdgeTests(YearlyPricingTestCase):

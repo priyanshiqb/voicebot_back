@@ -21,13 +21,39 @@ on day 20 of 30 costs a third of a cycle's price.
 
 ## Endpoints Summary
 
+> **The arithmetic behind every price on this page** — proration, plan changes,
+> add-on deltas, and how a payment travels from Checkout to applied — is in
+> [How Money Moves](./money-and-payments.md).
+
 - `POST /api/v1/billing/top-up/quote/` — Price N credits
 - `POST /api/v1/billing/top-up/` — Order N credits
 - `POST /api/v1/billing/add-ons/quote/` — Price extra capacity
 - `POST /api/v1/billing/add-ons/` — Order extra capacity
+- `POST /api/v1/billing/verify-payment/` — Confirm a payment from the browser
+- `GET  /api/v1/billing/transactions/` — Payment history
+- `GET  /api/v1/billing/transactions/{order_id}/` — One payment
+- `POST /api/v1/billing/transactions/{order_id}/cancel/` — Abandon an unpaid order
+- `POST /api/v1/billing/transactions/{order_id}/retry/` — Resume paying one
 
-Every one requires a **live** subscription (`409 NO_ACTIVE_SUBSCRIPTION` otherwise), and
-only one unpaid order may be open at a time (`409 PENDING_ORDER_EXISTS`).
+The four quote/order endpoints require a **live** subscription
+(`409 NO_ACTIVE_SUBSCRIPTION` otherwise), and only one unpaid order may be open at a
+time (`409 PENDING_ORDER_EXISTS`). `verify-payment/` and everything under
+`transactions/` have neither restriction — they act on orders that already exist.
+
+**Blocked by `PENDING_ORDER_EXISTS`?** The 409 hands back the blocking
+`razorpay_order_id`. Take it to `POST /transactions/{order_id}/cancel/` to abandon it,
+or `POST /transactions/{order_id}/retry/` to finish paying it.
+
+**The full flow for any purchase:**
+
+```
+1. POST .../quote/          optional — show the price first
+2. POST .../               creates the Razorpay order
+3. ── Razorpay Checkout opens in the browser ──
+4. POST /verify-payment/   confirm it, and get the new balance back
+   └─ races the webhook at POST /api/v1/onboard/webhook/, which
+      applies the same purchase if the browser never comes back
+```
 
 > **These are the endpoints that stay closed to a lapsed tenant**, and the only ones.
 > Everything under `/billing/subscription/` answers for an expired subscription so the
@@ -164,3 +190,299 @@ Guarded endpoints: agents, contacts, knowledge bases, campaigns, users, and craw
 pages. Creating a knowledge base with 50 websites consumes one knowledge base *and*
 fifty crawl pages, and both are checked — otherwise a tenant could hold unlimited pages
 by putting them all in one KB.
+
+---
+
+## `POST /verify-payment/`
+
+Confirm a payment the browser has just completed. Call this when Razorpay Checkout
+reports success, with the three values it hands back.
+
+**This does not replace the webhook — it races it.** Whichever arrives first applies
+the purchase; the other sees a transaction already marked successful and returns the
+same body. Not calling it loses nothing, but the tenant then waits on Razorpay's
+server-to-server call to see their credits.
+
+### Request
+
+```json
+{
+  "razorpay_order_id": "order_PxYz123",
+  "razorpay_payment_id": "pay_PxYz456",
+  "razorpay_signature": "9ef4dffbfd84f1318f6739a3ce19f9d85851857ae648f114332d8401e0949a3d"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `razorpay_order_id` * | string | The order id returned when the purchase was created. |
+| `razorpay_payment_id` * | string | Razorpay's id for the payment that settled the order. |
+| `razorpay_signature` * | string | HMAC Razorpay returns alongside the payment. Proves the browser is not reporting a success that never happened. |
+
+Works for **top-ups, add-ons, renewals and upgrades** — one endpoint for every
+purchase type. Signup payments are the exception: they belong to a TempUser rather
+than a tenant, and go through `/api/v1/onboard/verify-payment/` instead.
+
+### Response `200`
+
+```json
+{
+  "status": true,
+  "message": "Payment verified",
+  "data": {
+    "razorpay_order_id": "order_PxYz123",
+    "transaction_type": "top_up",
+    "amount": "1180.00",
+    "already_applied": false,
+    "credits": { "total": 1500, "allocated": 500, "purchased": 1000 },
+    "entitlements": [ { "resource": "agent", "included": 2, "used": 1, "...": "..." } ]
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `already_applied` | `true` when the webhook got there first. **The purchase is still complete** — it means this call changed nothing, not that it failed. |
+| `credits` | Wallet balance *after* the purchase. `null` if it could not be read. |
+| `entitlements` | Every resource with its limit and live usage — the same shape `GET /billing/subscription/` returns. `null` when there is no active subscription. |
+
+> **The balance comes back with the confirmation.** The whole point of this endpoint is
+> removing a round trip; following it with `GET /billing/subscription/` would put that
+> round trip back.
+
+### Responses
+
+| Code | When | `errors` |
+|---|---|---|
+| **200** | Applied, or already applied. Check `already_applied` to tell which. | — |
+| **400** | A field is missing. | validation detail |
+| **400** | The signature does not verify. **The order is marked `FAILED`.** | `SIGNATURE_VERIFICATION_FAILED` |
+| **404** | No such order, or it belongs to another tenant. | `TRANSACTION_NOT_FOUND` |
+| **409** | An `onboarding` payment. Use the onboarding flow. | `WRONG_ENDPOINT` |
+| **409** | The order expired and was swept before the browser returned. | `ORDER_EXPIRED` |
+| **409** | Razorpay reports the payment as authorised, not captured. Stays `pending`. | `PAYMENT_NOT_CAPTURED` |
+| **409** | The amount received does not match the order. Marked `underpaid`; **nothing granted**. | `AMOUNT_MISMATCH` |
+| **400** | The payment belongs to a different order. | `PAYMENT_ORDER_MISMATCH` |
+| **401** / **403** | As elsewhere. | — |
+
+> **"Not yours" and "does not exist" both read as 404**, deliberately. Distinguishing
+> them would be an enumeration oracle over every order id in the system.
+
+> **`ORDER_EXPIRED` needs a human.** An unpaid order is cancelled after 30 minutes. If
+> the browser then reports a payment against it, money may have been taken against a
+> dead order — so the endpoint refuses rather than applying the purchase, logs at
+> ERROR, and returns the order id for support to trace.
+
+### Idempotency
+
+Two layers, the same as the webhook:
+
+1. **The transaction row is locked** before its status is read, so a webhook arriving
+   in the same instant blocks until this commits and then sees `SUCCESSFUL`.
+2. **Credit grants are keyed on the order id** (`CreditLedger` unique
+   `(entry_type, reference_id)`), so even a bypassed outer guard deposits once.
+
+Calling it five times in a row credits exactly once — there is a test that says so.
+
+### Where the effect actually lives
+
+Both this endpoint and the webhook call `onboard.services.payment_application.apply()`.
+The dispatch used to live inside the webhook view, which meant the browser path and
+the server path each had their own copy — the shape defects grow in, where a fix to
+one side leaves the other applying a stale rule.
+
+---
+
+## `GET /transactions/`
+
+Every payment this tenant has made or attempted, newest first — signup, renewals, plan
+changes, credit top-ups and capacity add-ons.
+
+Signup payments appear here too. Hiding the first charge would make the list look like
+it starts mid-story.
+
+### Query parameters
+
+| Parameter | Description |
+|---|---|
+| `status` | `pending` · `successful` · `failed` · `canceled` · `underpaid` |
+| `transaction_type` | `onboarding` · `renewal` · `upgrade` · `top_up` · `addon` |
+| `created_after` / `created_before` | ISO datetimes |
+| `search` | Matches `razorpay_order_id` or `razorpay_payment_id` |
+| `ordering` | `created_at`, `amount`, `status` — prefix `-` to reverse |
+
+### Response `200`
+
+```json
+{
+  "id": "…",
+  "razorpay_order_id": "order_PxYz123",
+  "razorpay_payment_id": "pay_PxYz456",
+  "transaction_type": "top_up",
+  "status": "successful",
+  "amount": "1180.00",
+  "summary": "1,000 credits",
+  "can_cancel": false,
+  "can_retry": false,
+  "expires_at": null,
+  "created_at": "2026-08-26T09:12:00Z"
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `summary` | What the payment bought, in words — `"1,000 credits"`, `"3 × agent"`, `"Starter → Professional"`. Built from the breakdown **frozen at order time**, so a historical row keeps describing what the tenant agreed to even after prices or plan names move. |
+| `can_cancel` / `can_retry` | Whether those actions would succeed **right now**. |
+
+> **Use `can_retry`, don't infer it from `status`.** An order whose `expires_at` has
+> passed is still `pending` in the database until something sweeps it — rendering a
+> "Pay now" button on that would send the tenant to a dead order. Both flags already
+> account for it.
+
+> **`raw_webhook_payload` is deliberately absent.** It is gateway diagnostics and can
+> carry contact details from the payment method. It stays in the admin.
+
+---
+
+## `GET /transactions/{order_id}/`
+
+**Looked up by `razorpay_order_id`, not by database id** — that is the identifier every
+other part of the payment flow speaks, including the `409 PENDING_ORDER_EXISTS` that
+sends a tenant here in the first place.
+
+Adds `plan_name`, `target_plan_name`, `credits_purchased`, `amount_breakdown` (the full
+price breakdown as quoted) and `updated_at`.
+
+---
+
+## `POST /transactions/{order_id}/cancel/`
+
+Abandons an order that was never paid, releasing the one-open-order lock so the tenant
+can start a different purchase immediately.
+
+**This is what `409 PENDING_ORDER_EXISTS` has always told tenants to do.** Until this
+endpoint existed there was no way to do it — the only route past the block was waiting
+out the 30-minute TTL.
+
+**The row is kept, not deleted.** It stays in the history as `canceled`, because a
+payment record that disappears is worse than one that says nothing happened.
+
+| Code | When | `errors` |
+|---|---|---|
+| **200** | Cancelled. Returns the updated row. | — |
+| **409** | Already paid, failed or cancelled. | `ORDER_NOT_PENDING` |
+| **409** | A signup payment — use the onboarding flow. | `WRONG_ENDPOINT` |
+| **404** | No such order, or another tenant's. | — |
+
+---
+
+## `POST /transactions/{order_id}/retry/`
+
+Returns the Checkout payload for an order that was created but never paid, so the
+tenant can reopen Razorpay and finish.
+
+```json
+{
+  "razorpay_order_id": "order_PxYz123",
+  "amount": 118000,
+  "amount_display": "1180.00",
+  "currency": "INR",
+  "razorpay_key_id": "rzp_test_xxx",
+  "expires_at": "2026-08-26T10:42:00Z",
+  "breakdown": { "...": "..." }
+}
+```
+
+Identical in shape to what `POST /top-up/` returned originally — the frontend can feed
+it to Checkout with the same code.
+
+> **The same Razorpay order is reused, not a new one.** That keeps the order id stable,
+> and every idempotency guard downstream is keyed on it: the credit ledger's
+> `(entry_type, reference_id)`, and the transaction status check in both
+> `verify-payment/` and the webhook. Issuing a fresh order for the same intent would
+> risk crediting a tenant twice if both were eventually paid.
+
+> **The expiry clock restarts** at 30 minutes. An order the tenant is actively paying
+> should not expire mid-Checkout because the original window happened to be nearly up.
+
+Same four response codes as `cancel/`. Nothing is settled — the order stays `pending`
+until the payment actually clears.
+
+---
+
+## Checking that what was paid is what was owed
+
+Both paths verify the amount before applying anything. **They do it differently, and
+the reason is what each signature can actually prove.**
+
+| | Webhook | `verify-payment/` |
+|---|---|---|
+| Signature covers | the whole raw request body | `order_id\|payment_id` only |
+| Amount is | in the signed payload — free to check | not sent at all |
+| Proves capture? | yes, it *is* a `payment.captured` event | **no** |
+| So it | compares the payload amount | fetches the payment from Razorpay |
+
+That second row is why the browser path makes an outbound call. A valid payment
+signature proves Razorpay issued *a* payment against *that order*. It does not say how
+much was paid, and it does not say whether the payment was **captured** rather than
+merely **authorised** — authorised money is held, not taken, and can still be voided.
+Granting credits against one would be giving away something nobody has paid for yet.
+
+### What each outcome does
+
+| Outcome | Result |
+|---|---|
+| Exact match | Applied. |
+| **Underpaid** | **Nothing granted.** Status becomes `underpaid`. |
+| Overpaid | **Applied**, and logged at ERROR so the difference can be refunded. |
+| Amount unavailable | Applied on the signature alone — see the fail-open note below. |
+
+**Zero tolerance.** Razorpay reports integer paise and we send integer paise, so a
+genuine payment matches exactly. A tolerance would only ever mask a rounding bug in our
+own pricing.
+
+### Why `underpaid` is its own status
+
+Neither of the existing ones is honest. `failed` says no money changed hands — money
+did. `successful` would apply a purchase that was not paid for. So an underpaid order
+sits in its own state: the payment id is recorded, nothing is granted, and a human
+decides between refunding it and collecting the difference.
+
+It does **not** block the next purchase — only `pending` does that — so a tenant is
+never locked out by an order that is already settled as far as they are concerned.
+
+> **What this actually protects against.** Underpayment is not reachable through
+> Razorpay as orders are currently created: the amount is fixed server-side and partial
+> payments are not enabled. So a mismatch means a pricing bug of ours, an order edited
+> in the dashboard, or partial payments switched on without this code knowing. Worth
+> catching — but the capture check is the more valuable half.
+
+### Fail-open, deliberately
+
+If the gateway cannot be reached, or the payload carries no amount, the purchase is
+**applied** on the strength of the signature, and the reason is logged.
+
+This matters most in **development**, where Razorpay cannot reach the host and no
+webhook will ever arrive — `verify-payment/` is then the *only* thing that applies a
+purchase, with nothing behind it. Refusing because an outbound call had a blip would
+mean a tenant who paid gets nothing and no safety net puts it right.
+
+In production the webhook is that safety net, and it checks the amount from its own
+signed payload without needing any outbound call at all.
+
+### Development setup
+
+To exercise the real checks against Razorpay test credentials:
+
+```
+RAZORPAY_KEY_ID=<test key>
+RAZORPAY_KEY_SECRET=<test secret>
+PAYMENTS_ALLOW_UNSIGNED=False
+```
+
+`PAYMENTS_ALLOW_UNSIGNED=False` is what turns on both the signature verification and
+the gateway fetch — with it `True`, orders are stubbed and neither runs.
+
+`RAZORPAY_WEBHOOK_SECRET` is only needed where webhooks actually arrive. On a
+development host they do not, so leaving it unset is fine; the system check reports it
+as a warning under `DEBUG=True` and an error otherwise.

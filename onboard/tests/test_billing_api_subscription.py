@@ -289,6 +289,61 @@ class EligiblePlansTests(SubscriptionAPITestCase):
         self.assertNotIn(self.retired.code, plans)
 
 
+    # -- The list has to be usable without a second API ------------------- #
+
+    def test_each_plan_carries_the_id_the_change_endpoints_want(self):
+        """`preview-change/` and `change-plan/` take `plan_id`, a UUID. Listing only
+        `code` meant a frontend had to call the Plans API purely to translate its own
+        list into something it could act on."""
+        response = self.client.get(PLANS_URL)
+
+        for entry in response.data["data"]["plans"]:
+            self.assertIn("id", entry, entry.get("code"))
+            self.assertTrue(entry["id"])
+
+    def test_an_id_from_the_list_goes_straight_into_preview_change(self):
+        """The round trip, end to end -- no lookup in between."""
+        listed = {
+            e["code"]: e for e in self.client.get(PLANS_URL).data["data"]["plans"]
+        }
+        target = listed[self.professional.code]
+
+        preview = self.client.post(
+            PREVIEW_URL, {"plan_id": target["id"]}, format="json"
+        )
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertIn("money", preview.data["data"])
+
+    def test_the_current_subscription_names_its_plan_by_id_too(self):
+        plan = self.client.get(CURRENT_URL).data["data"]["plan"]
+
+        self.assertEqual(plan["id"], str(self.starter.pk))
+        self.assertEqual(plan["code"], self.starter.code)
+
+    def test_a_scheduled_change_names_its_plan_by_id(self):
+        """Otherwise a UI showing "downgrading to X on the 30th" cannot offer to
+        change that choice without looking the plan up again."""
+        self.client.post(CHANGE_URL, {"plan_id": str(self.basic.pk)},
+                         format="json")
+
+        scheduled = self.client.get(CURRENT_URL).data["data"]["scheduled_change"]
+
+        self.assertIsNotNone(scheduled)
+        self.assertEqual(scheduled["plan_id"], str(self.basic.pk))
+        self.assertEqual(scheduled["plan_code"], self.basic.code)
+
+    def test_change_plan_echoes_back_which_plan_it_acted_on(self):
+        response = self.client.post(
+            CHANGE_URL, {"plan_id": str(self.basic.pk)}, format="json"
+        )
+
+        self.assertEqual(response.data["data"]["plan_id"],
+                         str(self.basic.pk))
+        self.assertEqual(response.data["data"]["plan_code"],
+                         self.basic.code)
+
+
 class PreviewPlanChangeTests(SubscriptionAPITestCase):
     """BS-15 to BS-19."""
 

@@ -56,6 +56,7 @@ class CurrentSubscriptionView(_PurchaseBase):
                 "id": str(subscription.pk),
                 "status": subscription.status,
                 "plan": {
+                    "id": str(subscription.plan_id),
                     "code": subscription.plan.code,
                     "name": subscription.plan.name,
                     "billing_cycle": subscription.plan.billing_cycle,
@@ -66,6 +67,7 @@ class CurrentSubscriptionView(_PurchaseBase):
                 "renewable_now": days_left <= RENEWAL_WINDOW_DAYS,
                 "scheduled_change": (
                     {
+                        "plan_id": str(subscription.scheduled_plan_id),
                         "plan_code": subscription.scheduled_plan.code,
                         "effective_at": subscription.scheduled_change_at,
                     }
@@ -103,6 +105,10 @@ class EligiblePlansView(_PurchaseBase):
         plans = []
         for plan in Plan.objects.filter(is_active=True, is_deleted=False).order_by("sort_order"):
             entry = {
+                # `preview-change/` and `change-plan/` both take `plan_id`, so the
+                # id has to be here -- otherwise picking a plan from this list means
+                # a round trip to the Plans API just to translate the code.
+                "id": str(plan.pk),
                 "code": plan.code,
                 "name": plan.name,
                 "description": plan.description,
@@ -314,6 +320,8 @@ class ChangePlanView(_PurchaseBase):
             subscription_service.schedule_plan_change(subscription, plan)
             return self.success(
                 data={"change_type": change_type,
+                      "plan_id": str(plan.pk),
+                      "plan_code": plan.code,
                       "effective_at": subscription.end_date,
                       "charged": False},
                 message=(
@@ -325,7 +333,8 @@ class ChangePlanView(_PurchaseBase):
         if change_type == pricing.IMMEDIATE_FREE:
             subscription_service.apply_plan_change(subscription, plan, reason="upgrade")
             return self.success(
-                data={"change_type": change_type, "charged": False},
+                data={"change_type": change_type, "plan_id": str(plan.pk),
+                      "plan_code": plan.code, "charged": False},
                 message=f"Moved to {plan.name}.",
             )
 

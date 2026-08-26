@@ -115,6 +115,47 @@ def quote_top_up(subscription, credits):
 # --------------------------------------------------------------------------- #
 
 #: What a plan change turns out to be, once the money is worked out.
+def cycle_days_for(plan, *, anchor=None):
+    """How many days one cycle of ``plan`` runs, from ``anchor``.
+
+    Measured rather than assumed, because a monthly cycle is a *calendar* month:
+    28, 29, 30 or 31 days depending on where it starts. Using a flat 30 would
+    misprice a February upgrade against a March one.
+    """
+    from django.utils import timezone
+
+    from onboard.models import Plan, Subscription
+
+    anchor = anchor or timezone.now()
+    delta = Subscription.CYCLE_DELTAS.get(
+        plan.billing_cycle, Subscription.CYCLE_DELTAS[Plan.BillingCycleChoices.MONTHLY]
+    )
+    return Decimal((anchor + delta - anchor).days)
+
+
+def bonus_days_for(value, plan, *, anchor=None):
+    """How many days of ``plan`` ``value`` rupees buys, at the plan's daily rate.
+
+    Both sides are **pre-tax**. Tax is charged on the new plan's full price
+    separately, so mixing a tax-inclusive figure in here would buy days with money
+    that was never the plan's to spend.
+
+    Returns 0 for a free plan rather than dividing by zero — a plan that costs
+    nothing per day cannot be bought more of, so the remaining value simply has
+    nowhere to go. That is a real edge (moving to a free tier) and the alternative
+    is an infinite cycle.
+    """
+    if value <= 0:
+        return Decimal("0.00")
+    days = cycle_days_for(plan, anchor=anchor)
+    if days <= 0:
+        return Decimal("0.00")
+    per_day = Decimal(str(plan.net_base_price)) / days
+    if per_day <= 0:
+        return Decimal("0.00")
+    return (value / per_day).quantize(Decimal("0.01"))
+
+
 PAID_CHANGE = "paid_change"          # they owe something; applies when it clears
 SCHEDULED_CHANGE = "scheduled_change"  # they owe nothing; applies at cycle end
 IMMEDIATE_FREE = "immediate_free"    # they owe less than a gateway will take
@@ -166,22 +207,39 @@ def quote_plan_change(subscription, new_plan, *, now=None):
     addon_recurring = entitlement_service.recurring_total(subscription.tenant_id)
     credit_from_addons = _money(addon_recurring * ratio)
 
-    taxable = new_net - credit_from_current - credit_from_addons
+    # The remaining value of what they already bought. Identical arithmetic to
+    # "daily rate x days left" -- old_net x ratio is old_net/span x remaining.
+    bonus_value = credit_from_current + credit_from_addons
 
-    if taxable <= 0 and not reactivating:
-        # Never a refund. They keep what they paid for until the cycle ends, and the
-        # cheaper plan starts after that.
+    # Still computed, but no longer what is charged. It is the *signal*: owing
+    # nothing means the tenant is moving somewhere cheaper than the time they have
+    # left, which is a downgrade however the plans are ranked. Keeping the test here
+    # is what lets the system stay free of a tier ladder.
+    owes = new_net - bonus_value
+
+    if owes <= 0 and not reactivating:
+        # Never a refund, and never charged either. They keep what they paid for
+        # until the cycle ends, and the cheaper plan starts after that.
         change_type = SCHEDULED_CHANGE
         net = tax = total = Decimal("0.00")
         tax_percentage = Decimal(str(new_plan.tax_percentage or 0))
+        bonus_days = Decimal("0.00")
     else:
-        net, tax, total, tax_percentage = _with_tax(max(taxable, Decimal("0")), new_plan)
-        # Below the gateway minimum, charging is impossible and refusing is absurd for
-        # a change the tenant wants. Apply it and move on.
+        # **Full list price, and the unused value buys days instead of a discount.**
         #
-        # This is also the branch a lapsed tenant returning on a free plan takes:
-        # nothing to charge, so activate immediately. Scheduling it would set an
-        # effective date in the past.
+        # The alternative -- discounting the new plan by the unused value -- reduces
+        # the taxable value of one supply using time already taxed on another, and
+        # produces an invoice for an amount that matches no published price. This way
+        # every upgrade invoices at the plan's own price, and the tenant is made whole
+        # in the currency they actually care about: service.
+        #
+        # It is also neutral on the day it happens. Whatever date they move, the
+        # total service bought is the same, because the value left over is converted
+        # at the new plan's daily rate rather than written off.
+        net, tax, total, tax_percentage = _with_tax(new_net, new_plan)
+        bonus_days = bonus_days_for(bonus_value, new_plan, anchor=now)
+        # A move to a zero-cost plan cannot be charged and cannot be paid in days.
+        # Apply it outright rather than raising an order the gateway would refuse.
         change_type = IMMEDIATE_FREE if total < Decimal("1.00") else PAID_CHANGE
 
     effective_at = (
@@ -201,7 +259,15 @@ def quote_plan_change(subscription, new_plan, *, now=None):
             "unused_ratio": ratio,
             "credit_from_current": credit_from_current,
             "credit_from_addons": credit_from_addons,
-            "taxable_difference": _money(max(taxable, Decimal("0"))),
+            # What the unused time is worth, and what it buys on the new plan.
+            "bonus_value": bonus_value,
+            "bonus_days": bonus_days,
+            "new_plan_cycle_days": cycle_days_for(new_plan, anchor=now),
+            # Kept under its old name so existing clients do not break, but it
+            # is no longer what is charged -- it is what the tenant would have
+            # owed under the discount model, and now only decides upgrade vs
+            # scheduled downgrade.
+            "taxable_difference": _money(max(owes, Decimal("0"))),
         },
     )
 

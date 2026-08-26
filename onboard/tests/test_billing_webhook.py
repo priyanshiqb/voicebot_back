@@ -331,7 +331,7 @@ class DispatchTests(WebhookTestCase):
         order = self.order(transaction_type=TxnType.TOP_UP, credits_purchased=0,
                            subscription=self.subscription)
 
-        with self.assertLogs("onboard.views.onboarding.webhook", level="ERROR"):
+        with self.assertLogs("onboard.services.payment_application", level="ERROR"):
             pay(order.razorpay_order_id)
 
         self.assertEqual(self.wallet.purchased_balance, 0)
@@ -361,7 +361,7 @@ class DispatchTests(WebhookTestCase):
             amount_breakdown={"resource": "", "additional_units": "0"},
         )
 
-        with self.assertLogs("onboard.views.onboarding.webhook", level="ERROR"):
+        with self.assertLogs("onboard.services.payment_application", level="ERROR"):
             pay(order.razorpay_order_id)
 
         self.assertFalse(
@@ -397,7 +397,7 @@ class DispatchTests(WebhookTestCase):
         order = self.order(transaction_type=TxnType.RENEWAL, subscription=None)
         end_before = self.subscription.end_date
 
-        with self.assertLogs("onboard.views.onboarding.webhook", level="ERROR"):
+        with self.assertLogs("onboard.services.payment_application", level="ERROR"):
             pay(order.razorpay_order_id)
 
         self.subscription.refresh_from_db()
@@ -445,7 +445,7 @@ class DispatchTests(WebhookTestCase):
             target_plan=None,
         )
 
-        with self.assertLogs("onboard.views.onboarding.webhook", level="ERROR"):
+        with self.assertLogs("onboard.services.payment_application", level="ERROR"):
             pay(order.razorpay_order_id)
 
         self.subscription.refresh_from_db()
@@ -462,7 +462,7 @@ class DispatchTests(WebhookTestCase):
             transaction_type="carrier_pigeon", subscription=self.subscription
         )
 
-        with self.assertLogs("onboard.views.onboarding.webhook", level="ERROR") as logs:
+        with self.assertLogs("onboard.services.payment_application", level="ERROR") as logs:
             response = pay(order.razorpay_order_id)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

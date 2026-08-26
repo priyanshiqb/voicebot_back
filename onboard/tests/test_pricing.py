@@ -384,19 +384,31 @@ class PlanChangeQuoteTests(PricingTestCase):
             subscription or self.subscription, new_plan, now=self.now
         )
 
-    def test_pr25_an_upgrade_credits_the_unused_part_of_the_old_plan(self):
+    def test_pr25_an_upgrade_buys_extra_days_not_a_discount(self):
         """PR-25: **the worked example.**
 
-        ₹999.00 × 0.3333 = ₹332.97 credited; ₹2699.10 − ₹332.97 = ₹2366.13
-        taxable; +18% = ₹2792.03 due.
+        ₹999.00 × 0.3333 = ₹332.97 of unused time. That is *not* taken off the new
+        plan — the tenant pays Professional's full ₹2699.10 + 18% = ₹3184.94, and
+        the ₹332.97 buys days at Professional's own daily rate instead.
+
+        The discount model reduced the taxable value of one supply using time already
+        taxed on another, and produced an invoice matching no published price. This
+        way every upgrade invoices at the plan's list price.
         """
         quote = self.quote(self.professional)
 
         self.assertEqual(quote.detail["credit_from_current"], Decimal("332.97"))
-        self.assertEqual(quote.detail["taxable_difference"], Decimal("2366.13"))
-        self.assertEqual(quote.net, Decimal("2366.13"))
-        self.assertEqual(quote.tax, Decimal("425.90"))
-        self.assertEqual(quote.total, Decimal("2792.03"))
+        self.assertEqual(quote.detail["bonus_value"], Decimal("332.97"))
+        self.assertEqual(quote.net, Decimal("2699.10"))
+        self.assertEqual(quote.tax, Decimal("485.84"))
+        self.assertEqual(quote.total, Decimal("3184.94"))
+
+        # ₹2699.10 over a calendar month, and ₹332.97 buys that many days of it.
+        per_day = Decimal("2699.10") / Decimal(str(quote.detail["new_plan_cycle_days"]))
+        self.assertEqual(
+            quote.detail["bonus_days"],
+            (Decimal("332.97") / per_day).quantize(Decimal("0.01")),
+        )
 
     def test_pr26_owing_money_makes_it_a_paid_change(self):
         """PR-26."""
@@ -453,9 +465,11 @@ class PlanChangeQuoteTests(PricingTestCase):
 
         quote = self.quote(different_tax)
 
+        # Charged on the new plan's full net price, at the new plan's rate. The
+        # unused time never touches the taxable value now -- it is settled in days.
         self.assertEqual(quote.tax_percentage, Decimal("5.00"))
-        self.assertEqual(quote.net, Decimal("2366.13"))
-        self.assertEqual(quote.tax, Decimal("118.31"))
+        self.assertEqual(quote.net, Decimal("2699.10"))
+        self.assertEqual(quote.tax, Decimal("134.96"))
 
     def test_pr30_the_credit_is_based_on_what_the_tenant_actually_paid(self):
         """PR-30: **the snapshot, not the live plan.**
@@ -550,7 +564,11 @@ class PlanChangeQuoteTests(PricingTestCase):
         self.set_cycle(DAYS_ELAPSED, DAYS_TOTAL)
         mid_cycle = self.quote(sidegrade)
         self.assertEqual(mid_cycle.detail["change_type"], pricing.PAID_CHANGE)
-        self.assertEqual(mid_cycle.net, Decimal("666.03"))
+        # Full list price, with the third of a cycle they have not used buying back
+        # roughly a third of a cycle in days -- same price, so same rate either side.
+        self.assertEqual(mid_cycle.net, Decimal("999.00"))
+        self.assertEqual(mid_cycle.detail["bonus_value"], Decimal("332.97"))
+        self.assertGreater(mid_cycle.detail["bonus_days"], Decimal("0"))
 
     def test_pr36_effective_at_matches_the_kind_of_change(self):
         """PR-36: a paid change lands when the money does; a scheduled one waits
@@ -779,7 +797,8 @@ class ReactivationQuoteTests(PricingTestCase):
 
         self.assertFalse(quote.detail["reactivation"])
         self.assertEqual(quote.detail["credit_from_current"], Decimal("332.97"))
-        self.assertEqual(quote.total, Decimal("2792.03"))
+        self.assertEqual(quote.total, Decimal("3184.94"))
+        self.assertGreater(quote.detail["bonus_days"], Decimal("0"))
 
 
 # --------------------------------------------------------------------------- #

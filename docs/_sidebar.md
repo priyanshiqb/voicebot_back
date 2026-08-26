@@ -44,6 +44,7 @@
   * [Wallet & Credit Ledger](apiDocs/billing/wallet.md)
   * [Subscription Lifecycle](apiDocs/billing/subscription.md)
   * [Top-Ups & Add-Ons](apiDocs/billing/purchases.md)
+  * [How Money Moves — pricing & payments](apiDocs/billing/money-and-payments.md)
   * [Razorpay Webhook](apiDocs/onboard/webhooks.md)
 
 * **🛒 Product & Service Catalog**

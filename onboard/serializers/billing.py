@@ -67,6 +67,7 @@ class PlanChangeSerializer(serializers.Serializer):
 class SubscriptionPlanRefSerializer(serializers.Serializer):
     """Just enough of the plan to render a heading."""
 
+    id = serializers.UUIDField(read_only=True)
     code = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
     billing_cycle = serializers.CharField(read_only=True)
@@ -75,6 +76,7 @@ class SubscriptionPlanRefSerializer(serializers.Serializer):
 class ScheduledChangeSerializer(serializers.Serializer):
     """A downgrade waiting for the cycle to end."""
 
+    plan_id = serializers.UUIDField(read_only=True)
     plan_code = serializers.CharField(read_only=True)
     effective_at = serializers.DateTimeField(read_only=True)
 
@@ -129,6 +131,10 @@ class CurrentSubscriptionSerializer(serializers.Serializer):
 class EligiblePlanSerializer(serializers.Serializer):
     """One plan, tagged with what moving to it would mean and cost."""
 
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Pass as `plan_id` to preview-change/ or change-plan/.",
+    )
     code = serializers.CharField(read_only=True)
     name = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
@@ -171,6 +177,11 @@ class PlanChangeAppliedSerializer(serializers.Serializer):
     """
 
     change_type = serializers.CharField(read_only=True)
+    # Echoed back so a client that fired the request optimistically can reconcile the
+    # answer without holding request state -- and so cancelling a scheduled change
+    # does not need a separate lookup to know what it is cancelling.
+    plan_id = serializers.UUIDField(read_only=True)
+    plan_code = serializers.CharField(read_only=True)
     effective_at = serializers.DateTimeField(read_only=True, required=False)
     charged = serializers.BooleanField(read_only=True)
 
@@ -194,3 +205,53 @@ class AddonAppliedSerializer(serializers.Serializer):
 
     charged = serializers.BooleanField(read_only=True)
     breakdown = serializers.DictField(read_only=True)
+
+
+class VerifyBillingPaymentSerializer(serializers.Serializer):
+    """The three values Razorpay Checkout hands back to the browser.
+
+    Same shape as the onboarding flow's, deliberately — the frontend already knows
+    how to collect these, and a second spelling of the same three fields would be a
+    trap.
+    """
+
+    razorpay_order_id = serializers.CharField(
+        help_text="The order id returned when the purchase was created."
+    )
+    razorpay_payment_id = serializers.CharField(
+        help_text="Razorpay's id for the payment that settled the order."
+    )
+    razorpay_signature = serializers.CharField(
+        help_text=(
+            "HMAC Razorpay returns alongside the payment. Proves the browser is not "
+            "reporting a success that never happened."
+        )
+    )
+
+
+class PaymentVerifiedSerializer(serializers.Serializer):
+    """What the tenant has once the payment has been applied."""
+
+    razorpay_order_id = serializers.CharField()
+    transaction_type = serializers.CharField(
+        help_text="top_up, addon, renewal or upgrade."
+    )
+    amount = serializers.CharField(help_text="Rupees charged, inclusive of tax.")
+    already_applied = serializers.BooleanField(
+        help_text=(
+            "True when the webhook had already applied this payment. The purchase is "
+            "still complete — it means this call changed nothing, not that it failed."
+        )
+    )
+    credits = serializers.DictField(
+        allow_null=True,
+        help_text="Wallet balance after the purchase. Null if it could not be read.",
+    )
+    entitlements = serializers.ListField(
+        allow_null=True,
+        child=serializers.DictField(),
+        help_text=(
+            "Every resource with its limit and live usage, the same shape "
+            "GET /billing/subscription/ returns."
+        ),
+    )

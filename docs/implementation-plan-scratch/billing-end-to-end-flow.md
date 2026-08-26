@@ -388,12 +388,19 @@ still writes a real ledger row. That is the metering-before-blocking rule.
 ```
 current plan net       ₹0.00          (free)
 unused ratio           20/30 = 0.6667
-credit from current    ₹0.00          ← nothing to prorate from a free plan
-new plan net           ₹999.00
-taxable difference     ₹999.00
+unused value           ₹0.00          ← nothing to carry over from a free plan
+new plan net           ₹999.00        ← charged in full, always
+bonus days             0.00           ← nothing to convert
 tax @ 18%              ₹179.82
 amount due             ₹1,178.82
 ```
+
+> **Coming from a free plan is the one case where nothing carries.** From a paid plan,
+> the unused value is converted at the new plan's daily rate into **extra days** — the
+> price charged is still the plan's full list price, and the cycle simply runs longer.
+> Had Acme been on a ₹499 plan with 20 of 30 days left, ₹332.67 of unused value would
+> have bought 10 extra days of Starter, and the amount due would still be ₹1,178.82.
+> See [How Money Moves §3](../apiDocs/billing/money-and-payments.md#3-plan-changes).
 
 Credit impact: free plan has `allow_rollover_on_upgrade = True` → **70 credits carry**.
 New balance will be `70 + 1000 = 1070`.
@@ -570,6 +577,14 @@ Acme moves Starter → Free on day 12. Proration is negative, so:
 
 Only ever one ACTIVE subscription exists, so the R5 constraint is never approached — the
 downgrade is *stored*, not applied.
+
+> ⚠️ **This holds only while the time left is worth more than the cheaper plan.** Late in
+> a cycle it is not, and the move becomes a paid change charged at the **cheaper plan's
+> full price**, with the unused value converted to bonus days. A day-20 downgrade from a
+> ₹30,000 plan to a ₹12,000 one charges ₹14,160 and runs a 55-day cycle. Value-neutral,
+> but the cash outlay is six times what the old discount model asked for — on a move the
+> customer thinks of as spending less. It is the most surprising case in the system;
+> see [How Money Moves §3](../apiDocs/billing/money-and-payments.md#3-plan-changes).
 
 ---
 

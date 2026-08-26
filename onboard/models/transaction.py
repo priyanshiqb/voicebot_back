@@ -13,6 +13,12 @@ class Transaction(BaseModelCore):
         SUCCESSFUL = "successful", "Successful"
         FAILED = "failed", "Failed"
         CANCELED = "canceled", "Canceled"
+        # Money was taken, but not the amount that was owed. Deliberately its own
+        # state rather than FAILED, which would say no money changed hands, or
+        # SUCCESSFUL, which would apply a purchase that was not paid for. Nothing
+        # is granted; a human has to decide between refunding and collecting the
+        # difference.
+        UNDERPAID = "underpaid", "Underpaid"
 
     class TransactionTypeChoices(models.TextChoices):
         """What this payment is for.

@@ -4,6 +4,8 @@ from .purchases import (
     TopUpOrderView,
     TopUpQuoteView,
 )
+from .transactions import TransactionViewSet
+from .verify import VerifyPaymentView
 from .subscription import (
     CancelScheduledChangeView,
     EligiblePlansView,
@@ -17,5 +19,5 @@ __all__ = [
     "TopUpQuoteView", "TopUpOrderView", "AddonQuoteView", "AddonOrderView",
     "CurrentSubscriptionView", "EligiblePlansView", "RenewSubscriptionView",
     "PreviewPlanChangeView",
-    "ChangePlanView", "CancelScheduledChangeView",
+    "ChangePlanView", "CancelScheduledChangeView", "VerifyPaymentView", "TransactionViewSet",
 ]

@@ -70,7 +70,7 @@ catalogue — the tenant is owed credit for what they actually paid.
   "data": {
     "id": "…",
     "status": "active",
-    "plan": { "code": "starter_inr", "name": "Starter INR", "billing_cycle": "monthly" },
+    "plan": { "id": "3f2a…", "code": "starter_inr", "name": "Starter INR", "billing_cycle": "monthly" },
     "start_date": "2026-08-01T00:00:00Z",
     "end_date": "2026-09-01T00:00:00Z",
     "days_remaining": 8,
@@ -109,12 +109,12 @@ per plan to build a pricing page.
 ```json
 {
   "data": { "plans": [
-    { "code": "starter_inr", "name": "Starter INR", "is_current": true,
+    { "id": "3f2a…", "code": "starter_inr", "name": "Starter INR", "is_current": true,
       "change_type": "current", "amount_due": "0.00", "allocated_credits": 1000 },
-    { "code": "professional_inr", "name": "Professional INR", "is_current": false,
+    { "id": "7b1c…", "code": "professional_inr", "name": "Professional INR", "is_current": false,
       "change_type": "paid_change", "amount_due": "2792.03",
       "effective_at": "2026-08-24T09:14:22Z", "allocated_credits": 3500 },
-    { "code": "free_plan", "change_type": "scheduled_change", "amount_due": "0.00",
+    { "id": "9d4e…", "code": "free_plan", "change_type": "scheduled_change", "amount_due": "0.00",
       "effective_at": "2026-09-01T00:00:00Z", "allocated_credits": 100 }
   ]}
 }
@@ -122,6 +122,11 @@ per plan to build a pricing page.
 
 A plan that cannot be priced is still listed, with `change_type: "unavailable"` and a
 `reason` — the tenant should see it exists.
+
+> **`id` is what `preview-change/` and `change-plan/` take.** Pass it straight through
+> as `plan_id`; there is no need to look the plan up by `code` first. Every response
+> that names a plan carries its id for the same reason — the current subscription's
+> `plan`, a pending `scheduled_change`, and what `change-plan/` echoes back.
 
 **Available to a lapsed tenant**, where every plan is priced at its full price — see
 below.
@@ -143,8 +148,10 @@ below.
       "from_plan": "starter_inr", "to_plan": "professional_inr",
       "current_plan_net": "999.00", "new_plan_net": "2699.10",
       "unused_ratio": "0.3333", "credit_from_current": "332.97",
-      "credit_from_addons": "0.00", "taxable_difference": "2366.13",
-      "tax_percentage": "18.00", "tax": "425.90", "total": "2792.03",
+      "credit_from_addons": "0.00", "bonus_value": "332.97",
+      "bonus_days": "3.70", "new_plan_cycle_days": "30",
+      "net": "2699.10", "tax_percentage": "18.00", "tax": "485.84",
+      "total": "3184.94", "taxable_difference": "2366.13",
       "reactivation": "False"
     },
     "credits": {
@@ -156,6 +163,20 @@ below.
   }
 }
 ```
+
+> **An upgrade charges the new plan's full list price and grants extra days.** The
+> unused value of the old plan (`bonus_value`) is converted at the new plan's daily rate
+> into `bonus_days`, which extend the cycle — it is not deducted from the price. So
+> `total` is always the plan's published price, and the customer's compensation shows up
+> as a later end date.
+>
+> **`taxable_difference` is a misnomer, kept for compatibility.** It is what would have
+> been owed under the old discount model, and now only decides upgrade vs scheduled
+> downgrade. The amount charged is `total`.
+>
+> **Show `bonus_days` in the confirmation.** "₹35,400 today, and your cycle runs to
+> 3 Oct instead of 25 Sep" is the whole value proposition; without it the customer sees
+> only a full-price charge for a plan they were already partway through paying for.
 
 **`credits.warnings` is what the confirmation dialog must show.** A tenant about to
 lose credits has to be told before they click, not after:
@@ -182,6 +203,7 @@ does not change until the payment clears.
 
 ```json
 { "data": { "change_type": "scheduled_change",
+            "plan_id": "9d4e…", "plan_code": "free_plan",
             "effective_at": "2026-09-01T00:00:00Z", "charged": false },
   "message": "Downgrade to Free Tier scheduled for 01 Sep 2026. Nothing changes until then." }
 ```

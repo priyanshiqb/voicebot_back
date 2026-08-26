@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction as db_transaction
+from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -70,10 +71,14 @@ class _PurchaseBase(TenantBaseAPIView):
         and have only one applied, which is the worst outcome available: money taken,
         effect missing.
         """
+        # A null expiry is swept too. The column is nullable, so a row created
+        # outside `_create_order` -- by hand in the admin, or by a future path that
+        # forgets -- would otherwise block this tenant from buying anything ever
+        # again, with nothing to point at.
         Transaction.objects.filter(
-            tenant=tenant,
-            status=TxnStatus.PENDING,
-            expires_at__lt=timezone.now(),
+            tenant=tenant, status=TxnStatus.PENDING
+        ).filter(
+            Q(expires_at__lt=timezone.now()) | Q(expires_at__isnull=True)
         ).update(status=TxnStatus.CANCELED)
 
         return (

@@ -55,3 +55,58 @@ def create_order(amount, *, receipt, notes=None):
         "notes": notes or {},
     })
     return order["id"]
+
+
+def verify_payment_signature(order_id, payment_id, signature):
+    """Whether Razorpay really issued this payment for this order.
+
+    The browser hands back three values after Checkout and any of them can be forged,
+    so the signature is the only thing that makes a client-reported success
+    trustworthy. Returns ``True``/``False`` rather than raising: the caller has a
+    transaction to mark FAILED either way.
+
+    **Skipped when the gateway is not live**, on the same switch that decides whether
+    orders are really created. Local work and the test suite have no real signature to
+    check, and gating on one would make every payment path untestable.
+    """
+    if not gateway_is_live():
+        return True
+
+    import razorpay
+
+    from onboard.views.onboarding.base import razorpay_client
+
+    try:
+        razorpay_client.utility.verify_payment_signature({
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": payment_id,
+            "razorpay_signature": signature,
+        })
+        return True
+    except razorpay.errors.SignatureVerificationError:
+        logger.warning("bad payment signature for order %s", order_id)
+        return False
+
+
+def fetch_payment(payment_id):
+    """Ask Razorpay what actually happened, or ``None`` when the gateway is stubbed.
+
+    The browser hands back three strings, and the payment signature is an HMAC over
+    ``order_id|payment_id`` only. It proves Razorpay issued *a* payment against *that
+    order* — it says nothing about how much was paid, and nothing about whether the
+    payment was ever captured rather than merely authorised. Neither fact exists
+    client-side to be checked, so the only honest source is the gateway.
+
+    Returns the payment entity as Razorpay reports it: ``amount`` in paise,
+    ``status``, ``order_id``, and the rest.
+    """
+    if not gateway_is_live():
+        return None
+
+    from onboard.views.onboarding.base import razorpay_client
+
+    try:
+        return razorpay_client.payment.fetch(payment_id)
+    except Exception:
+        logger.exception("could not fetch payment %s from Razorpay", payment_id)
+        return None
