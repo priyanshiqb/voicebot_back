@@ -141,14 +141,26 @@ def _record_unsent(booking, notification_type, dedup_key, recipients):
     )
 
 
-def _create_in_app_notifications(booking, notification_type, title, body, emails=None, admin_only=False):
+def _create_in_app_notifications(booking, notification_type, title, body, emails=None,
+                                 tenant_staff_only=False):
+    """Create in-app rows for the people who should see this booking event.
+
+    ``tenant_staff_only`` means everyone working at the business, as opposed to the
+    booking's participants (who are mostly its customers).
+
+    **This used to filter on ``user_type=ADMIN``**, a value no code path has ever
+    assigned. The query therefore matched nobody, returned early, and every
+    staff-only notification was created for an audience of zero -- silently, because
+    an empty audience is not an error. A tenant's users are all one type, so
+    membership of the tenant is the whole filter.
+    """
     from user.models import CustomUser
-    
+
     users_to_notify = []
-    if admin_only:
+    if tenant_staff_only:
         users_to_notify = list(CustomUser.objects.filter(
             tenant_mapping__tenant=booking.tenant,
-            user_type=CustomUser.UserType.ADMIN
+            is_active=True,
         ))
     elif emails:
         users_to_notify = list(CustomUser.objects.filter(
@@ -334,7 +346,7 @@ def emit_admin_push(booking, notification_type, dedup_key, title, body, **envelo
         notification_type,
         title,
         body,
-        admin_only=True
+        tenant_staff_only=True,
     )
 
     send_push_to_admins_task.delay(

@@ -771,7 +771,7 @@ def send_push_to_admins_task(
         self,
         notification_log_id,
         f"to admins of tenant {tenant_id}",
-        lambda: push.notify_tenant_admins(tenant, title, body, data, **envelope),
+        lambda: push.notify_tenant_staff(tenant, title, body, data, **envelope),
     )
 
 

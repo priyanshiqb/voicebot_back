@@ -56,7 +56,7 @@ class AdminPushLedgerTests(TestCase):
             self.booking.title,
         )
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_a_push_writes_an_fcm_row(self, _send):
         self.assertTrue(self.emit())
 
@@ -66,14 +66,14 @@ class AdminPushLedgerTests(TestCase):
         self.assertEqual(log.booking_id, self.booking.id)
         self.assertIsNotNone(log.sent_at)
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_a_second_emit_for_the_same_event_is_a_no_op(self, send):
         self.assertTrue(self.emit())
         self.assertFalse(self.emit())
         self.assertEqual(send.call_count, 1)
         self.assertEqual(NotificationLog.objects.filter(channel="FCM").count(), 1)
 
-    @patch("core.services.push.notify_tenant_admins", return_value=0)
+    @patch("core.services.push.notify_tenant_staff", return_value=0)
     def test_nothing_accepted_is_recorded_as_failed_not_sent(self, _send):
         """Zero accepted is not success.
 
@@ -87,9 +87,9 @@ class AdminPushLedgerTests(TestCase):
         self.assertEqual(log.status, NotificationLog.Status.FAILED)
         self.assertIn("no live device tokens", log.error)
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_a_failed_row_can_be_re_emitted(self, send):
-        with patch("core.services.push.notify_tenant_admins", return_value=0):
+        with patch("core.services.push.notify_tenant_staff", return_value=0):
             self.emit()
         NotificationLog.objects.filter(channel="FCM").update(
             updated_at=NOW - notifications.PENDING_IN_FLIGHT_GRACE * 2
@@ -101,7 +101,7 @@ class AdminPushLedgerTests(TestCase):
             NotificationLog.Status.SENT,
         )
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_the_push_key_does_not_collide_with_the_email_key(self, _send):
         """Both channels notify about the same booking event.
 
@@ -147,7 +147,7 @@ class PushTaskRetryTests(TestCase):
             **options,
         )
 
-    @patch("core.services.push.notify_tenant_admins", return_value=2)
+    @patch("core.services.push.notify_tenant_staff", return_value=2)
     def test_a_successful_send_marks_the_row_sent(self, _send):
         self.run_task()
         self.log.refresh_from_db()
@@ -169,7 +169,7 @@ class PushTaskRetryTests(TestCase):
             pass
 
         with patch(
-            "core.services.push.notify_tenant_admins",
+            "core.services.push.notify_tenant_staff",
             side_effect=RuntimeError("fcm exploded"),
         ), patch.object(
             send_push_to_admins_task, "retry", side_effect=RetryRequested()
@@ -181,7 +181,7 @@ class PushTaskRetryTests(TestCase):
         self.assertEqual(self.log.status, NotificationLog.Status.PENDING)
 
     @patch(
-        "core.services.push.notify_tenant_admins",
+        "core.services.push.notify_tenant_staff",
         side_effect=RuntimeError("fcm exploded"),
     )
     def test_the_last_attempt_records_the_failure(self, _send):
@@ -197,7 +197,7 @@ class ReschedulePushEndToEndTests(TestCase):
         self.tenant = f.make_tenant()
         self.template = f.make_template(self.tenant)
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_flagging_a_booking_records_and_deep_links_the_push(self, send):
         host = f.make_host(self.tenant, self.template)
         booking_service.create_booking(
@@ -223,7 +223,7 @@ class ReschedulePushEndToEndTests(TestCase):
         self.assertTrue(log.dedup_key.startswith("push:"))
         self.assertEqual(log.status, NotificationLog.Status.SENT)
 
-    @patch("core.services.push.notify_tenant_admins", return_value=1)
+    @patch("core.services.push.notify_tenant_staff", return_value=1)
     def test_re_running_the_same_leave_does_not_push_twice(self, send):
         host = f.make_host(self.tenant, self.template)
         booking_service.create_booking(

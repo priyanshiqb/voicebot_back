@@ -550,14 +550,18 @@ def send_to_user(tenant, user, title, body, data=None, **envelope):
     return _send(tokens, title, body, data, **envelope)
 
 
-def notify_tenant_admins(tenant, title, body, data=None, **envelope):
-    from user.models import CustomUser
+def notify_tenant_staff(tenant, title, body, data=None, **envelope):
+    """Push to every live device belonging to somebody who works at this tenant.
 
+    **Was filtered on ``user_type=ADMIN``**, which no code path assigns -- so the
+    token list was always empty and every staff push went nowhere. Nothing reported
+    it, because sending to zero devices is a successful send of zero.
+
+    Scoped by the device's own tenant, which is already how tokens are registered.
+    """
     tokens = list(
         token_service.deliverable(
-            DeviceToken.objects.filter(
-                tenant=tenant, user__user_type=CustomUser.UserType.ADMIN
-            )
+            DeviceToken.objects.filter(tenant=tenant)
         ).values_list("token", flat=True)
     )
     return _send(tokens, title, body, data, **envelope)

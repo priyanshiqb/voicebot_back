@@ -45,7 +45,25 @@ class UserManager(BaseUserManager):
 
 class CustomUser(AbstractUser, BaseModelCore):
     class UserType(models.TextChoices):
-        ADMIN = "ADMIN", "Admin"
+        """What kind of account this is, which is not the same as what it may do.
+
+        ``USER`` is everybody who works at a tenant. **There is no separate role
+        within a tenant** -- permissions there come from the tenant mapping, not from
+        here -- so anything wanting "the people at this business" filters on tenant
+        membership rather than on this field.
+
+        ``ETL`` and ``VB_AGENT`` are machine accounts with real gates behind them
+        (``user.authentication.etl_token``, ``user.permissions``).
+
+        ``ADMIN`` is **reserved for platform staff** and is not assigned by any code
+        path today. It is deliberately not a tenant role: a tenant's own
+        administrator must never be able to reach platform operations. Two booking
+        notification paths used to filter on it, matched nobody, and delivered to an
+        empty audience for as long as they existed -- do not point anything at this
+        value until something assigns it.
+        """
+
+        ADMIN = "ADMIN", "Platform Admin"
         USER = "USER", "User"
         ETL = "ETL", "ETL"
         VB_AGENT = "VB_AGENT", "Voicebot Agent"

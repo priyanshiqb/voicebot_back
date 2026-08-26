@@ -16,6 +16,7 @@ class AgentAdmin(TenantBaseAdmin):
         "bot_name",
         "persona_name",
         "tone",
+        "service_tier",
         "agent_template",
         "tenant",
         "is_active",
@@ -23,6 +24,7 @@ class AgentAdmin(TenantBaseAdmin):
     )
 
     list_filter = (
+        "service_tier",
         "tone",
         "agent_template",
     ) + TenantBaseAdmin.list_filter
@@ -60,6 +62,7 @@ class AgentAdmin(TenantBaseAdmin):
             "fields": (
                 "languages",
                 "tone",
+                "service_tier",
                 "agent_template",
                 "voice_name",
             )

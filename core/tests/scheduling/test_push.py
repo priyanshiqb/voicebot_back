@@ -90,6 +90,47 @@ class PushSendTests(TestCase):
 
     @patch("core.services.push._ensure_app", return_value=True)
     @patch("firebase_admin.messaging.send_each_for_multicast")
+    def test_staff_push_reaches_an_ordinary_tenant_user(self, mock_send, _ensure):
+        """**The regression that shipped.**
+
+        This filtered on ``user_type=ADMIN``, which nothing assigns, so the token
+        list was always empty and every staff push went nowhere. Sending to zero
+        devices is a successful send of zero, so nothing ever reported it.
+
+        A tenant's users are all ``USER``; membership of the tenant is the filter.
+        """
+        DeviceToken.objects.create(
+            tenant=self.tenant, user=self.user, token="tok-staff", platform="WEB"
+        )
+        mock_send.return_value = _Batch(_Result())
+
+        sent = push.notify_tenant_staff(self.tenant, "Title", "Body")
+
+        self.assertEqual(sent, 1)
+        mock_send.assert_called_once()
+
+    @patch("core.services.push._ensure_app", return_value=True)
+    @patch("firebase_admin.messaging.send_each_for_multicast")
+    def test_staff_push_does_not_cross_tenants(self, mock_send, _ensure):
+        """Dropping the user_type filter must not widen the audience past the
+        tenant. Device tokens carry their own tenant, which is the scope."""
+        other = f.make_tenant()
+        other_user = f.make_user(other)
+        DeviceToken.objects.create(
+            tenant=other, user=other_user, token="tok-other", platform="WEB"
+        )
+        DeviceToken.objects.create(
+            tenant=self.tenant, user=self.user, token="tok-mine", platform="WEB"
+        )
+        mock_send.return_value = _Batch(_Result())
+
+        push.notify_tenant_staff(self.tenant, "Title", "Body")
+
+        tokens = mock_send.call_args[0][0].tokens
+        self.assertEqual(tokens, ["tok-mine"])
+
+    @patch("core.services.push._ensure_app", return_value=True)
+    @patch("firebase_admin.messaging.send_each_for_multicast")
     def test_invalid_token_deactivated(self, mock_send, _ensure):
         class UnregisteredError(Exception):
             pass
@@ -162,7 +203,7 @@ class ReschedulePushTests(TestCase):
         self.tenant = f.make_tenant()
         self.template = f.make_template(self.tenant)
 
-    @patch("core.services.push.notify_tenant_admins")
+    @patch("core.services.push.notify_tenant_staff")
     def test_requires_reschedule_pushes_admins(self, mock_push):
         host1 = f.make_host(self.tenant, self.template)  # only host -> flag
         booking_service.create_booking(

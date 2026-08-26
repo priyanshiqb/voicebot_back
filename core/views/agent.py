@@ -53,7 +53,7 @@ class AgentFilter(django_filters.FilterSet):
 
     class Meta:
         model = Agent
-        fields = ["is_active", "tone", "industry", "agent_template"]
+        fields = ["is_active", "tone", "industry", "agent_template", "service_tier"]
 
 
 @extend_schema(tags=["Agent"])
