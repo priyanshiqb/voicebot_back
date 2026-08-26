@@ -18,6 +18,7 @@ class InAppNotificationViewSet(TenantBaseViewSet):
     Automatically scoped to the requesting user.
     """
 
+    queryset = InAppNotification.objects.all()
     serializer_class = InAppNotificationSerializer
     list_serializer_class = InAppNotificationListSerializer
     dropdown_serializer_class = InAppNotificationDropdownSerializer

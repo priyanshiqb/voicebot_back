@@ -342,26 +342,34 @@ class Migration0025Tests(MigrationTestCase):
     def test_mg10_a_transaction_with_a_resolvable_user_gets_its_tenant(self):
         """MG-10: for queryability, not correctness — every existing row defaults
         to ``onboarding``, so the check constraint passes either way."""
-        old = self.rewind()
-        tenant = self.make_tenant(old, "mg10")
-        # The real user model, not the historical one. Rewinding *onboard* pins the
-        # user app's project state to an older node than the table actually is, so
-        # the historical model is missing columns the live table requires. The
-        # migration only follows this row as a foreign key, so nothing about the
-        # user model is under test here.
+        # **Created before the rewind, deliberately.** Rewinding *onboard* also
+        # unapplies later *user* migrations -- the swappable AUTH_USER_MODEL
+        # dependency drags them along -- so columns the live model selects stop
+        # existing partway through this test. Neither model works after the rewind:
+        # the live one queries dropped columns, and the historical one skips the
+        # save() override that fills in NOT NULL defaults.
+        #
+        # The row itself survives the rewind; only the column definitions move. So
+        # it is built while the schema is whole and referenced by id afterwards. The
+        # migration only follows it as a foreign key -- nothing about the user model
+        # is under test here.
         from user.models import CustomUser
 
         user = CustomUser.objects.create(
             email="mg10@example.com", username="mg10", password="x", is_active=True
         )
+        user_pk = user.pk
+
+        old = self.rewind()
+        tenant = self.make_tenant(old, "mg10")
         # Assigned by id: the historical models refuse a live model instance, and
         # what the migration reads is the column, not the object.
         TenantUserMapping = old.get_model("tenant", "TenantUserMapping")
-        TenantUserMapping.objects.create(user_id=user.pk, tenant_id=tenant.pk)
+        TenantUserMapping.objects.create(user_id=user_pk, tenant_id=tenant.pk)
         Transaction = old.get_model("onboard", "Transaction")
         pk = Transaction.objects.create(
             razorpay_order_id="order_mg10", amount=Decimal("100.00"),
-            status="pending", user_id=user.pk,
+            status="pending", user_id=user_pk,
         ).pk
 
         new = self.forward()

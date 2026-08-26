@@ -59,6 +59,7 @@ class CustomUserAdmin(UserAdmin):
         "first_name",
         "last_name",
         "user_type",
+        "platform_role",
         "is_active",
         "is_verified",
         "is_staff",
@@ -67,6 +68,7 @@ class CustomUserAdmin(UserAdmin):
 
     list_filter = (
         "user_type",
+        "platform_role",
         "is_active",
         "is_verified",
         "is_staff",
@@ -111,6 +113,9 @@ class CustomUserAdmin(UserAdmin):
         ("Permissions", {
             "fields": (
                 "user_type",
+                "platform_role",
+                "console_permissions",
+
                 "is_active",
                 "is_verified",
 
@@ -119,7 +124,21 @@ class CustomUserAdmin(UserAdmin):
 
                 "groups",
                 "user_permissions",
-            )
+            ),
+            "description": (
+                "<b>platform_role is the admin console gate</b>, and it is separate "
+                "from is_staff and is_superuser on purpose. Those two grant Django "
+                "admin — engineering's escape hatch. A console operator should "
+                "have a platform_role and neither of the others.<br><br>"
+                "<b>MANAGER</b> runs the whole panel and needs no grants. "
+                "<b>SUB_MANAGER</b> starts able to read and nothing else; each "
+                "further action is listed in console_permissions, using the codes "
+                "from the operator audit log (credits.grant, payment.replay, and so "
+                "on).<br><br>"
+                "Setting a platform_role requires user_type = ADMIN; the database "
+                "refuses the pair otherwise, so a half-configured operator cannot "
+                "exist."
+            ),
         }),
 
         ("Audit", {
