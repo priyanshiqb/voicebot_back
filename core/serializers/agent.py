@@ -361,7 +361,7 @@ class AgentListSerializer(serializers.ModelSerializer):
             "voice_name",
         )
 
-    def get_total_languages_count(self, obj):
+    def get_total_languages_count(self, obj) -> int:
         return len(obj.languages) if obj.languages else 0
 
 

@@ -347,7 +347,14 @@ SPECTACULAR_SETTINGS = {
         "ContactImportRowStatusEnum": "core.models.contact_import.ContactImportRow.Status",
         "NotificationLogStatusEnum": "core.models.notification_log.NotificationLog.Status",
         "CampaignStatusEnum": "core.models.campaign.Campaign.Status",
+        "EmailDeliveryLogStatusEnum": "user.models.email_delivery_log.EmailDeliveryLog.Status",
+        "TenantEmailConfigurationStatusEnum": "tenant.models.TenantEmailConfiguration.TenantEmailConfiguration.Status",
+        "PlanStatusEnum": "onboard.models.plan.Plan.Status",
         "BookingParticipantResponseStatusEnum": "core.models.booking_participant.BookingParticipant.ResponseStatus",
+
+        # Providers
+        "TenantEmailConfigurationProviderEnum": "tenant.models.TenantEmailConfiguration.TenantEmailConfiguration.Provider",
+        "CalendarIntegrationProviderEnum": "core.models.calendar_integration.CalendarIntegration.Provider",
         "ContactConsentStatusEnum": "core.models.contact.Contact.ConsentStatus",
         
         # Sources

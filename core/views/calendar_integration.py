@@ -8,6 +8,7 @@ from django.shortcuts import redirect
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
+from drf_spectacular.utils import extend_schema
 
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from tenant.models.Tenant import Tenant
@@ -120,6 +121,10 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             data={"authorization_url": auth_url},
             message="Authorization URL generated",
         )
+
+    @extend_schema(exclude=True)
+    def callback_slashless(self, request):
+        return self.callback(request)
 
     @action(detail=False, methods=["get"])
     def callback(self, request):

@@ -36,7 +36,7 @@ class PlanOfferingMixin(serializers.Serializer):
     entitlements = serializers.SerializerMethodField()
     rates = serializers.SerializerMethodField()
 
-    def get_entitlements(self, obj):
+    def get_entitlements(self, obj) -> list:
         """What the plan includes of each resource, and what more of it costs."""
         return [
             {
@@ -53,7 +53,7 @@ class PlanOfferingMixin(serializers.Serializer):
             for row in obj.entitlements.filter(is_deleted=False).order_by("resource")
         ]
 
-    def get_rates(self, obj):
+    def get_rates(self, obj) -> list:
         """Per-minute credit price of each call tier on this plan."""
         return [
             {

@@ -54,13 +54,13 @@ class TransactionListSerializer(serializers.ModelSerializer):
             return False
         return obj.expires_at is None or obj.expires_at > timezone.now()
 
-    def get_can_cancel(self, obj):
+    def get_can_cancel(self, obj) -> bool:
         return self._is_open(obj)
 
-    def get_can_retry(self, obj):
+    def get_can_retry(self, obj) -> bool:
         return self._is_open(obj)
 
-    def get_summary(self, obj):
+    def get_summary(self, obj) -> str:
         """A human-readable description of what was bought.
 
         Built from the breakdown frozen at order time rather than from the current

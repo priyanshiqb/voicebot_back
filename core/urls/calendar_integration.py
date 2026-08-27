@@ -12,7 +12,7 @@ urlpatterns = [
     # Explicit slash-less route to prevent 500 RuntimeError on POST requests when APPEND_SLASH=True
     path(
         "calendar-integrations/callback",
-        CalendarIntegrationViewSet.as_view({"get": "callback"}),
+        CalendarIntegrationViewSet.as_view({"get": "callback_slashless"}),
     ),
     path("", include(router.urls)),
 ]

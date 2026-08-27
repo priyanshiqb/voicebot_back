@@ -92,7 +92,7 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             )
         return config
 
-    def get_booking_email(self, instance):
+    def get_booking_email(self, instance) -> dict:
         sender = TenantSettings.booking_sender(instance.tenant_id)
         if sender is not None:
             return {

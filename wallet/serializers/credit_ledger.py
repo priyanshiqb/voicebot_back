@@ -53,7 +53,7 @@ class CreditLedgerSerializer(BaseModelCoreSerializer):
         )
         read_only_fields = fields
 
-    def get_rating(self, obj):
+    def get_rating(self, obj) -> dict:
         """Present on usage rows, ``None`` elsewhere.
 
         This is what answers "why was I charged 12 credits?" without a support ticket

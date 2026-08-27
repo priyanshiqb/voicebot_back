@@ -38,7 +38,7 @@ class WalletBalanceSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
-    def get_plan_code(self, obj):
+    def get_plan_code(self, obj) -> str:
         return (obj.rate_snapshot or {}).get("plan_code")
 
 

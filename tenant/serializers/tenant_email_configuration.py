@@ -107,10 +107,10 @@ class TenantEmailConfigurationSerializer(TenantBaseModelSerializer):
             "last_error",
         )
 
-    def get_has_password(self, obj):
+    def get_has_password(self, obj) -> bool:
         return obj.has_password()
 
-    def get_provider_label(self, obj):
+    def get_provider_label(self, obj) -> str:
         return providers.get_preset(obj.provider)["label"]
 
     # --- validation ----------------------------------------------------------
@@ -282,10 +282,10 @@ class TenantEmailConfigurationListSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
-    def get_provider_label(self, obj):
+    def get_provider_label(self, obj) -> str:
         return providers.get_preset(obj.provider)["label"]
 
-    def get_has_password(self, obj):
+    def get_has_password(self, obj) -> bool:
         return obj.has_password()
 
 
