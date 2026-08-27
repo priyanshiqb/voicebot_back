@@ -14,6 +14,8 @@ class OnboardingTests(APITestCase):
 
     def setUp(self):
         self.plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="starter_inr",
             name="Starter Plan",
             description="Perfect for startups",
@@ -28,6 +30,8 @@ class OnboardingTests(APITestCase):
         )
 
         self.pro_plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="pro_inr",
             name="Pro Plan",
             description="Perfect for enterprises",

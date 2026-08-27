@@ -6,7 +6,6 @@ from onboard.serializers.plan import (
 )
 from utils.views.base_model_viewset import BaseViewSet
 from rest_framework.permissions import AllowAny
-from utils.permissions.is_superuser import IsSuperUser
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
@@ -142,12 +141,25 @@ class PlanViewSet(BaseViewSet):
         "created_at": ["date", "gte", "lte"],
     }
 
+    # **Read-only. There is no write path here for anybody, superuser included.**
+    #
+    # This is the public pricing-page API -- `AllowAny` on read -- and it used to
+    # accept writes from a superuser. That was a second door into the catalogue with
+    # no audit trail and no completeness gate: a plan created through it was
+    # instantly `is_active`, with zero entitlements and zero rates. A missing
+    # allowance is not a limit of zero but no limit at all, and a missing rate cannot
+    # price a call, so that plan was unlimited and unbillable at the same time --
+    # silently, because neither failure raises anything.
+    #
+    # Blocked at the verb rather than the permission. A permission check is one
+    # `get_permissions` override away from being loosened by someone who does not
+    # know why it is there; `http_method_names` removes the routes, and
+    # `bulk_delete` (a POST action inherited from BaseViewSet) goes with them.
+    #
+    # Catalogue writes live at `/api/v1/ops/plans/`, where they are gated on
+    # `plan.change`, refused unless the plan is complete, and recorded.
+    http_method_names = ["get", "head", "options"]
+
     def get_permissions(self):
-        """
-        Instantiates and returns the list of permissions that this view requires.
-        Allows unauthenticated access (AllowAny) for list, retrieve, and dropdown methods.
-        Only superusers (IsSuperUser) can perform plan mutations (create, update, delete).
-        """
-        if self.action in ["list", "retrieve", "dropdown"]:
-            return [AllowAny()]
-        return [IsSuperUser()]
+        """Public read. Every action left on this viewset is one."""
+        return [AllowAny()]

@@ -17,6 +17,8 @@ class SubscriptionTests(APITestCase):
 
         # Create a free trial/tier plan
         self.free_plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="free_plan",
             name="Free Plan",
             description="Perfect for testing",
@@ -32,6 +34,8 @@ class SubscriptionTests(APITestCase):
 
         # Create a paid plan
         self.paid_plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="premium_plan",
             name="Premium Plan",
             description="Unlimited power",

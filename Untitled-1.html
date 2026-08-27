@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Commercial Plan Builder</title>
+    <style>
+        :root {
+            --bg: #f4f6f8;
+            --card: #fff;
+            --text: #17202a;
+            --muted: #68737d;
+            --line: #dfe4e8;
+            --blue: #2563eb;
+            --blue2: #eff6ff;
+            --green: #16803c;
+            --red: #c62828;
+            --orange: #b45309;
+            --shadow: 0 4px 18px #0000000b;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.45 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+        }
+
+        header {
+            background: #111827;
+            color: #fff;
+            padding: 22px 28px;
+            position: sticky;
+            top: 0;
+            z-index: 20
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 21px
+        }
+
+        header p {
+            margin: 4px 0 0;
+            color: #b9c2cc
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 15px
+        }
+
+        button {
+            border: 0;
+            border-radius: 7px;
+            padding: 9px 13px;
+            font-weight: 600;
+            cursor: pointer
+        }
+
+        .primary {
+            background: var(--blue);
+            color: #fff
+        }
+
+        .secondary {
+            background: #fff;
+            color: #1f2937
+        }
+
+        .danger {
+            background: #fee2e2;
+            color: #991b1b
+        }
+
+        main {
+            max-width: 1800px;
+            margin: auto;
+            padding: 22px
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(700px, 1.6fr) minmax(360px, .8fr);
+            gap: 20px
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            margin-bottom: 16px;
+            overflow: hidden
+        }
+
+        .card h2 {
+            font-size: 16px;
+            margin: 0;
+            padding: 15px 18px;
+            border-bottom: 1px solid var(--line)
+        }
+
+        .card-body {
+            padding: 18px
+        }
+
+        .plan-tabs {
+            display: flex;
+            gap: 8px;
+            overflow: auto;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line)
+        }
+
+        .plan-tab {
+            white-space: nowrap;
+            background: #eef2f7;
+            color: #334155
+        }
+
+        .plan-tab.active {
+            background: var(--blue);
+            color: white
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(150px, 1fr));
+            gap: 13px
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(180px, 1fr));
+            gap: 13px
+        }
+
+        label {
+            display: block;
+            font-weight: 600
+        }
+
+        label span {
+            display: block;
+            color: var(--muted);
+            font-weight: 400;
+            font-size: 12px;
+            margin-bottom: 4px
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid #cbd3da;
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            font: inherit
+        }
+
+        textarea {
+            min-height: 70px;
+            resize: vertical
+        }
+
+        .section-note {
+            background: #f8fafc;
+            border: 1px solid var(--line);
+            padding: 11px;
+            border-radius: 7px;
+            color: #52606d;
+            margin-bottom: 14px
+        }
+
+        .resource,
+        .tier {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden
+        }
+
+        .resource h3,
+        .tier h3 {
+            font-size: 14px;
+            margin: 0;
+            padding: 10px 12px;
+            background: #f8fafc
+        }
+
+        .resource .inside,
+        .tier .inside {
+            padding: 12px
+        }
+
+        .preview-wrap {
+            position: sticky;
+            top: 125px;
+            align-self: start
+        }
+
+        .preview {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            overflow: hidden
+        }
+
+        .preview-head {
+            background: linear-gradient(135deg, #172554, #2563eb);
+            color: white;
+            padding: 24px
+        }
+
+        .preview-head h2 {
+            font-size: 27px;
+            margin: 0 0 6px
+        }
+
+        .preview-head p {
+            margin: 0;
+            color: #dbeafe
+        }
+
+        .price {
+            font-size: 31px;
+            font-weight: 800;
+            margin: 18px 0 3px
+        }
+
+        .price small {
+            font-size: 13px;
+            font-weight: 400
+        }
+
+        .preview-body {
+            padding: 18px
+        }
+
+        .preview-section {
+            margin-top: 18px
+        }
+
+        .preview-section h4 {
+            margin: 0 0 8px
+        }
+
+        .preview-list {
+            margin: 0;
+            padding-left: 19px
+        }
+
+        .preview-list li {
+            margin: 5px 0
+        }
+
+        .badge {
+            display: inline-block;
+            background: #fbbf24;
+            color: #422006;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 800
+        }
+
+        .validation {
+            padding: 12px;
+            border-radius: 7px;
+            margin-bottom: 8px
+        }
+
+        .ok {
+            background: #ecfdf3;
+            color: #166534
+        }
+
+        .warn {
+            background: #fff7ed;
+            color: #9a3412
+        }
+
+        .error {
+            background: #fef2f2;
+            color: #991b1b
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px
+        }
+
+        .stat {
+            background: #f8fafc;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px
+        }
+
+        .stat b {
+            display: block;
+            font-size: 20px
+        }
+
+        .small {
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        .copybox {
+            width: 100%;
+            height: 260px;
+            font-family: ui-monospace, monospace;
+            font-size: 12px
+        }
+
+        @media(max-width:1100px) {
+            .layout {
+                grid-template-columns: 1fr
+            }
+
+            .preview-wrap {
+                position: static
+            }
+        }
+
+        @media(max-width:700px) {
+
+            .grid,
+            .grid2,
+            .summary {
+                grid-template-columns: 1fr
+            }
+
+            main {
+                padding: 10px
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Engineering → Commercial · Plan Builder</h1>
+        <p>Build pricing plans, validate commercial rules, and preview the customer-facing offer.</p>
+        <div class="toolbar">
+            <button class="primary" onclick="addPlan()">+ Add plan</button>
+            <button class="secondary" onclick="duplicatePlan()">Duplicate plan</button>
+            <button class="secondary" onclick="copyAll()">Copy all values</button>
+            <button class="secondary" onclick="exportJSON()">Export JSON</button>
+            <button class="secondary" onclick="importJSON()">Import JSON</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="summary" id="summary"></div>
+
+        <div class="layout">
+            <section>
+
+                <div class="card">
+                    <div class="plan-tabs" id="planTabs"></div>
+                </div>
+
+                <div id="editor"></div>
+
+                <div class="card">
+                    <h2>Completed commercial worksheet</h2>
+                    <div class="card-body">
+                        <textarea id="copybox" class="copybox" readonly></textarea>
+                        <button class="primary" style="margin-top:10px" onclick="copyAll()">Copy worksheet</button>
+                    </div>
+                </div>
+
+            </section>
+
+            <aside class="preview-wrap">
+                <div class="preview" id="preview"></div>
+                <div class="card" style="margin-top:16px">
+                    <h2>Validation</h2>
+                    <div class="card-body" id="validation"></div>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <input type="file" id="fileInput" accept=".json" hidden>
+
+    <script>
+        const resources = [
+            ["agent", "Voicebot agents", "none"],
+            ["user", "User accounts", "none"],
+            ["contact", "Contact records", "none"],
+            ["knowledge_base", "Knowledge bases", "none"],
+            ["crawl_page", "Website pages crawled", "none"],
+            ["storage_gb", "Storage (GB)", "none"],
+            ["campaign_monthly", "Campaigns", "monthly"]
+        ];
+
+        const tiers = [
+            ["static_reel", "Static reel / playback"],
+            ["conversation_high_latency", "Standard conversation"],
+            ["conversation_low_latency", "Realtime / low latency"]
+        ];
+
+        function blankResource() {
+            return {
+                included_quantity: "", reset_period: "none", is_addon_available: false,
+                price_per_additional: "0", addon_step: "1", max_additional: ""
+            };
+        }
+
+        function newPlan(i) {
+            let p = {
+                code: "plan_" + (i + 1), name: "New Plan " + (i + 1), description: "",
+                sort_order: (i + 1) * 10, is_most_popular: false, is_active: true, plan_type: "paid",
+                base_price: "0", discount_percentage: "0", tax_percentage: "18", currency: "INR",
+                billing_cycle: "monthly", allocated_credits: "0",
+                cost_per_additional_credit: "0", low_balance_threshold: "0",
+                allow_rollover_on_renewal: false, allow_rollover_on_upgrade: true,
+                allow_rollover_on_downgrade: false, max_rollover_credits: "",
+                allow_use_after_expiry: false, renews_without_payment: false,
+                resources: {}, rates: {}
+            };
+            resources.forEach(r => p.resources[r[0]] = blankResource());
+            tiers.forEach(t => p.rates[t[0]] = {
+                credits_per_unit: "1", unit: "per_minute", rounding: "ceil",
+                minimum_units: "1", effective_from: "", effective_to: "", notes: ""
+            });
+            return p;
+        }
+
+        let plans = [newPlan(0), newPlan(1), newPlan(2)];
+        plans[0].name = "Starter";
+        plans[1].name = "Growth";
+        plans[2].name = "Business";
+        let current = 0;
+
+        function money(n) {
+            return "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function discounted(p) {
+            return Number(p.base_price || 0) * (1 - Number(p.discount_percentage || 0) / 100);
+        }
+        function totalPrice(p) {
+            return discounted(p) * (1 + Number(p.tax_percentage || 0) / 100);
+        }
+
+        function esc(v) {
+            return String(v ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m]));
+        }
+
+        function field(label, key, type = "text", options = []) {
+            let p = plans[current], value = p[key] ?? "";
+            let control = "";
+            if (type === "select") {
+                control = `<select data-key="${key}" onchange="setVal(this.dataset.key,this.value)">` +
+                    options.map(o => `<option ${String(value) === String(o[0]) ? "selected" : ""} value="${esc(o[0])}">${esc(o[1])}</option>`).join("") +
+                    `</select>`;
+            } else if (type === "checkbox") {
+                control = `<input type="checkbox" ${value ? "checked" : ""} onchange="setVal('${key}',this.checked)">`;
+            } else {
+                control = `<input type="${type}" value="${esc(value)}" data-key="${key}" oninput="setVal(this.dataset.key,this.value)">`;
+            }
+            return `<label><span>${label}</span>${control}</label>`;
+        }
+
+        function render() {
+            renderTabs();
+            let p = plans[current];
+            document.getElementById("editor").innerHTML = `
+ <div class="card">
+  <h2>1. Identity & presentation</h2><div class="card-body">
+   <div class="grid">
+    ${field("Code", "code")}
+    ${field("Plan name", "name")}
+    ${field("Sort order", "sort_order", "number")}
+    ${field("Plan type", "plan_type", "select", [["paid", "Paid"], ["free", "Free"]])}
+    ${field("Active", "is_active", "checkbox")}
+    ${field("Most popular", "is_most_popular", "checkbox")}
+   </div>
+   <br>${field("Description", "description")}
+  </div>
+ </div>
+
+ <div class="card">
+  <h2>2. Price & billing</h2><div class="card-body">
+   <div class="grid">
+    ${field("Base price (₹)", "base_price", "number")}
+    ${field("Discount %", "discount_percentage", "number")}
+    ${field("Tax %", "tax_percentage", "number")}
+    ${field("Currency", "currency", "select", [["INR", "INR"]])}
+    ${field("Billing cycle", "billing_cycle", "select", [["monthly", "Monthly"], ["yearly", "Yearly"]])}
+   </div>
+   <div class="section-note" style="margin-top:14px">
+    Net before tax: <b>${money(discounted(p))}</b> · Charged: <b>${money(totalPrice(p))}</b>
+   </div>
+  </div>
+ </div>
+
+ <div class="card">
+  <h2>3. Credits</h2><div class="card-body">
+   <div class="grid">
+    ${field("Allocated credits / cycle", "allocated_credits", "number")}
+    ${field("Additional credit price (₹)", "cost_per_additional_credit", "number")}
+    ${field("Low balance warning", "low_balance_threshold", "number")}
+   </div>
+  </div>
+ </div>
+
+ <div class="card">
+  <h2>4. Rollover & cycle end</h2><div class="card-body">
+   <div class="grid">
+    ${field("Rollover on renewal", "allow_rollover_on_renewal", "checkbox")}
+    ${field("Rollover on upgrade", "allow_rollover_on_upgrade", "checkbox")}
+    ${field("Rollover on downgrade", "allow_rollover_on_downgrade", "checkbox")}
+    ${field("Maximum rollover credits", "max_rollover_credits", "number")}
+    ${field("Use after expiry", "allow_use_after_expiry", "checkbox")}
+    ${field("Renews without payment", "renews_without_payment", "checkbox")}
+   </div>
+  </div>
+ </div>
+
+ <div class="card">
+  <h2>5. Capacity — all 7 resources</h2><div class="card-body">
+   <div class="section-note">
+    Blank included quantity = unlimited. Campaigns cannot have add-ons.
+   </div>
+   ${resources.map(r => resourceHTML(r, p.resources[r[0]])).join("")}
+  </div>
+ </div>
+
+ <div class="card">
+  <h2>6. Call rate card</h2><div class="card-body">
+   <div class="section-note">
+    Every plan prices all three tiers. These are usage rates, not feature gates.
+   </div>
+   ${tiers.map(t => tierHTML(t, p.rates[t[0]])).join("")}
+  </div>
+ </div>
+ `;
+            renderPreview();
+            renderValidation();
+            updateCopybox();
+            renderSummary();
+        }
+
+        function resourceHTML(r, x) {
+            let k = r[0];
+            return `<div class="resource">
+ <h3>${r[1]} <span class="small">(${k})</span></h3>
+ <div class="inside">
+  <div class="grid">
+   ${r[2] === "monthly"
+                    ? fieldR("Included quantity", k, "included_quantity", x.included_quantity, "number")
+                    : fieldR("Included quantity", k, "included_quantity", x.included_quantity, "number")}
+   ${fieldR("Reset period", k, "reset_period", x.reset_period, "select",
+                        [["none", "None"], ["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"],
+                        ["quarterly", "Quarterly"], ["half_yearly", "Half yearly"], ["yearly", "Yearly"]])}
+   ${fieldR("Add-ons available", k, "is_addon_available", x.is_addon_available, "checkbox")}
+   ${fieldR("Price / additional block (₹)", k, "price_per_additional", x.price_per_additional, "number")}
+   ${fieldR("Add-on step", k, "addon_step", x.addon_step, "number")}
+   ${fieldR("Maximum additional", k, "max_additional", x.max_additional, "number")}
+  </div>
+ </div></div>`;
+        }
+
+        function fieldR(label, r, key, value, type, options = []) {
+            let id = `r:${r}:${key}`;
+            let control = "";
+            if (type === "select") {
+                control = `<select onchange="setResource('${r}','${key}',this.value)">` +
+                    options.map(o => `<option value="${o[0]}" ${String(value) === o[0] ? "selected" : ""}>${o[1]}</option>`).join("") +
+                    `</select>`;
+            } else if (type === "checkbox") {
+                control = `<input type="checkbox" ${value ? "checked" : ""} onchange="setResource('${r}','${key}',this.checked)">`;
+            } else {
+                control = `<input type="${type}" value="${esc(value)}" oninput="setResource('${r}','${key}',this.value)">`;
+            }
+            return `<label><span>${label}</span>${control}</label>`;
+        }
+
+        function tierHTML(t, x) {
+            let k = t[0];
+            return `<div class="tier">
+ <h3>${t[1]} <span class="small">(${k})</span></h3>
+ <div class="inside">
+  <div class="grid">
+   ${fieldT(k, "credits_per_unit", "Credits per unit", x.credits_per_unit, "number")}
+   ${fieldT(k, "unit", "Unit", x.unit, "select",
+                [["per_minute", "Per minute"], ["per_second", "Per second"], ["per_event", "Per event"]])}
+   ${fieldT(k, "rounding", "Rounding", x.rounding, "select",
+                    [["ceil", "Ceil"], ["floor", "Floor"], ["nearest", "Nearest"]])}
+   ${fieldT(k, "minimum_units", "Minimum units", x.minimum_units, "number")}
+   ${fieldT(k, "effective_from", "Effective from", x.effective_from, "datetime-local")}
+   ${fieldT(k, "effective_to", "Effective to", x.effective_to, "datetime-local")}
+  </div>
+  <br>${fieldT(k, "notes", "Notes", x.notes, "text")}
+ </div></div>`;
+        }
+
+        function fieldT(t, key, label, value, type, options = []) {
+            let c = "";
+            if (type === "select") {
+                c = `<select onchange="setRate('${t}','${key}',this.value)">` +
+                    options.map(o => `<option value="${o[0]}" ${value === o[0] ? "selected" : ""}>${o[1]}</option>`).join("") +
+                    `</select>`;
+            } else c = `<input type="${type}" value="${esc(value)}" oninput="setRate('${t}','${key}',this.value)">`;
+            return `<label><span>${label}</span>${c}</label>`;
+        }
+
+        function setVal(k, v) { plans[current][k] = v; render(); }
+        function setResource(r, k, v) { plans[current].resources[r][k] = v; render(); }
+        function setRate(t, k, v) { plans[current].rates[t][k] = v; render(); }
+
+        function renderTabs() {
+            document.getElementById("planTabs").innerHTML = plans.map((p, i) =>
+                `<button class="plan-tab ${i === current ? "active" : ""}" onclick="current=${i};render()">
+ ${esc(p.name || "Unnamed")} ${i === current ? "" : " "}
+ </button>`).join("") +
+                `<button class="plan-tab" onclick="deletePlan()">× Delete current</button>`;
+        }
+
+        function addPlan() {
+            plans.push(newPlan(plans.length));
+            current = plans.length - 1; render();
+        }
+
+        function duplicatePlan() {
+            let copy = JSON.parse(JSON.stringify(plans[current]));
+            copy.code = copy.code + "_copy";
+            copy.name = copy.name + " Copy";
+            copy.sort_order = plans.length * 10 + 10;
+            plans.push(copy); current = plans.length - 1; render();
+        }
+
+        function deletePlan() {
+            if (plans.length === 1) { alert("At least one plan is required."); return }
+            if (confirm("Delete this plan?")) { plans.splice(current, 1); current = Math.max(0, current - 1); render(); }
+        }
+
+        function renderPreview() {
+            let p = plans[current];
+            let resourceLines = [];
+            resources.forEach(r => {
+                let x = p.resources[r[0]];
+                if (x.included_quantity !== "" && x.included_quantity !== null) {
+                    let unit = r[0] === "storage_gb" ? "GB" : r[0] === "agent" ? "agents" :
+                        r[0] === "user" ? "users" : r[0] === "contact" ? "contacts" :
+                            r[0] === "knowledge_base" ? "knowledge bases" : r[0] === "crawl_page" ? "pages" : "campaigns";
+                    resourceLines.push(`<li><b>${esc(x.included_quantity)}</b> ${unit}${x.reset_period !== "none" ? " / " + x.reset_period : ""}</li>`);
+                } else if (x.included_quantity === "") {
+                    resourceLines.push(`<li><b>Unlimited</b> ${r[1].toLowerCase()}</li>`);
+                }
+            });
+            let rates = tiers.map(t => {
+                let x = p.rates[t[0]];
+                return `<li>${esc(t[1])}: <b>${esc(x.credits_per_unit)}</b> credits ${x.unit.replace("_", " ")} </li>`;
+            }).join("");
+
+            document.getElementById("preview").innerHTML = `
+ <div class="preview-head">
+   ${p.is_most_popular ? '<span class="badge">MOST POPULAR</span>' : ""}
+   <h2>${esc(p.name || "Unnamed plan")}</h2>
+   <p>${esc(p.description || "Your plan description will appear here.")}</p>
+   <div class="price">${money(totalPrice(p))}<small> / ${p.billing_cycle}</small></div>
+   ${Number(p.discount_percentage) > 0 ?
+                    `<div style="text-decoration:line-through;opacity:.7">${money(Number(p.base_price) * (1 + Number(p.tax_percentage || 0) / 100))}</div>` : ""}
+ </div>
+ <div class="preview-body">
+   <div class="preview-section">
+    <h4>Included credits</h4>
+    <div style="font-size:22px;font-weight:800">${Number(p.allocated_credits || 0).toLocaleString("en-IN")}</div>
+   </div>
+   <div class="preview-section">
+    <h4>Capacity</h4>
+    <ul class="preview-list">${resourceLines.join("")}</ul>
+   </div>
+   <div class="preview-section">
+    <h4>Call rates</h4>
+    <ul class="preview-list">${rates}</ul>
+   </div>
+   <div class="preview-section">
+    <h4>Commercial terms</h4>
+    <ul class="preview-list">
+      <li>Rollover on renewal: <b>${p.allow_rollover_on_renewal ? "Yes" : "No"}</b></li>
+      <li>Rollover on upgrade: <b>${p.allow_rollover_on_upgrade ? "Yes" : "No"}</b></li>
+      <li>Additional credits: <b>${Number(p.cost_per_additional_credit) > 0 ? money(p.cost_per_additional_credit) : "Disabled"}</b></li>
+    </ul>
+   </div>
+ </div>`;
+        }
+
+        function renderValidation() {
+            let p = plans[current], v = [];
+            if (!p.code) v.push(["error", "Plan code is required."]);
+            if (!p.name) v.push(["error", "Plan name is required."]);
+            if (Number(p.discount_percentage) > 100) v.push(["error", "Discount cannot practically exceed 100%."]);
+            if (Number(p.base_price) === 0 && p.plan_type === "paid")
+                v.push(["warn", "This is marked Paid but costs ₹0. Consider using Free."]);
+            if (p.renews_without_payment && Number(p.base_price) !== 0)
+                v.push(["error", "A plan that renews without payment must have base price ₹0."]);
+            resources.forEach(r => {
+                let x = p.resources[r[0]];
+                if (x.included_quantity === "" && x.is_addon_available)
+                    v.push(["error", `${r[1]}: unlimited cannot also have add-ons.`]);
+                if (Number(x.addon_step) < 1)
+                    v.push(["error", `${r[1]}: add-on step must be at least 1.`]);
+                if (r[0] === "campaign_monthly" && x.is_addon_available)
+                    v.push(["error", "Campaign add-ons are not supported."]);
+                if (x.reset_period === "none" && r[0] === "campaign_monthly")
+                    v.push(["warn", "Campaigns normally use a refill period; confirm this is intentional."]);
+            });
+            tiers.forEach(t => {
+                let x = p.rates[t[0]];
+                if (!x.effective_from) v.push(["warn", `${t[1]} needs an effective-from date.`]);
+                if (Number(x.minimum_units) < 1) v.push(["error", `${t[1]} minimum units must be at least 1.`]);
+            });
+            document.getElementById("validation").innerHTML = v.length
+                ? v.map(x => `<div class="validation ${x[0]}">${x[1]}</div>`).join("")
+                : `<div class="validation ok">✓ No validation issues detected for this plan.</div>`;
+        }
+
+        function renderSummary() {
+            let filled = 0, total = plans.length * 84;
+            plans.forEach(p => {
+                Object.values(p).forEach(x => {
+                    if (typeof x === "object") {
+                        if (Array.isArray(x)) return;
+                        Object.values(x).forEach(y => {
+                            if (typeof y === "object") Object.values(y).forEach(z => { if (z !== "" && z !== null) filled++ });
+                            else if (y !== "" && y !== null) filled++;
+                        });
+                    } else if (x !== "" && x !== null) filled++;
+                });
+            });
+            document.getElementById("summary").innerHTML = `
+ <div class="stat"><b>${plans.length}</b><span class="small">Plans defined</span></div>
+ <div class="stat"><b>84</b><span class="small">Settings per plan</span></div>
+ <div class="stat"><b>${plans.filter(p => p.is_active).length}</b><span class="small">Active plans</span></div>
+ <div class="stat"><b>${Math.round(filled / Math.max(total, 1) * 100)}%</b><span class="small">Worksheet populated</span></div>`;
+        }
+
+        function worksheet() {
+            return plans.map((p, i) => {
+                let lines = [
+                    `PLAN ${i + 1}: ${p.name}`,
+                    `code: ${p.code}`,
+                    `description: ${p.description}`,
+                    `base_price: ${p.base_price}`,
+                    `discount_percentage: ${p.discount_percentage}`,
+                    `tax_percentage: ${p.tax_percentage}`,
+                    `billing_cycle: ${p.billing_cycle}`,
+                    `allocated_credits: ${p.allocated_credits}`,
+                    `cost_per_additional_credit: ${p.cost_per_additional_credit}`,
+                    `low_balance_threshold: ${p.low_balance_threshold}`,
+                    `allow_rollover_on_renewal: ${p.allow_rollover_on_renewal}`,
+                    `allow_rollover_on_upgrade: ${p.allow_rollover_on_upgrade}`,
+                    `allow_rollover_on_downgrade: ${p.allow_rollover_on_downgrade}`,
+                    `max_rollover_credits: ${p.max_rollover_credits}`,
+                    `allow_use_after_expiry: ${p.allow_use_after_expiry}`,
+                    `renews_without_payment: ${p.renews_without_payment}`
+                ];
+                resources.forEach(r => {
+                    let x = p.resources[r[0]];
+                    lines.push(`${r[0]}: included=${x.included_quantity}, reset=${x.reset_period}, addon=${x.is_addon_available}, price=${x.price_per_additional}, step=${x.addon_step}, max=${x.max_additional}`);
+                });
+                tiers.forEach(t => {
+                    let x = p.rates[t[0]];
+                    lines.push(`rate ${t[0]}: credits=${x.credits_per_unit}, unit=${x.unit}, rounding=${x.rounding}, minimum=${x.minimum_units}, effective_from=${x.effective_from}, effective_to=${x.effective_to}, notes=${x.notes}`);
+                });
+                return lines.join("\n");
+            }).join("\n\n============================\n\n");
+        }
+
+        function updateCopybox() {
+            document.getElementById("copybox").value = worksheet();
+        }
+
+        function copyAll() {
+            updateCopybox();
+            navigator.clipboard.writeText(document.getElementById("copybox").value)
+                .then(() => alert("Worksheet copied."));
+        }
+
+        function exportJSON() {
+            let blob = new Blob([JSON.stringify(plans, null, 2)], { type: "application/json" });
+            let a = document.createElement("a");
+            a.href = URL.createObjectURL(blob); a.download = "commercial-plans.json"; a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        function importJSON() {
+            document.getElementById("fileInput").click();
+        }
+
+        document.getElementById("fileInput").addEventListener("change", e => {
+            let file = e.target.files[0]; if (!file) return;
+            let reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    let data = JSON.parse(reader.result);
+                    if (!Array.isArray(data)) throw new Error();
+                    plans = data; current = 0; render();
+                } catch { alert("Invalid plan JSON file."); }
+            };
+            reader.readAsText(file);
+        });
+
+        render();
+    </script>
+</body>
+
+</html>

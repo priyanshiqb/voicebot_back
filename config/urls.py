@@ -22,6 +22,9 @@ api_v1_patterns = [
     path("tenant/", include("tenant.urls")),
     path("billing/", include("wallet.urls")),
     path("billing/", include("onboard.urls.billing")),
+    # The admin console. Gated as a whole by IsPlatformStaff -- a tenant user, however
+    # privileged inside their own tenant, cannot reach anything under here.
+    path("ops/", include("ops.urls")),
 ]
 
 from django.http import JsonResponse

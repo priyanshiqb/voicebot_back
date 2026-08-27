@@ -28,6 +28,8 @@ class PlanTests(APITestCase):
 
         # Create a default plan for testing list/retrieve operations
         self.default_plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="starter_plan",
             name="Starter Plan",
             description="Perfect for individuals",
@@ -87,45 +89,56 @@ class PlanTests(APITestCase):
         self.assertTrue(response.data["status"])
         self.assertEqual(response.data["data"]["name"], "Starter Plan")
 
-    def test_create_plan_endpoint(self):
-        """
-        Test POST request to create a plan.
+    def test_a_superuser_cannot_create_a_plan_here(self):
+        """**This endpoint no longer writes, for anybody.**
+
+        It is the public pricing page — `AllowAny` on read — and it used to accept
+        writes from a superuser. That was a second door into the catalogue with no
+        audit trail and no completeness gate: a plan created through it was instantly
+        `is_active` with zero entitlements and zero rates, which is unlimited and
+        unbillable at once, and neither failure raises anything.
+
+        Catalogue writes belong to `/api/v1/ops/plans/`, where they are gated on
+        `plan.change`, refused unless the plan is complete, and recorded.
         """
         payload = {
             "code": "enterprise_plan",
             "name": "Enterprise Plan",
-            "description": "Unlimited access",
             "base_price": "500.00",
-            "discount_percentage": "5.00",
-            "tax_percentage": "12.00",
-            "currency": "INR",
             "billing_cycle": "yearly",
-            "plan_type": "paid",
-            "sort_order": 2,
-            "is_active": True
         }
+
         response = self.client.post(self.list_url, data=payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(response.data["status"])
 
-        # Check DB creation and properties
-        created_plan = Plan.objects.get(name="Enterprise Plan")
-        self.assertEqual(created_plan.currency, Plan.CurrencyChoices.INR)
-        # base = 500, discount = 5% (25) -> net = 475. tax = 12% (57) -> total = 532.00
-        self.assertEqual(created_plan.total_price, Decimal("532.00"))
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertFalse(Plan.objects.filter(name="Enterprise Plan").exists())
 
-    def test_soft_delete_plan_endpoint(self):
-        """
-        Test DELETE request soft-deletes a plan.
-        """
+    def test_a_superuser_cannot_delete_a_plan_here(self):
+        """A plan is what subscriptions point at and audit rows name. Withdrawing one
+        is `POST /api/v1/ops/plans/{id}/retire/`, which reports who stays on it."""
         response = self.client.delete(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["status"])
 
-        # Soft deletion: model remains in DB with is_deleted=True, but excluded from standard querysets
-        self.assertTrue(Plan.objects.filter(id=self.default_plan.id).exists() is False)
-        # Querying direct model manager should show it
-        self.assertTrue(Plan.all_objects.filter(id=self.default_plan.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(Plan.objects.filter(id=self.default_plan.id).exists())
+
+    def test_no_verb_writes_through_this_endpoint(self):
+        """Blocked at the verb, not the permission — a permission check is one
+        override away from being loosened by somebody who does not know why it is
+        there. `bulk_delete`, a POST action inherited from BaseViewSet, goes with
+        them."""
+        refused = [
+            self.client.post(self.list_url, data={}, format="json"),
+            self.client.put(self.detail_url, data={}, format="json"),
+            self.client.patch(self.detail_url, data={}, format="json"),
+            self.client.delete(self.detail_url),
+            self.client.post(f"{self.list_url}bulk_delete/", data={}, format="json"),
+        ]
+
+        for response in refused:
+            self.assertIn(
+                response.status_code,
+                (status.HTTP_405_METHOD_NOT_ALLOWED, status.HTTP_404_NOT_FOUND),
+            )
 
     def test_dropdown_endpoint(self):
         """
@@ -161,18 +174,28 @@ class PlanTests(APITestCase):
         dropdown_response = self.client.get(self.dropdown_url)
         self.assertEqual(dropdown_response.status_code, status.HTTP_200_OK)
 
-        # 4. Test unauthenticated MUTATION (create is blocked)
+        # 4. Mutation is blocked — 405, not 401.
+        #
+        # The verb is gone from this viewset entirely, so the refusal comes before
+        # authentication is even considered. That is stronger than a 401: there is no
+        # credential that changes the answer, which is the point of moving catalogue
+        # writes to /api/v1/ops/plans/.
         payload = {
             "code": "unauth_plan",
             "name": "Unauth Plan",
             "base_price": "100.00"
         }
         create_response = self.client.post(self.list_url, data=payload, format="json")
-        self.assertEqual(create_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            create_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
 
     def test_authenticated_standard_user_blocked_mutating(self):
-        """
-        Test that authenticated non-superuser standard clients are blocked from mutating plans (403 Forbidden).
+        """Nobody mutates through this endpoint — standard user, superuser, alike.
+
+        It used to be 403 for a standard user and 201 for a superuser. Now the verb
+        does not exist here at all, so both get 405 and the catalogue has exactly one
+        write path, which is gated, completeness-checked and audited.
         """
         # Authenticate standard user
         self.client.force_authenticate(user=self.user)
@@ -184,8 +207,12 @@ class PlanTests(APITestCase):
             "base_price": "100.00"
         }
         create_response = self.client.post(self.list_url, data=payload, format="json")
-        self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            create_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
 
         # 2. Test DELETE is blocked
         delete_response = self.client.delete(self.detail_url)
-        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            delete_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )

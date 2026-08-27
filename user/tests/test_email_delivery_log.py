@@ -37,6 +37,8 @@ class SignupEmailLoggingTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.plan = Plan.objects.create(
+            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
+            status=Plan.Status.ACTIVE,
             code="basic_inr",
             name="Basic Plan",
             description="Starter",

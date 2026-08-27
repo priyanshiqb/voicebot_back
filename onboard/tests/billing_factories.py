@@ -152,7 +152,10 @@ def make_plan(code=None, **overrides):
         "billing_cycle": Plan.BillingCycleChoices.MONTHLY,
         "plan_type": Plan.PlanTypeChoices.PAID,
         "sort_order": 1,
-        "is_active": True,
+        # A factory plan stands for a live one, so it is ACTIVE. `is_active` is
+        # derived from this now -- passing it directly would be overwritten, which is
+        # what stops the two disagreeing.
+        "status": Plan.Status.ACTIVE,
         "allocated_credits": 1000,
         "cost_per_additional_credit": Decimal("1.00"),
         "max_rollover_credits": 0,
@@ -163,6 +166,11 @@ def make_plan(code=None, **overrides):
         "low_balance_threshold": 50,
         "renews_without_payment": False,
     }
+    # `is_active=False` used to be how a test built a plan nobody can subscribe to.
+    # It is derived now, so translate it rather than silently ignoring it.
+    if overrides.pop("is_active", True) is False:
+        overrides.setdefault("status", Plan.Status.RETIRED)
+
     fields.update(overrides)
     plan = Plan.objects.create(**fields)
 

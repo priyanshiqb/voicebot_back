@@ -9,6 +9,23 @@ class Plan(BaseModelCore):
     Inherits from BaseModelCore for UUID primary keys, soft deletion, and timestamps.
     """
 
+    class Status(models.TextChoices):
+        """Where a plan is in its life, which ``is_active`` alone could not say.
+
+        ``is_active = False`` means both "draft, never sold" and "retired, with 47
+        subscribers" -- indistinguishable, and the difference is exactly what somebody
+        needs to know before clicking either button.
+
+        Every transition is allowed in both directions. **Nothing is ever deleted**: a
+        draft nobody finished is retired like anything else, and RETIRED reaches every
+        state a delete would without leaving subscriptions and audit rows pointing at
+        a row that is gone.
+        """
+
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        RETIRED = "retired", "Retired"
+
     class BillingCycleChoices(models.TextChoices):
         """
         Nested text choices for plan billing cycle.
@@ -165,6 +182,20 @@ class Plan(BaseModelCore):
         )
     )
 
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=True,
+        help_text=(
+            "Draft until deliberately activated. A plan is three models and 84 "
+            "settings; one created with only the first is silently permissive -- a "
+            "missing entitlement row reads as unlimited and a missing rate cannot "
+            "price a call. Starting as a draft means a plan has to be completed "
+            "before it can be sold, rather than sold before it is completed."
+        ),
+    )
+
     class Meta(BaseModelCore.Meta):
         verbose_name = "Plan"
         verbose_name_plural = "Plans"
@@ -180,6 +211,46 @@ class Plan(BaseModelCore):
                 name="ck_plan_free_renewal_only_when_zero_cost",
             ),
         ]
+
+    # --- status is authoritative; is_active follows it ------------------------
+    #
+    # `is_active` comes from BaseModelCore, cannot be removed, and is filtered in six
+    # production paths -- signup, eligible-plans, preview-change, change-plan,
+    # update-plan and the readiness audit. Rather than change all six, `status` drives
+    # it here so every one of them keeps working untouched.
+    #
+    # Two fields for one fact is normally how they drift. The derivation is what stops
+    # it, and it belongs here rather than in each caller.
+
+    def save(self, *args, **kwargs):
+        self.is_active = self.status == self.Status.ACTIVE
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "status" in update_fields:
+            # A partial save that moves the status has to carry the derived column
+            # with it, or the row is written half-updated.
+            kwargs["update_fields"] = list(update_fields) + ["is_active"]
+        super().save(*args, **kwargs)
+
+    def activate(self):
+        """Mechanical. **The completeness gate lives in the service, not here.**
+
+        Overridden because ``BaseModelCore.activate()`` writes ``is_active`` alone,
+        which ``save()`` above would immediately recompute from an unchanged status --
+        silently doing nothing. Anything reaching for this method wants the status to
+        move, so it moves.
+        """
+        self.status = self.Status.ACTIVE
+        self.save(update_fields=["status", "updated_at"])
+
+    def deactivate(self):
+        """Retire the plan. Stops new subscriptions; existing ones are untouched.
+
+        Same reason for the override as :meth:`activate` -- and this one matters more,
+        because a ``deactivate()`` that silently left the plan active would keep
+        selling something somebody believed they had withdrawn.
+        """
+        self.status = self.Status.RETIRED
+        self.save(update_fields=["status", "updated_at"])
 
     @property
     def discount_amount(self):

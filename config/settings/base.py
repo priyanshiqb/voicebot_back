@@ -120,6 +120,9 @@ INSTALLED_APPS = [
     "onboard",
     "core",
     "wallet",
+    # The admin console API. Owns no models -- see ops/apps.py for why it is an app
+    # at all rather than views scattered through the apps it reads.
+    "ops",
 ]
 
 CORS_ALLOW_HEADERS = [
