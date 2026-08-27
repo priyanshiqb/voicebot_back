@@ -52,7 +52,7 @@ class Command(BaseCommand):
         deleted_count = 0
         for f in orphaned_files:
             try:
-                # This calls the custom delete() method on KBFiles which removes the physical S3 object as well
+                # This calls the custom delete() method on KBFiles which removes the stored blob as well
                 f.delete()
                 deleted_count += 1
                 self.stdout.write(self.style.SUCCESS(f"Deleted {f.id} ({f.original_name}) (Created at: {f.created_at.strftime('%Y-%m-%d %H:%M:%S')})"))

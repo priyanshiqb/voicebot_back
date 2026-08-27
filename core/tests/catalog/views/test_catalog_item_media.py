@@ -12,7 +12,7 @@ deliberate replacement for a pattern that leaked:
   filename. A crafted `../../t-victim/x.jpg` must not steer it.
 * **Another tenant's `media_id` is 404**, not 403 — a 403 confirms the row exists.
 
-S3 is mocked at `core.views.catalog_item_media.S3StorageService`, matching how the
+S3 is mocked at `core.views.catalog_item_media.AzureBlobStorageService`, matching how the
 Knowledge Base upload tests do it.
 """
 
@@ -26,7 +26,7 @@ MediaType = CatalogItemMedia.MediaType
 
 
 def disk_usage(size_in_bytes):
-    """The real shape of ``S3StorageService.get_file_disk_usage``.
+    """The real shape of ``AzureBlobStorageService.get_file_disk_usage``.
 
     Worth a helper rather than an inline literal. These tests used to stub the call
     with a bare ``4096``, and the view had an ``isinstance(..., dict)`` branch that
@@ -99,7 +99,7 @@ class PlainCreateTests(MediaAPITestCase):
         self.assert_error(response, 405, contains="request-upload-url")
 
 
-@patch("core.views.catalog_item_media.S3StorageService")
+@patch("core.views.catalog_item_media.AzureBlobStorageService")
 class RequestUploadUrlTests(MediaAPITestCase):
     def test_it_returns_a_media_id_and_url_but_no_object_key(self, storage):
         """The entire point of the stateful flow."""
@@ -183,7 +183,7 @@ class RequestUploadUrlTests(MediaAPITestCase):
         self.assertEqual(media.upload_status, UploadStatus.FAILED)
 
 
-@patch("core.views.catalog_item_media.S3StorageService")
+@patch("core.views.catalog_item_media.AzureBlobStorageService")
 class ConfirmUploadTests(MediaAPITestCase):
     def _pending(self):
         return self.make_media(upload_status=UploadStatus.PENDING, file="t-x/y.jpg")

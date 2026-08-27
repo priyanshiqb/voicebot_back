@@ -6,9 +6,9 @@
 
 ## Purpose
 
-Finds objects sitting in the storage bucket that **no database row references**.
+Finds objects sitting in the storage container that **no database row references**.
 
-This is the only tool that walks the bucket. Everything else walks the database:
+This is the only tool that walks the container. Everything else walks the database:
 
 | | Starts from | Finds |
 |---|---|---|
@@ -27,20 +27,22 @@ pointing at it. It gets there by:
 
 Nothing in the product will ever show you these. They accumulate silently and cost money.
 
-## Why not an S3 lifecycle rule?
+## Why not a storage lifecycle policy?
 
-The usual answer to bucket growth is a lifecycle rule that expires a staging prefix. It
-does not fit this bucket.
+The usual answer to container growth is a lifecycle policy that expires a staging prefix.
+It does not fit this container.
 
 Object keys are `t-<tenant>/kb_files/<uuid>_name.pdf` — an object lands on its **final**
-key at upload time; there is no staging area. A lifecycle rule filtering on that prefix
+key at upload time; there is no staging area. A lifecycle policy filtering on that prefix
 would expire confirmed, in-use files along with abandoned ones.
 
-S3 lifecycle filters also take a **literal prefix, not a glob**. Even after introducing a
-staging segment you would get `t-<tenant>/_staging/…`, which needs one rule per tenant —
-or a restructure to `_staging/t-<tenant>/…` plus a server-side copy of every object on
-confirm. That is a key-layout migration on a live bucket to solve a problem
-`cleanup_pending_uploads` already handles for the ordinary case.
+Azure Blob lifecycle rules match on a **literal prefix, not a glob** (and the prefix must
+include the container name). Even after introducing a staging segment you would get
+`t-<tenant>/_staging/…`, which needs one rule per tenant — and Azure caps a policy at 100
+rules, so that ceiling is reached at 100 tenants. The alternative is a restructure to
+`_staging/t-<tenant>/…` plus a server-side copy of every object on confirm: a key-layout
+migration on a live container, to solve a problem `cleanup_pending_uploads` already
+handles for the ordinary case.
 
 So the abandoned-upload path is handled in application code, and this command covers the
 gap that path structurally cannot see.

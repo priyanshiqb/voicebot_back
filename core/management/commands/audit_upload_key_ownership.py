@@ -22,7 +22,7 @@ from core.models.catalog_item_media import CatalogItemMedia
 from core.models.contact_import import ContactImportFile
 from core.models.knowledge_base import KBFiles
 from utils.querysets import batched_values
-from utils.s3_storage.keys import is_object_key_owned_by_tenant
+from utils.blob_storage.keys import is_object_key_owned_by_tenant
 
 #: Every model that stores a tenant-prefixed object key belongs here. Unlike the
 #: abandoned-upload sweep there are no exemptions: this command only reads, so auditing

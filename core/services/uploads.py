@@ -6,12 +6,12 @@ server-side, then hands the client a short-lived ticket to upload straight to th
 object store, then waits for a confirm.
 
 Both halves of that live in this module because they are the same decision seen from
-two ends. A ticket that bounds the upload size (``POST``) means the confirm step is
-checking a limit that was already enforced; a ticket that cannot (``PUT``) means the
-overage is discovered only after the bytes have been paid for. And a ticket that is
-never redeemed is what the sweep exists to collect: the row is invisible to the API,
-but the bytes it points at are not free, and nothing in the product will ever show
-them to you.
+two ends. An Azure SAS carries no size condition, so the ticket cannot bound the upload
+and the overage is discovered only at confirm, after the bytes have been paid for --
+which is what makes the confirm-time measure-and-delete load-bearing rather than a
+double check. And a ticket that is never redeemed is what the sweep exists to collect:
+the row is invisible to the API, but the bytes it points at are not free, and nothing
+in the product will ever show them to you.
 """
 
 import logging
@@ -25,22 +25,23 @@ from core.models.catalog_item_media import CatalogItemMedia
 from core.models.contact_import import ContactImportFile
 from core.models.knowledge_base import KBFiles
 from utils.files import signatures
-from utils.s3_storage.service import S3StorageService
+from utils.blob_storage.service import AzureBlobStorageService
 
 logger = logging.getLogger(__name__)
 
 # --- issuing upload tickets --------------------------------------------------
 
-#: Browser form POST. The size ceiling is signed into the policy, so the object store
-#: refuses an oversize body *during* the upload.
-UPLOAD_METHOD_POST = "POST"
-
-#: Single presigned PUT. Simpler for the client, but carries no enforceable size bound:
-#: a URL issued for 1 MB will accept 500 MB, and the overage is only caught at confirm,
-#: after it has been transferred and stored.
+#: Single SAS PUT, and the only method Azure Blob supports. It carries no enforceable
+#: size bound: a URL issued for 1 MB will accept 500 MB, and the overage is only caught
+#: at confirm, after it has been transferred and stored.
+#:
+#: The S3 backend this replaced also offered a browser form POST whose ``max_bytes`` was
+#: signed into the policy and enforced by the object store mid-upload. Azure has no
+#: equivalent, so that option is gone rather than unimplemented -- leaving it reachable
+#: from settings would turn a stale env var into a 500 on every upload endpoint.
 UPLOAD_METHOD_PUT = "PUT"
 
-UPLOAD_METHODS = (UPLOAD_METHOD_POST, UPLOAD_METHOD_PUT)
+UPLOAD_METHODS = (UPLOAD_METHOD_PUT,)
 
 DEFAULT_UPLOAD_METHOD = UPLOAD_METHOD_PUT
 DEFAULT_UPLOAD_URL_TTL_MINUTES = 15
@@ -49,9 +50,10 @@ DEFAULT_UPLOAD_URL_TTL_MINUTES = 15
 def upload_presign_method():
     """Which ticket style to issue. See ``UPLOAD_PRESIGN_METHOD`` in settings.
 
-    Invalid values raise rather than falling back. A typo here silently downgrades a
-    security control, and ``core.checks`` surfaces it at ``manage.py check`` time so it
-    never reaches a request.
+    Invalid values raise rather than falling back -- including ``POST``, which the S3
+    backend supported and Azure cannot. Falling back to PUT there would quietly drop the
+    store-enforced size ceiling the operator was asking for. ``core.checks`` surfaces the
+    same problem at ``manage.py check`` time so it never reaches a request.
     """
     method = str(
         getattr(settings, "UPLOAD_PRESIGN_METHOD", DEFAULT_UPLOAD_METHOD)
@@ -74,48 +76,45 @@ def build_upload_ticket(object_key, content_type, max_bytes, min_bytes=1, storag
     """Everything a client needs to upload one object, in one shape for every flow.
 
     ``max_bytes`` is the flow's own ceiling — 10 MB for catalog media, 50 MB for a call
-    recording — and under ``POST`` it stops being advisory: it is a signed condition the
-    object store enforces itself.
+    recording — and it is advisory at upload time: a SAS cannot carry a size condition,
+    so nothing rejects an oversize body until confirm measures it and deletes it.
+    ``min_bytes`` is likewise checked at confirm rather than signed.
 
     Returns::
 
         {
-          "upload_method": "POST" | "PUT",
+          "upload_method": "PUT",
           "upload_url": str,
-          "upload_fields": dict,   # POST only; empty for PUT
+          "upload_fields": {},     # always empty; kept so the response shape is stable
+          "upload_headers": dict,  # MUST be sent with the request
           "expires_in_minutes": int,
           "max_bytes": int,
         }
 
-    Under ``POST`` the client sends ``upload_fields`` as multipart form data **with the
-    file part last**, and a success is ``204``. Under ``PUT`` it sends the body raw with
-    a matching ``Content-Type`` header, and a success is ``200``. Raises on failure; the
-    callers mark their reserved row FAILED and answer 503.
+    The client sends the body raw and a success is ``200``. **Every header in
+    ``upload_headers`` has to be sent**: Azure rejects a block-blob PUT that omits
+    ``x-ms-blob-type``, and the rejection comes from the storage account rather than from
+    this API, so a client that ignores them sees what looks like a storage outage.
+
+    ``upload_fields`` stays in the envelope as a permanently empty dict. It carried the
+    signed policy fields of the S3 form POST, which Azure has no equivalent for; removing
+    the key would break clients that read it unconditionally for no gain.
+
+    Raises on failure; the callers mark their reserved row FAILED and answer 503.
     """
-    storage = storage or S3StorageService()
+    storage = storage or AzureBlobStorageService()
     method = upload_presign_method()
     ttl_minutes = upload_url_ttl_minutes()
 
-    if method == UPLOAD_METHOD_POST:
-        presigned = storage.get_presigned_post(
-            object_key,
-            content_type,
-            max_bytes=max_bytes,
-            min_bytes=min_bytes,
-            expiry_minutes=ttl_minutes,
-        )
-        upload_url = presigned["url"]
-        upload_fields = presigned["fields"]
-    else:
-        upload_url = storage.get_presigned_put_url(
-            object_key, content_type, max_bytes, expiry_minutes=ttl_minutes
-        )
-        upload_fields = {}
+    upload_url = storage.get_presigned_put_url(
+        object_key, content_type, max_bytes, expiry_minutes=ttl_minutes
+    )
 
     return {
         "upload_method": method,
         "upload_url": upload_url,
-        "upload_fields": upload_fields,
+        "upload_fields": {},
+        "upload_headers": storage.get_upload_headers(content_type),
         "expires_in_minutes": ttl_minutes,
         "max_bytes": max_bytes,
     }
@@ -195,7 +194,7 @@ def find_orphaned_objects(tenant_id, older_than_hours=None, storage=None, now=No
 
     Read-only. Returns a list of ``{key, size, last_modified}``.
     """
-    storage = storage or S3StorageService()
+    storage = storage or AzureBlobStorageService()
     now = now or timezone.now()
     if older_than_hours is None:
         older_than_hours = pending_upload_ttl_hours()

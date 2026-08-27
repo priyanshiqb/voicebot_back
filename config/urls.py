@@ -58,6 +58,6 @@ urlpatterns = [
 
 # Add media and static file serving for local development
 if settings.DEBUG:
-    if not getattr(settings, "USE_S3_STORAGE", False):
+    if not getattr(settings, "USE_AZURE_STORAGE", False):
         urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)  

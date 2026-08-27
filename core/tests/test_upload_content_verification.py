@@ -210,58 +210,76 @@ class RangedReadContractTests(SimpleTestCase):
     """`get_object_head_bytes` must cost bytes, not megabytes, and must not raise on
     the ordinary "nothing there" cases."""
 
-    def _service(self, client):
-        from utils.s3_storage.service import S3StorageService
+    def _service(self, blob):
+        from utils.blob_storage.service import AzureBlobStorageService
 
-        with patch("utils.s3_storage.service.boto3.client", return_value=client):
-            service = S3StorageService()
-        service.bucket_name = "test-bucket"
+        service_client = MagicMock()
+        service_client.get_blob_client.return_value = blob
+        with patch("utils.blob_storage.service.BlobServiceClient") as client_cls:
+            client_cls.return_value = service_client
+            client_cls.from_connection_string.return_value = service_client
+            service = AzureBlobStorageService()
+        service.container_name = "test-container"
         return service
 
+    def _blob(self, **kwargs):
+        blob = MagicMock()
+        blob.download_blob.configure_mock(**kwargs)
+        return blob
+
     def test_it_requests_a_byte_range(self):
-        client = MagicMock()
-        client.get_object.return_value = {"Body": MagicMock(read=lambda: PNG)}
+        """The whole affordability argument: identifying a 50 MB recording costs 64
+        bytes. A read that forgot the range would still pass every assertion about the
+        bytes it returned."""
+        blob = self._blob(return_value=MagicMock(readall=lambda: PNG))
 
-        self._service(client).get_object_head_bytes("t-1/catalog/x.png", num_bytes=64)
-
-        self.assertEqual(client.get_object.call_args.kwargs["Range"], "bytes=0-63")
-
-    def test_a_missing_object_reads_as_empty(self):
-        from botocore.exceptions import ClientError
-
-        client = MagicMock()
-        client.get_object.side_effect = ClientError(
-            {"Error": {"Code": "NoSuchKey"}}, "GetObject"
-        )
+        self._service(blob).get_object_head_bytes("t-1/catalog/x.png", num_bytes=64)
 
         self.assertEqual(
-            self._service(client).get_object_head_bytes("t-1/catalog/gone.png"), b""
+            blob.download_blob.call_args.kwargs, {"offset": 0, "length": 64}
+        )
+
+    def test_a_missing_object_reads_as_empty(self):
+        from azure.core.exceptions import ResourceNotFoundError
+
+        blob = self._blob(side_effect=ResourceNotFoundError("gone"))
+
+        self.assertEqual(
+            self._service(blob).get_object_head_bytes("t-1/catalog/gone.png"), b""
         )
 
     def test_a_range_the_backend_rejects_reads_as_empty(self):
-        """A file shorter than the range, on backends that 416 rather than truncate.
-        Such a file cannot carry a signature, so empty is the right answer."""
-        from botocore.exceptions import ClientError
+        """An empty blob: Azure answers InvalidRange rather than returning nothing. Such
+        a file cannot carry a signature, so empty is the right answer."""
+        from azure.core.exceptions import HttpResponseError
 
-        client = MagicMock()
-        client.get_object.side_effect = ClientError(
-            {"Error": {"Code": "InvalidRange"}}, "GetObject"
-        )
+        error = HttpResponseError("range")
+        error.error_code = "InvalidRange"
+        blob = self._blob(side_effect=error)
 
         self.assertEqual(
-            self._service(client).get_object_head_bytes("t-1/catalog/tiny.png"), b""
+            self._service(blob).get_object_head_bytes("t-1/catalog/tiny.png"), b""
+        )
+
+    def test_a_short_object_returns_what_there_is(self):
+        """Azure truncates a range that overruns the blob rather than failing it, so the
+        short-file path is an ordinary read — the signature check then decides whether
+        those few bytes identify anything."""
+        blob = self._blob(return_value=MagicMock(readall=lambda: PNG[:8]))
+
+        self.assertEqual(
+            self._service(blob).get_object_head_bytes("t-1/catalog/x.png"), PNG[:8]
         )
 
     def test_a_real_error_propagates(self):
-        from botocore.exceptions import ClientError
+        from azure.core.exceptions import HttpResponseError
 
-        client = MagicMock()
-        client.get_object.side_effect = ClientError(
-            {"Error": {"Code": "AccessDenied"}}, "GetObject"
-        )
+        error = HttpResponseError("denied")
+        error.error_code = "AuthorizationFailure"
+        blob = self._blob(side_effect=error)
 
-        with self.assertRaises(ClientError):
-            self._service(client).get_object_head_bytes("t-1/catalog/x.png")
+        with self.assertRaises(HttpResponseError):
+            self._service(blob).get_object_head_bytes("t-1/catalog/x.png")
 
 
 class CatalogConfirmContentTests(TestCase):
@@ -309,7 +327,7 @@ class CatalogConfirmContentTests(TestCase):
         }
         storage.return_value.get_object_head_bytes.return_value = head
 
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_a_pdf_uploaded_as_a_jpg_is_rejected_and_purged(self, storage):
         from core.models.catalog_item_media import CatalogItemMedia
 
@@ -324,7 +342,7 @@ class CatalogConfirmContentTests(TestCase):
         self.assertEqual(media.upload_status, CatalogItemMedia.UploadStatus.FAILED)
         storage.return_value.delete_blob_direct.assert_called_once_with(media.file.name)
 
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_an_executable_renamed_to_jpg_is_rejected(self, storage):
         self._wire(storage, EXE)
         media = self._pending()
@@ -334,7 +352,7 @@ class CatalogConfirmContentTests(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         self.assertIn("executable", str(response.data["message"]))
 
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_a_real_jpeg_is_confirmed(self, storage):
         from core.models.catalog_item_media import CatalogItemMedia
 
@@ -348,7 +366,7 @@ class CatalogConfirmContentTests(TestCase):
         self.assertEqual(media.upload_status, CatalogItemMedia.UploadStatus.CONFIRMED)
         storage.return_value.delete_blob_direct.assert_not_called()
 
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_an_unreadable_head_fails_closed(self, storage):
         from core.models.catalog_item_media import CatalogItemMedia
 
@@ -362,7 +380,7 @@ class CatalogConfirmContentTests(TestCase):
         media.refresh_from_db()
         self.assertEqual(media.upload_status, CatalogItemMedia.UploadStatus.PENDING)
 
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_the_check_can_be_switched_off_per_deployment(self, storage):
         from core.models.catalog_item_media import CatalogItemMedia
 

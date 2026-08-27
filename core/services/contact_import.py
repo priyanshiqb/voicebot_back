@@ -836,9 +836,9 @@ def _delete_object_quietly(object_key):
     if not object_key:
         return
     try:
-        from utils.s3_storage.service import S3StorageService
+        from utils.blob_storage.service import AzureBlobStorageService
 
-        S3StorageService().delete_blob_direct(object_key)
+        AzureBlobStorageService().delete_blob_direct(object_key)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not delete import object %s: %s", object_key, exc)
 

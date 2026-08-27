@@ -21,7 +21,7 @@ from core.models.knowledge_base import KBFiles
 from tenant.models.Tenant import Tenant
 from tenant.models.TenantUserMapping import TenantUserMapping
 from user.models import CustomUser as User
-from utils.s3_storage.keys import build_tenant_object_key
+from utils.blob_storage.keys import build_tenant_object_key
 
 
 class UploadKeyOwnershipTests(APITestCase):
@@ -49,7 +49,7 @@ class UploadKeyOwnershipTests(APITestCase):
 
     # ---------- Knowledge Base ----------
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_rejects_cross_tenant_key(self, mock_s3):
         """Confirming another tenant's key must 404 and create no record."""
         response = self.client_attacker.post(
@@ -63,7 +63,7 @@ class UploadKeyOwnershipTests(APITestCase):
         # S3 must not even be contacted for a key we do not own.
         mock_s3.return_value.verify_object_exists.assert_not_called()
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_cross_tenant_oversize_does_not_delete(self, mock_s3):
         """
         The oversize branch deletes the key it is handed. Authorization must run
@@ -83,7 +83,7 @@ class UploadKeyOwnershipTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_s3.return_value.delete_blob_direct.assert_not_called()
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_accepts_own_key(self, mock_s3):
         """The legitimate path still works."""
         mock_s3.return_value.verify_object_exists.return_value = True
@@ -100,7 +100,7 @@ class UploadKeyOwnershipTests(APITestCase):
         self.assertEqual(KBFiles.all_objects.count(), 1)
         self.assertEqual(KBFiles.all_objects.first().tenant_id, self.tenant.id)
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_rejects_traversal_key(self, mock_s3):
         """A key that walks out of the tenant prefix must be rejected."""
         traversal = f"t-{self.tenant.id}/kb_files/../../t-{self.victim_tenant.id}/kb_files/x.pdf"
@@ -113,7 +113,7 @@ class UploadKeyOwnershipTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(KBFiles.all_objects.exists())
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_request_url_sanitizes_filename(self, mock_s3):
         """A crafted filename must not steer the generated key out of the prefix."""
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
@@ -136,7 +136,7 @@ class UploadKeyOwnershipTests(APITestCase):
 
     # ---------- Call Recordings ----------
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_recording_confirm_rejects_cross_tenant_key(self, mock_s3):
         response = self.client_attacker.post(
             "/api/v1/core/agent-call-logs/confirm-upload/",
@@ -148,7 +148,7 @@ class UploadKeyOwnershipTests(APITestCase):
         self.assertFalse(AgentCallRecording.all_objects.exists())
         mock_s3.return_value.verify_object_exists.assert_not_called()
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_recording_confirm_cross_tenant_oversize_does_not_delete(self, mock_s3):
         mock_s3.return_value.verify_object_exists.return_value = True
         mock_s3.return_value.get_file_disk_usage.return_value = {
@@ -164,7 +164,7 @@ class UploadKeyOwnershipTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_s3.return_value.delete_blob_direct.assert_not_called()
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_recording_confirm_accepts_own_key(self, mock_s3):
         mock_s3.return_value.verify_object_exists.return_value = True
         mock_s3.return_value.get_file_disk_usage.return_value = {"total_size_bytes": 2048}
@@ -202,7 +202,7 @@ class FileIdUploadPathTests(APITestCase):
         self.client_user = APIClient()
         self.client_user.force_authenticate(user=self.user)
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_request_url_returns_file_id_and_reserves_a_pending_row(self, mock_s3):
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
 
@@ -223,7 +223,7 @@ class FileIdUploadPathTests(APITestCase):
         self.assertEqual(kb_file.upload_status, KBFiles.UploadStatus.PENDING)
         self.assertEqual(kb_file.tenant_id, self.tenant.id)
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_by_file_id_reuses_the_row(self, mock_s3):
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
         mock_s3.return_value.verify_object_exists.return_value = True
@@ -254,7 +254,7 @@ class FileIdUploadPathTests(APITestCase):
         self.assertEqual(kb_file.upload_status, KBFiles.UploadStatus.CONFIRMED)
         self.assertEqual(kb_file.file_size_in_bytes, 2048)
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_kb_confirm_by_another_tenants_file_id_is_404(self, mock_s3):
         victim_file = KBFiles.objects.create(
             tenant=self.victim_tenant,
@@ -277,7 +277,7 @@ class FileIdUploadPathTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_recording_confirm_by_file_id_reuses_the_row(self, mock_s3):
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
         mock_s3.return_value.verify_object_exists.return_value = True
@@ -310,7 +310,7 @@ class FileIdUploadPathTests(APITestCase):
         )
         self.assertEqual(recording.file_size_in_bytes, 4096)
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_recording_confirm_by_another_tenants_file_id_is_404(self, mock_s3):
         victim = AgentCallRecording.objects.create(
             tenant=self.victim_tenant,
@@ -325,7 +325,7 @@ class FileIdUploadPathTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("core.views.knowledge_base.S3StorageService")
+    @patch("core.views.knowledge_base.AzureBlobStorageService")
     def test_legacy_object_key_path_still_works(self, mock_s3):
         """The transition window must not break clients that echo object_key back."""
         mock_s3.return_value.verify_object_exists.return_value = True
@@ -384,7 +384,7 @@ class VoicebotAgentUploadPathTests(APITestCase):
         self.client_vb.force_authenticate(user=self.vb_user)
         self.client_vb.credentials(HTTP_X_TENANT_ID=str(self.tenant.id))
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_vb_agent_request_url_uses_agent_tenant(self, mock_s3):
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
 
@@ -406,7 +406,7 @@ class VoicebotAgentUploadPathTests(APITestCase):
             )
         )
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_vb_agent_confirm_upload_still_works(self, mock_s3):
         mock_s3.return_value.verify_object_exists.return_value = True
         mock_s3.return_value.get_file_disk_usage.return_value = {"total_size_bytes": 2048}
@@ -427,7 +427,7 @@ class VoicebotAgentUploadPathTests(APITestCase):
             AgentCallRecording.all_objects.first().tenant_id, self.tenant.id
         )
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_vb_agent_cannot_confirm_other_tenant_key(self, mock_s3):
         other = Tenant.objects.create(name="Globex", subdomain="globex-vb")
         key = build_tenant_object_key(other.id, "call_recordings", "private.mp3")

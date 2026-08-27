@@ -168,7 +168,7 @@ The full record, including the transcript and probing-question answers.
         "original_name": "call_123.mp3",
         "extension": ".mp3",
         "file_size_in_bytes": 2411008,
-        "file": "https://bucket.s3.amazonaws.com/…?X-Amz-Expires=86400…"
+        "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…"
       },
       "started_at": "2026-06-23T17:33:31.671Z",
       "ended_at": "2026-06-23T17:38:57.671Z",
@@ -187,7 +187,7 @@ The full record, including the transcript and probing-question answers.
 > guard against nulls when rendering.
 
 > **`recording_file.file` is a presigned URL valid for 24 hours.** Generated per request — do not
-> cache or persist it. Without S3 storage configured, the raw storage path is returned instead.
+> cache or persist it. Without blob storage configured, the raw storage path is returned instead.
 
 | Status | When | `message` |
 |---|---|---|
@@ -307,8 +307,9 @@ documented in full.
 
 The short version:
 
-1. `request-upload-url` → returns `file_id` and a presigned S3 `PUT` URL.
-2. Upload the MP3 straight to S3 with the same `Content-Type` you declared.
+1. `request-upload-url` → returns `file_id`, a SAS `PUT` URL and `upload_headers`.
+2. Upload the MP3 straight to blob storage, sending **every header in `upload_headers`**
+   (Azure rejects the PUT without `x-ms-blob-type: BlockBlob`).
 3. `confirm-upload` with `file_id` → verifies it landed and marks it `CONFIRMED`.
 4. Pass that `file_id` as `recording_file` when creating the call log (§3).
 

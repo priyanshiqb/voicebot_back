@@ -38,8 +38,8 @@ from core.tasks import commit_contact_import, parse_contact_import
 from onboard.serializers.onboarding import GeneralResponseSerializer
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
 from utils.files.sizes import format_size_limit
-from utils.s3_storage.keys import build_tenant_object_key
-from utils.s3_storage.service import S3StorageService
+from utils.blob_storage.keys import build_tenant_object_key
+from utils.blob_storage.service import AzureBlobStorageService
 from utils.views.base_model_viewset import BaseViewSet
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,7 @@ class ContactImportViewSet(TenantBaseViewSet):
                 object_key,
                 content_type,
                 max_bytes=max_bytes,
-                storage=S3StorageService(),
+                storage=AzureBlobStorageService(),
             )
         except Exception:
             logger.exception("Failed to generate contact import upload URL")
@@ -264,7 +264,7 @@ class ContactImportViewSet(TenantBaseViewSet):
                 message="Import file not found.", status_code=status.HTTP_404_NOT_FOUND
             )
 
-        storage = S3StorageService()
+        storage = AzureBlobStorageService()
         object_key = import_file.file.name
 
         try:

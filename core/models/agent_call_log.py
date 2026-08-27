@@ -127,7 +127,7 @@ class AgentCallLog(TenantBaseModelCore):
         null=True,
         blank=True,
         related_name="call_logs",
-        help_text=_("The MP3 recording file uploaded directly to S3.")
+        help_text=_("The MP3 recording file uploaded directly to blob storage.")
     )
     started_at = models.DateTimeField(
         blank=True,

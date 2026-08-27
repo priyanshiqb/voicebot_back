@@ -112,8 +112,12 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
   "data": {
     "file_id": "9c1e85f6-…",
     "upload_method": "PUT",
-    "upload_url": "https://…presigned…",
+    "upload_url": "https://<acct>.blob.core.windows.net/<container>/t-7bf2…/contact_imports/…?sv=…&sp=c&sig=…",
     "upload_fields": {},
+    "upload_headers": {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": "text/csv"
+    },
     "expires_in_minutes": 15,
     "max_bytes": 10485760,
     "object_key": "t-7bf26cf4-…/contact_imports/9c1e85f6-…_contacts.csv"
@@ -124,11 +128,12 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
 | Field | Meaning |
 |---|---|
 | `file_id` | **The handle for every later step.** Confirm and import with this. |
-| `upload_method` | `PUT` or `POST`. **Branch on it** — see below. |
+| `upload_method` | Always `PUT`. Declared so you branch on it rather than hardcoding the verb. |
 | `upload_url` | Where to send the file. Short-lived — request a new one rather than caching it. |
-| `upload_fields` | `POST` mode only: the signed policy fields. Empty under `PUT`. |
+| `upload_headers` | **Send every entry verbatim.** Azure refuses the upload without `x-ms-blob-type`. |
+| `upload_fields` | Always `{}`. Held the S3 POST policy's form fields; Azure has no equivalent. |
 | `expires_in_minutes` | Ticket lifetime (`UPLOAD_URL_TTL_MINUTES`, default 15). |
-| `max_bytes` | The server's ceiling for this flow. Enforced during the upload under `POST` only. |
+| `max_bytes` | The server's ceiling for this flow. **Not** enforced during the upload — see below. |
 | `object_key` | Where the file will live in storage. **Informational only** (see below). |
 
 > **`object_key` is output, never input.** It is derived server-side from the row's own id and a
@@ -147,24 +152,30 @@ storage**, never through this API — so a 50 MB CSV never occupies a request wo
 
 ### Sending the file
 
-Follow `upload_method`; do not hardcode it. It comes from deployment configuration
-(`UPLOAD_PRESIGN_METHOD`) and can change without an API version bump.
+Send the body raw to `upload_url` with the headers from `upload_headers`.
 
-| `upload_method` | How to send | Success |
-|---|---|---|
-| `PUT` | Body raw to `upload_url` with the same `Content-Type` you declared | `200` |
-| `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` |
+```js
+await fetch(data.upload_url, {
+  method: "PUT",
+  headers: data.upload_headers,
+  body: file,
+});   // success is 201
+```
 
-Either way the `Content-Type` is signed — a mismatch invalidates the signature and storage
-rejects the upload.
-
-> **Under `PUT` the size limit is not enforced during the upload.** `ContentLength` cannot be
-> signed into a presigned PUT in a way a browser can satisfy, so a ticket issued for a 1 MB
-> file will accept a 500 MB one. `confirm-upload` measures the stored object and deletes it if
-> it overruns — but the bytes have already been transferred and stored by then.
+> **Send every header in `upload_headers`.** Azure rejects a block-blob PUT without
+> `x-ms-blob-type: BlockBlob`, and that rejection comes from the storage account rather
+> than from this API — so omitting it looks like a storage outage, not a client bug.
+> Success is **`201 Created`**.
 >
-> Under `POST`, `max_bytes` is a signed `content-length-range` condition and storage rejects an
-> oversize body mid-upload with `EntityTooLarge`.
+> `upload_fields` is always `{}`. It held the signed form fields of the S3 POST policy the
+> previous backend used; Azure Blob has no equivalent. It stays in the envelope so clients
+> that read it unconditionally keep working.
+
+> **The size limit is not enforced during the upload.** An Azure SAS carries no size
+> condition at any API version, so a ticket issued for a 1 MB file will accept a 500 MB
+> one. `confirm-upload` measures the stored object and deletes it if it overruns — but the
+> bytes have already been transferred by then. **Check the size client-side against
+> `max_bytes` before uploading.**
 
 ---
 

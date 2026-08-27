@@ -95,7 +95,7 @@ class CreatedRecordTenancyTestCase(APITestCase):
 
     # ---- recordings ----
 
-    @patch("core.views.agent_call_log.S3StorageService")
+    @patch("core.views.agent_call_log.AzureBlobStorageService")
     def test_requested_recording_lands_in_the_named_tenant(self, mock_s3):
         mock_s3.return_value.get_presigned_put_url.return_value = "https://example/put"
 

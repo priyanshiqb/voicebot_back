@@ -52,7 +52,7 @@ Services are grouped by **profile**; nothing starts without one.
 | `pgbouncer` | `pgbouncer` | Container-mode Django (`.env` points at it) |
 | `dev` | `backend-dev`, `celery-dev`, `celery-beat-dev` | Full-Docker mode |
 | `prod` | `backend-wsgi`, `backend-asgi`, `celery-prod`, `celery-beat-prod` | Production-shaped run |
-| `emulators` | `azurite` | Azure Blob emulator. **Not usable by the app yet** — it does not speak S3; see the migration plan |
+| `emulators` | `azurite` | Azure Blob emulator. The local object store — `.env` §2.8 points at it |
 | `gateway` | `caddy` | TLS / routing in front |
 | `pgadmin`, `redis-insight` | admin UIs | Poking at data |
 | `grafana`, `logs-monitoring`, `matrics-monitoring`, `pgexporter`, `redis-exporter` | observability | Dashboards |
@@ -62,8 +62,9 @@ Services are grouped by **profile**; nothing starts without one.
 # Minimum for host-mode development
 docker compose --profile database --profile caches up -d
 
-# Azure Blob emulator. Starts and works, but the app still speaks S3 and cannot
-# use it until the storage layer is ported — keep using the shared R2 bucket.
+# Azure Blob emulator. Needed for any upload flow. The container is NOT created
+# automatically -- once, after first boot:
+#   az storage container create --name voicebot-local #     --connection-string "$AZURE_CONNECTION_STRING"
 docker compose --profile emulators up -d
 
 # Everything in Docker
@@ -217,7 +218,7 @@ run that was interrupted earlier leaves its `test_<db>` behind and the next run 
 | Email | in-memory outbox, including tenant SMTP — so tests can assert on messages |
 | Celery | `ALWAYS_EAGER` — tasks run inline, and exceptions propagate |
 | Passwords | MD5 hashing, purely for speed |
-| Storage | a temp directory, not S3 |
+| Storage | a temp directory, not Azure Blob |
 
 ### Host mode needs the connection overrides
 
@@ -309,7 +310,7 @@ grep -E "^(Ran |OK|FAILED)" /tmp/out.txt
 |---|---|
 | Everything | **Postgres** |
 | `defender` / login-lockout tests | **Redis** — django-defender uses `DEFENDER_REDIS_URL` and ignores the in-memory `CACHES` the test settings set. If Redis is down you get ~14 unrelated-looking failures |
-| Contact-import and upload tests | Nothing — S3 calls fail and are tolerated. `Could not connect to the endpoint URL` lines are **expected noise**; there is no local S3 to start any more |
+| Contact-import and upload tests | Nothing — the storage service is mocked throughout. Start the `emulators` profile only for a real end-to-end upload |
 | Knowledge-base tests | Nothing — `Failed to contact external ETL server` is likewise expected noise |
 
 ---
@@ -416,14 +417,18 @@ uv run python manage.py makemigrations --check --dry-run        # no un-migrated
 uv run python manage.py test --settings=config.settings.test_postgres --noinput
 ```
 
-`manage.py check` currently reports one **expected** warning:
+`manage.py check` should be clean of storage findings. Two exist and both mean something:
 
 ```
-(core.W001) Presigned uploads are using PUT, which cannot enforce a size limit.
+(core.E001) UPLOAD_PRESIGN_METHOD is 'POST', which is not a supported upload method.
+(core.W002) Object storage is not configured, so uploads will be written to local disk.
 ```
 
-That is a deliberate, documented state — see [File Uploads](flows/file-upload.md). Any
-*other* check output is a real finding.
+`core.E001` means a leftover S3-era setting — Azure Blob has no presigned-POST equivalent, so
+`PUT` is the only value. `core.W002` fires only outside `DEBUG` and means `AZURE_ACCOUNT_NAME`,
+`AZURE_ACCOUNT_KEY` or `AZURE_CONTAINER` is missing, so every upload is being written to the
+container's own disk and lost on restart. See
+[Azure Blob Storage Service](architecture/azure-blob-storage-service.md).
 
 ---
 
@@ -434,12 +439,14 @@ That is a deliberate, documented state — see [File Uploads](flows/file-upload.
 | `EOFError: EOF when reading a line` on test start | A previous run was killed and left its test database | Add `--noinput` |
 | ~14 failures around login/lockout | Redis is down; django-defender uses `DEFENDER_REDIS_URL`, independent of the test cache | Start the `caches` profile |
 | `ArrayField`/constraint errors across many tests | Ran without `--settings=config.settings.test_postgres` | Add the flag |
-| `Could not connect to …` from a storage call | No local S3 exists since MinIO was removed | Expected noise in tests; point `.env` at R2 for real uploads |
+| `Could not connect to …` from a storage call | Azurite is not running | `docker compose --profile emulators up -d` |
+| `400 An HTTP header that's mandatory for this request is not specified` | The client did not send `x-ms-blob-type: BlockBlob` | Forward the ticket's `upload_headers` verbatim — see [File Uploads](flows/file-upload.md) |
+| `The specified container does not exist` | Nothing provisions it; `create_bucket_if_not_exists` was deliberately dropped | `az storage container create --name <AZURE_CONTAINER> --connection-string "$AZURE_CONNECTION_STRING"` |
 | `azurite-voicebot` restart-loops with `Critical error happens during GC` | Stale Azurite state in `.data/azurite` from an earlier run — its database references extents that no longer exist | `docker compose stop azurite`, delete (or rename) `.data/azurite`, start again. The directory is disposable |
 | `Failed to contact external ETL server` | The ETL service is not running | Expected noise |
 | `could not translate host name "pgbouncer"` | Host mode without `.env.local` | Create it from `.env.local.example` |
 | Login 500s, everything else fine | `REDIS_PORT` wrong in host mode — defender fails on the login path first | Set `REDIS_PORT=5563` |
-| Uploads silently land in `./media` | An S3 key was set to an **empty** value, flipping `USE_S3_STORAGE` off | Omit the key entirely, or set all four together |
+| Uploads silently land in `./media` | An `AZURE_*` key was set to an **empty** value, flipping `USE_AZURE_STORAGE` off | Omit the key entirely, or set all three together. `manage.py check` warns (`core.W002`) outside `DEBUG` |
 | Tests pass but production is broken | A mock returned a different shape than the real service | Pin the real contract in a test — see `core/tests/test_storage_service_contract.py` |
 | A schema decorator "did nothing" | `--fail-on-warn` aborted before writing the file, so you read a stale one | Generate without the flag, then inspect |
 | Docs portal stuck on **"Loading Developer Portal…"** | A `//cdn.jsdelivr.net` URL in `docs/index.html` resolves to `http://` over plain HTTP, which the CSP's `https:` source rejects — every script is blocked | Use explicit `https://` for all external assets in `index.html`; then hard-refresh (`Ctrl+Shift+R`) |

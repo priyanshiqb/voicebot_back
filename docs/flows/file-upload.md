@@ -3,10 +3,12 @@
 Every file in this platform is uploaded the same way, through four endpoints that share
 one contract. This page is the whole picture: what to send, what comes back, what breaks.
 
-> **Current mode: `PUT`.** `upload_method` in the step-1 response tells you how to send
-> the bytes. It is deployment configuration and can change to `POST` without an API
-> version bump, so **branch on it** rather than hardcoding. Both modes are documented
-> below.
+> **Object storage is Azure Blob.** Step 2 has one requirement that did not exist under
+> the previous S3 backend: **you must send the headers the ticket gives you in
+> `upload_headers`**, including `x-ms-blob-type: BlockBlob`. Azure rejects the upload
+> without it — and the rejection comes from the storage account, not from this API, so it
+> looks like a storage outage rather than a client bug. See
+> [Frontend migration guide](frontend-azure-blob-migration.md).
 
 ---
 
@@ -89,8 +91,12 @@ Every flow takes these three:
   "data": {
     "media_id": "7f3a91cd-…",
     "upload_method": "PUT",
-    "upload_url": "https://…/t-<tenant>/catalog/<item>/<uuid>_photo.jpg?X-Amz-…",
+    "upload_url": "https://<acct>.blob.core.windows.net/<container>/t-<tenant>/catalog/<item>/<uuid>_photo.jpg?sv=…&sp=c&sig=…",
     "upload_fields": {},
+    "upload_headers": {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": "image/jpeg"
+    },
     "expires_in_minutes": 15,
     "max_bytes": 10485760
   },
@@ -101,9 +107,10 @@ Every flow takes these three:
 | Field | Meaning |
 |---|---|
 | `media_id` / `file_id` | **The handle for every later step.** Catalog uses `media_id`; the other three use `file_id` |
-| `upload_method` | `PUT` or `POST`. Branch on it |
+| `upload_method` | Always `PUT`. Declared rather than implied so you branch on it instead of hardcoding the verb |
 | `upload_url` | Where the bytes go. Object storage, not this API |
-| `upload_fields` | `POST` only — signed policy fields. Empty `{}` under `PUT` |
+| `upload_headers` | **Send every entry verbatim.** Azure refuses the upload without `x-ms-blob-type` |
+| `upload_fields` | Always `{}`. Held the S3 POST policy's signed form fields; Azure has no equivalent. Kept so clients reading it unconditionally do not break |
 | `expires_in_minutes` | 15. Request a fresh ticket rather than caching one |
 | `max_bytes` | The server's ceiling for this flow |
 
@@ -114,40 +121,32 @@ it.** It is returned only so older clients keep working; confirm resolves by id 
 
 ## Step 2 — Send the file
 
-### `upload_method: "PUT"` — what runs today
+Pass `upload_headers` straight through. Do not filter it, do not reorder it, and do not
+substitute your own `Content-Type` — spread the object as-is:
 
 ```js
 const res = await fetch(data.upload_url, {
   method: "PUT",
-  headers: { "Content-Type": contentType },   // exactly what you declared in step 1
+  headers: data.upload_headers,   // { "x-ms-blob-type": "BlockBlob", "Content-Type": … }
   body: file,
 });
-if (!res.ok) throw new Error("upload failed");   // success is 200
+if (!res.ok) throw new Error("upload failed");   // success is 201
 ```
 
-Do **not** send your JWT to `upload_url`. It is a signed storage URL; an `Authorization`
-header can invalidate the signature.
+Do **not** send your JWT to `upload_url`. It is a signed storage URL, and an
+`Authorization` header alongside a SAS token is rejected.
 
-> **`max_bytes` is not enforced during a `PUT`.** A ticket issued for a 1 MB file will
-> accept a 500 MB one. The overage is caught at step 3, which measures the stored object,
-> deletes it and fails the row — but the bytes have already been transferred by then.
+> **A missing `x-ms-blob-type` is a `400` from Azure**, with a body reading
+> `An HTTP header that's mandatory for this request is not specified`. Nothing in this
+> API is involved, so it will not appear in our logs — if uploads fail this way, check
+> that the headers are being forwarded before suspecting the backend.
 
-### `upload_method: "POST"` — when enabled
-
-```js
-const form = new FormData();
-for (const [name, value] of Object.entries(data.upload_fields)) {
-  form.append(name, value);
-}
-form.append("file", file);          // MUST be last — storage ignores anything after it
-
-const res = await fetch(data.upload_url, { method: "POST", body: form });
-if (res.status !== 204) throw new Error("upload failed");   // 204, not 200
-```
-
-Do not set a `Content-Type` header — the browser must set the multipart boundary itself.
-Here `max_bytes` is signed into the policy, so storage rejects an oversize body mid-upload
-with `EntityTooLarge`.
+> **`max_bytes` is not enforced during the upload.** A ticket issued for a 1 MB file will
+> accept a 500 MB one. An Azure SAS carries no size condition at any API version, so this
+> cannot be fixed by configuration. The overage is caught at step 3, which measures the
+> stored object, deletes it and fails the row — but the bytes have already been
+> transferred by then. **Check the file size client-side against `max_bytes` before
+> uploading**; it is the only place a user gets fast feedback.
 
 ---
 
@@ -257,13 +256,13 @@ the row cannot be revived.
 
 ## Things that will catch you out
 
-1. **Send the exact `Content-Type` you declared.** It is signed into the ticket. A
-   mismatch fails the signature at storage with a `403` that mentions nothing useful.
+1. **Forward `upload_headers` unchanged.** This is the one genuinely new requirement.
+   Dropping `x-ms-blob-type` fails every upload with a `400` from Azure.
 2. **Do not attach your JWT to `upload_url`.** It is already signed.
 3. **Tickets expire in 15 minutes.** Request one when the user actually starts uploading,
    not when the form opens.
-4. **`upload_method` is not a constant.** A deployment can switch to `POST`; a client that
-   hardcodes `PUT` breaks silently at that point.
+4. **Success is `201`, not `200`.** Azure answers `201 Created` for a block-blob PUT.
+   Check `res.ok` rather than `res.status === 200`.
 5. **The extension must match the bytes.** Renaming `report.pdf` to `photo.jpg` gets
    through step 1 and step 2 and is rejected at step 3.
 6. **Catalog needs the item first.** There is no way to upload media and attach it later.
@@ -292,4 +291,6 @@ Only `CONFIRMED` rows appear in listings or reach the processing pipeline.
 - [Knowledge Base](../apiDocs/core/knowledge_base.md)
 - [Contact Import](../apiDocs/core/contact_import.md)
 - [Call Recordings](../apiDocs/core/agent_call_recording.md)
+- [Frontend migration guide](frontend-azure-blob-migration.md) — what changed in the move to Azure Blob
+- [Azure Blob Storage Service](../architecture/azure-blob-storage-service.md) — the backend side
 - [Maintenance Commands](../commands/README.md) — the sweeps that collect what is left behind

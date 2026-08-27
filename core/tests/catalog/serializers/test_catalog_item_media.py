@@ -293,7 +293,7 @@ class RepresentationTests(MediaSerializerTestCase):
         media.file.name = "t-x/catalog/y/photo.jpg"
         media.save(update_fields=["file"])
 
-        with self.settings(USE_S3_STORAGE=False):
+        with self.settings(USE_AZURE_STORAGE=False):
             self.assertEqual(presigned_media_url(media), "t-x/catalog/y/photo.jpg")
 
     def test_the_ref_serializer_is_minimal(self):

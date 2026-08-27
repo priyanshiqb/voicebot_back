@@ -32,7 +32,7 @@ class ContactImportFile(TenantBaseModelCore):
     file = models.FileField(
         upload_to=contact_import_upload_path,
         max_length=500,
-        help_text=_("The CSV object in the storage bucket."),
+        help_text=_("The CSV object in blob storage."),
     )
     original_name = models.CharField(max_length=255, blank=True)
     extension = models.CharField(max_length=10, blank=True)

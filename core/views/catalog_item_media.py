@@ -18,8 +18,8 @@ from utils.files.sizes import format_size_limit
 from core.serializers.uploads import upload_ticket_fields
 from core.services import uploads as upload_service
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
-from utils.s3_storage.keys import build_tenant_object_key
-from utils.s3_storage.service import S3StorageService
+from utils.blob_storage.keys import build_tenant_object_key
+from utils.blob_storage.service import AzureBlobStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
                 object_key,
                 data["content_type"],
                 max_bytes=max_bytes,
-                storage=S3StorageService(),
+                storage=AzureBlobStorageService(),
             )
         except Exception:
             logger.exception("Could not presign catalog media upload for item %s", item.pk)
@@ -243,7 +243,7 @@ class CatalogItemMediaViewSet(TenantBaseViewSet):
                 message="Upload already confirmed",
             )
 
-        storage = S3StorageService()
+        storage = AzureBlobStorageService()
         try:
             exists = storage.verify_object_exists(media.file.name)
         except Exception:

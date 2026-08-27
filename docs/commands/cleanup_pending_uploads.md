@@ -8,13 +8,13 @@
 ## Purpose
 
 Deletes upload records still `PENDING` past a cutoff — presigned uploads the client
-abandoned — **and the objects they left in the bucket**.
+abandoned — **and the objects they left in the container**.
 
 Uploads are two-step: the server reserves a `PENDING` row so the object key can stay
 server-side, hands out a presigned ticket, and waits for a confirm. When the confirm never
 arrives, that row stays `PENDING` forever.
 
-The row itself is harmless; the API only ever serves `CONFIRMED` records. **The bucket is
+The row itself is harmless; the API only ever serves `CONFIRMED` records. **The container is
 the problem.** The common abandonment is not "the client never uploaded" — it is *the
 upload succeeded and the confirm request never arrived*: a closed tab, a dropped
 connection. Those bytes are real, and nothing in the product will ever show them to you.
@@ -40,7 +40,7 @@ queryset delete would skip that, and is refused outright by `BaseQuerySet.delete
 
 > **Adding a new upload flow?** Add its model to `SWEPT_MODELS` in
 > `core/services/uploads.py`. A flow left out leaks bytes silently — there is no error,
-> just a bucket that grows. `core/tests/test_pending_upload_sweep.py` fails if you forget.
+> just a container that grows. `core/tests/test_pending_upload_sweep.py` fails if you forget.
 
 ## Usage
 

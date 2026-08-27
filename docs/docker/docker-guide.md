@@ -78,8 +78,7 @@ When the `gateway` profile is active, Caddy exposes ports `80` and `443` on the 
 | **Grafana** | `{$SCHEME}grafana{$ENV_NAME}.localhost` | `grafana:3000` |
 | **Prometheus** | `{$SCHEME}prometheus{$ENV_NAME}.localhost` | `prometheus:9090` |
 | **Loki** | `{$SCHEME}loki{$ENV_NAME}.localhost` | `loki:3100` |
-| **MinIO API** | `{$SCHEME}minio{$ENV_NAME}.localhost` | `minio:9000` |
-| **MinIO Console** | `{$SCHEME}minio-console{$ENV_NAME}.localhost` | `minio:9001` |
+| **Azurite Blob** | `{$SCHEME}azurite{$ENV_NAME}.localhost` | `azurite:10000` |
 
 *Note: For production/QA, set `ENV_NAME=qa` or `ENV_NAME=prod` to dynamically prefix your subdomains. Set `SCHEME="http://"` if you are placing this Caddy behind a Master Load Balancer that already handles SSL. Set `SCHEME="https://"` (or leave it blank) if you want this local Caddy to handle Let's Encrypt SSL certificates automatically. You can replace `localhost` by setting `DOMAIN=yourdomain.com` in your `.env`.*
 

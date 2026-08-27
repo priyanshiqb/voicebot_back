@@ -58,7 +58,7 @@ Photos, video and documents attached to catalog items.
 | `VIDEO` | `.mp4` `.webm` `.mov` |
 | `DOCUMENT` | `.pdf` `.docx` `.xlsx` `.txt` `.csv` |
 
-Checked **before** a presigned URL is issued, so an unwanted type never reaches the bucket at all.
+Checked **before** a signed URL is issued, so an unwanted type never reaches the container at all.
 
 ### 200 OK
 
@@ -68,16 +68,12 @@ Checked **before** a presigned URL is issued, so an unwanted type never reaches 
   "message": "Upload URL generated successfully",
   "data": {
     "media_id": "7f3a91cd-…",
-    "upload_method": "POST",
-    "upload_url": "https://…/<bucket>",
-    "upload_fields": {
-      "key": "t-<tenant>/catalog/<item>/<uuid>_photo.jpg",
-      "Content-Type": "image/jpeg",
-      "policy": "eyJleHBpcmF0aW9u…",
-      "x-amz-algorithm": "AWS4-HMAC-SHA256",
-      "x-amz-credential": "…",
-      "x-amz-date": "…",
-      "x-amz-signature": "…"
+    "upload_method": "PUT",
+    "upload_url": "https://<acct>.blob.core.windows.net/<container>/t-<tenant>/catalog/<item>/<uuid>_photo.jpg?sv=…&sp=c&se=…&sig=…",
+    "upload_fields": {},
+    "upload_headers": {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": "image/jpeg"
     },
     "expires_in_minutes": 15,
     "max_bytes": 10485760
@@ -86,14 +82,17 @@ Checked **before** a presigned URL is issued, so an unwanted type never reaches 
 }
 ```
 
-**Branch on `upload_method`; do not assume it.** It is deployment configuration
-(`UPLOAD_PRESIGN_METHOD`) and can change without an API version bump. In `PUT` mode the
-same response carries `"upload_method": "PUT"`, a direct object URL, and an empty
-`upload_fields`.
+**Send every header in `upload_headers`.** Azure rejects a block-blob PUT that omits
+`x-ms-blob-type`, and the rejection comes from the storage account rather than from this
+API — so a client that drops it sees what looks like a storage outage.
 
-Note what is still **not** in that response: an object key you could send back. The `key`
-inside `upload_fields` is signed into the policy — it cannot be swapped for another — and
-`confirm-upload` refuses to accept a key at all. It reads one from the tenant-scoped row.
+`upload_fields` is always `{}`. It carried the signed form fields of the S3 POST policy the
+previous backend used; Azure Blob has no equivalent. It is kept in the envelope so clients
+that read it unconditionally keep working.
+
+Note what is still **not** in that response: an object key you could send back. The key
+lives inside the signed URL, is bound to the signature, and `confirm-upload` refuses to
+accept a key at all — it reads one from the tenant-scoped row.
 
 ### Error responses
 
@@ -104,6 +103,7 @@ inside `upload_fields` is signed into the policy — it cannot be swapped for an
 | `400` | Item already at the media cap | `{"item": ["'Nike Air Max' already has 10 media files; the maximum is 10. Delete one first — unconfirmed uploads count and are swept on request."]}` |
 | `400` | `item` from another tenant | `{"item": ["No such item."]}` |
 | `503` | Object storage unreachable | The row is marked `FAILED` |
+| `400` from **Azure**, not this API | `upload_headers` was not forwarded at step 2 | Not a JSON body — an Azure XML error reading `An HTTP header that's mandatory for this request is not specified` |
 
 **Unconfirmed uploads count toward the cap.** Otherwise requesting a hundred upload URLs and never
 confirming them is an unmetered way past it.
@@ -115,42 +115,26 @@ confirming them is an unmetered way past it.
 Direct to the object store. Nothing passes through this API. The ticket expires in
 **15 minutes** (`UPLOAD_URL_TTL_MINUTES`).
 
-### `upload_method: "POST"` — the default going forward
-
-Every entry in `upload_fields` becomes a form field, and **the file part must be last** —
-the object store ignores anything after it. Success is **`204 No Content`**, not `200`.
+Spread `upload_headers` into the request as-is. Success is **`201 Created`**.
 
 ```js
-const form = new FormData();
-for (const [name, value] of Object.entries(data.upload_fields)) {
-  form.append(name, value);
-}
-form.append("file", file);            // last, always
-
-const res = await fetch(data.upload_url, { method: "POST", body: form });
-if (res.status !== 204) throw new Error("upload failed");
+const res = await fetch(data.upload_url, {
+  method: "PUT",
+  headers: data.upload_headers,   // { "x-ms-blob-type": "BlockBlob", "Content-Type": … }
+  body: file,
+});
+if (!res.ok) throw new Error("upload failed");
 ```
 
-Do not set a `Content-Type` header on the request — the browser must set the multipart
-boundary itself.
+Do not attach your JWT — `upload_url` is already signed, and an `Authorization` header
+alongside a SAS token is rejected.
 
-`max_bytes` is signed into the policy, so the store rejects an oversize body **during**
-the upload with `EntityTooLarge`. That is the point of this mode: `file_size_in_bytes` at
-step 1 is a declaration, and a declaration is not a limit.
-
-### `upload_method: "PUT"` — legacy
-
-```
-PUT <upload_url>
-Content-Type: <the same content_type you declared>
-
-<binary body>
-```
-
-Success is `200`. `upload_fields` is empty. **The size ceiling is not enforced here** — a
-ticket issued for a 1 MB file will accept a 500 MB one, and the overage is caught at
-step 3, after it has been transferred and stored. It is deleted then, but you have
-already paid for the transfer.
+**The size ceiling is not enforced during the upload.** A ticket issued for a 1 MB file
+will accept a 500 MB one. An Azure SAS carries no size condition at any API version, so
+this is a property of the storage backend rather than a setting: `file_size_in_bytes` at
+step 1 is a declaration, and a declaration is not a limit. The overage is caught at step 3,
+which measures the stored object and deletes it — after you have paid for the transfer.
+**Check the size client-side against `max_bytes` first.**
 
 ---
 
@@ -184,7 +168,7 @@ is served.
     "item": "ffc111cd-…",
     "media_type": "IMAGE",
     "media_type_label": "Image",
-    "file_url": "https://…?X-Amz-…",
+    "file_url": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&sig=…",
     "original_name": "photo.jpg",
     "extension": ".jpg",
     "file_size_in_bytes": 184320,
@@ -262,4 +246,4 @@ Media is also soft-deleted automatically when its parent item is deleted.
 - [Catalog Items](./catalog_item.md)
 - [Catalog Variants](./catalog_variant.md)
 - [Catalog Categories](./catalog_category.md)
-- [S3 Storage Service](../../architecture/s3-storage-service.md)
+- [Azure Blob Storage Service](../../architecture/azure-blob-storage-service.md)

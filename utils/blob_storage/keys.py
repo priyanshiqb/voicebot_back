@@ -1,5 +1,5 @@
 """
-Helpers for building and authorizing tenant-scoped S3 object keys.
+Helpers for building and authorizing tenant-scoped object keys.
 
 Presigned-upload flows hand an object key to the client and later accept one back.
 Without these checks a caller can name a key belonging to another tenant, which
@@ -74,8 +74,8 @@ def is_object_key_owned_by_tenant(object_key, tenant_id, folder=None):
     if _CONTROL_CHARS.search(object_key):
         return False
 
-    # Reject anything that could resolve to a different prefix on an S3 backend
-    # that normalizes paths (MinIO on a filesystem backend does).
+    # Reject anything that could resolve to a different prefix on a backend that
+    # normalizes paths (Azurite, storing blobs on a filesystem, does).
     if "\\" in object_key or "//" in object_key:
         return False
 

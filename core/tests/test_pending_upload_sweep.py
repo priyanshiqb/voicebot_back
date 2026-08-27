@@ -400,7 +400,7 @@ class KeyOwnershipAuditTests(PendingUploadSweepTestCase):
         """A wrong folder string would flag every healthy row as an incident. Catalog
         keys nest the item id under the folder, so this has to stay a prefix test."""
         from core.management.commands.audit_upload_key_ownership import AUDITED
-        from utils.s3_storage.keys import is_object_key_owned_by_tenant
+        from utils.blob_storage.keys import is_object_key_owned_by_tenant
 
         folder = next(f for model, f, _ in AUDITED if model is CatalogItemMedia)
         media = self.make_media()

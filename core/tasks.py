@@ -796,7 +796,7 @@ def parse_contact_import(session_id):
     """
     Stage a contact import CSV off the request thread.
 
-    A 50k-row file means an S3 read, a full parse, and 50k inserts — well past a
+    A 50k-row file means a blob read, a full parse, and 50k inserts — well past a
     gunicorn worker timeout if it ran inline.
     """
     from core.services import contact_import

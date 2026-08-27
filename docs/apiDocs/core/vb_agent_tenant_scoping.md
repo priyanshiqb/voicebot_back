@@ -111,7 +111,7 @@ Everything a machine caller creates takes `tenant` from the header:
 | Created by | Model(s) | Source of `tenant` |
 |---|---|---|
 | `POST /core/agent-call-logs/` | `AgentCallLog` | header |
-| `POST /core/agent-call-logs/request-upload-url/` | `AgentCallRecording` | header (also the S3 object-key prefix) |
+| `POST /core/agent-call-logs/request-upload-url/` | `AgentCallRecording` | header (also the object-key prefix) |
 | `POST /core/agent-call-logs/confirm-upload/` | `AgentCallRecording` | header |
 | `POST /core/bookings/` | `Booking`, `BookingParticipant` | header |
 | `POST /core/bookings/hold/` | `Booking`, `BookingParticipant` | header |

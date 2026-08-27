@@ -5,7 +5,7 @@ Find objects in the bucket that no database row accounts for.
     python manage.py audit_orphaned_objects --tenant-id <uuid> --verbose
     python manage.py audit_orphaned_objects --delete          # destructive, opt-in
 
-**Why this exists rather than an S3 lifecycle rule.** The obvious way to bound storage
+**Why this exists rather than a storage lifecycle rule.** The obvious way to bound storage
 growth is a lifecycle rule expiring a staging prefix. This bucket's keys have no staging
 prefix — an object lands on its final key at upload time, as
 ``t-<tenant>/kb_files/<uuid>_name.pdf`` — so a prefix rule would expire *confirmed*
@@ -29,12 +29,12 @@ from django.core.management.base import BaseCommand, CommandError
 from core.services import uploads as upload_service
 from tenant.models.Tenant import Tenant
 from utils.files.sizes import format_size_limit
-from utils.s3_storage.service import S3StorageService
+from utils.blob_storage.service import AzureBlobStorageService
 
 
 class Command(BaseCommand):
     help = (
-        "Reports objects in the storage bucket that no database row references. "
+        "Reports objects in the storage container that no database row references. "
         "Read-only by default; --delete removes them."
     )
 
@@ -77,7 +77,7 @@ class Command(BaseCommand):
             if not tenants.exists():
                 raise CommandError(f"No tenant with id {tenant_id}.")
 
-        storage = S3StorageService()
+        storage = AzureBlobStorageService()
         total_orphans = 0
         total_bytes = 0
         total_deleted = 0

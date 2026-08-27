@@ -28,8 +28,8 @@ from rest_framework import status, serializers
 from drf_spectacular.utils import inline_serializer
 from core.serializers.uploads import upload_ticket_fields
 from core.services import uploads as upload_service
-from utils.s3_storage.service import S3StorageService
-from utils.s3_storage.keys import (
+from utils.blob_storage.service import AzureBlobStorageService
+from utils.blob_storage.keys import (
     build_tenant_object_key,
     is_object_key_owned_by_tenant,
 )
@@ -297,8 +297,8 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             return None, self.error(message="No active tenant mapping.", status_code=status.HTTP_403_FORBIDDEN)
 
     @extend_schema(
-        summary="Request a secure S3 upload URL for MP3",
-        description="Generates a temporary Presigned PUT URL allowing the AI Agent to upload an MP3 file directly to the storage bucket.",
+        summary="Request a secure upload URL for MP3",
+        description="Generates a short-lived signed (SAS) PUT URL allowing the AI Agent to upload an MP3 file directly to blob storage. The response's upload_headers must be sent with that PUT.",
         request=RequestRecordingUploadUrlSerializer,
         responses={
             200: inline_serializer(
@@ -358,7 +358,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                 object_key,
                 content_type,
                 max_bytes=MAX_RECORDING_BYTES,
-                storage=S3StorageService(),
+                storage=AzureBlobStorageService(),
             )
         except Exception:
             logger.exception("Could not presign call recording upload for tenant %s", tenant_id)
@@ -378,8 +378,8 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         )
 
     @extend_schema(
-        summary="Confirm a direct S3 MP3 upload",
-        description="Verifies the MP3 arrived in S3 and creates the AgentCallRecording record.",
+        summary="Confirm a direct MP3 upload",
+        description="Verifies the MP3 arrived in blob storage and creates the AgentCallRecording record.",
         request=ConfirmRecordingUploadSerializer,
         responses={
             201: inline_serializer(
@@ -390,7 +390,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                     "data": AgentCallRecordingSerializer()
                 }
             ),
-            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or file missing in S3.")
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or file missing in blob storage.")
         }
     )
     @action(detail=False, methods=["post"], url_path="confirm-upload")
@@ -404,7 +404,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         object_key = serializer.validated_data.get("object_key")
         original_name = serializer.validated_data.get("original_name")
 
-        # Security: resolve the tenant BEFORE touching S3. The oversize branch below
+        # Security: resolve the tenant BEFORE touching blob storage. The oversize branch below
         # deletes the object it was handed, so an unauthorized key must never reach it.
         tenant_id, error_response = self._resolve_recording_tenant_id(request, serializer)
         if error_response is not None:
@@ -432,18 +432,18 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
             # Security: the key must live inside this tenant's namespace. Report 404
             # rather than 403 so the response cannot probe for another tenant's objects.
             if not is_object_key_owned_by_tenant(object_key, tenant_id, folder="call_recordings"):
-                return self.error(message="File not found in storage bucket. Did the upload succeed?", status_code=status.HTTP_404_NOT_FOUND)
+                return self.error(message="File not found in storage. Did the upload succeed?", status_code=status.HTTP_404_NOT_FOUND)
 
         extension = serializer.validated_data.get("extension")
         if not extension:
             extension = os.path.splitext(original_name or "")[1].lower()
 
-        storage_service = S3StorageService()
+        storage_service = AzureBlobStorageService()
 
         try:
             exists = storage_service.verify_object_exists(object_key)
             if not exists:
-                return self.error(message="File not found in storage bucket. Did the upload succeed?", status_code=status.HTTP_400_BAD_REQUEST)
+                return self.error(message="File not found in storage. Did the upload succeed?", status_code=status.HTTP_400_BAD_REQUEST)
 
             file_stats = storage_service.get_file_disk_usage(object_key)
             max_size = MAX_RECORDING_BYTES

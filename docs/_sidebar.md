@@ -126,6 +126,7 @@
 
 * **📤 File Uploads**
   * [Complete Integration Flow](flows/file-upload.md)
+  * [Frontend Migration - S3 to Azure Blob](flows/frontend-azure-blob-migration.md)
 
 * **🔔 Push Notifications**
   * [FCM End-to-End Flow](flows/push-notifications.md)
@@ -138,6 +139,6 @@
   * [Device Token Sweep](commands/purge_device_tokens.md)
 
 <!-- * **📐 Architecture**
-  * [S3 Storage Service](architecture/s3-storage-service.md) -->
+  * [Azure Blob Storage Service](architecture/azure-blob-storage-service.md) -->
 
 

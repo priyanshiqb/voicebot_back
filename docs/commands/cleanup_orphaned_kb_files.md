@@ -6,7 +6,7 @@
 ## Purpose
 A backend garbage-collection script designed to automatically clean up orphaned uploaded `KBFiles`. 
 
-Orphaned files occur when a user uploads a file via the frontend for a Knowledge Base (which creates a database record and physically uploads the file to S3/MinIO), but then cancels the wizard or never associates the file with a specific `KnowledgeBase` record.
+Orphaned files occur when a user uploads a file via the frontend for a Knowledge Base (which creates a database record and physically uploads the file to Azure Blob storage), but then cancels the wizard or never associates the file with a specific `KnowledgeBase` record.
 
 ## Mechanics
 This command systematically searches the database for `KBFiles` that:
@@ -14,7 +14,7 @@ This command systematically searches the database for `KBFiles` that:
 2. Are **not** linked to any `KnowledgeBase` (`knowledge_bases__isnull=True`).
 3. Are older than a specified time window. This safety window prevents accidentally deleting files that a user is actively in the process of uploading on the frontend.
 
-When an orphaned record is processed for deletion, the custom `delete()` method on the `KBFiles` model is automatically invoked, ensuring that the physical object is also securely purged from the underlying S3/MinIO bucket.
+When an orphaned record is processed for deletion, the custom `delete()` method on the `KBFiles` model is automatically invoked, ensuring that the physical object is also securely purged from the underlying blob storage container.
 
 ## Usage
 

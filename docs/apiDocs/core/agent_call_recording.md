@@ -1,6 +1,6 @@
 # Agent Call Recording API Documentation
 
-The MP3 of a call. Because audio files are large, they are uploaded **directly to S3** rather than
+The MP3 of a call. Because audio files are large, they are uploaded **directly to blob storage** rather than
 through this API — a two-step flow that hands the client a temporary signed URL, then verifies what
 actually arrived.
 
@@ -39,30 +39,33 @@ administrative action, not an API one.
 ## The upload flow
 
 ```
-1. POST /request-upload-url/   →  { file_id, upload_method, upload_url, upload_fields, max_bytes }
-2. send the MP3 bytes          →  straight to S3, per upload_method
+1. POST /request-upload-url/   →  { file_id, upload_method, upload_url, upload_headers, max_bytes }
+2. send the MP3 bytes          →  straight to blob storage, with upload_headers
 3. POST /confirm-upload/       →  { file_id }  →  recording is CONFIRMED
 4. POST /agent-call-logs/      →  recording_file: <file_id>
 ```
 
-Step 2 goes to S3, not to this API. **Follow `upload_method`; do not hardcode it** — it comes
-from deployment configuration (`UPLOAD_PRESIGN_METHOD`) and can change without an API version
-bump.
+Step 2 goes to Azure Blob storage, not to this API. Send the body raw to `upload_url` with
+**every header from `upload_headers`**; success is `201`.
 
-| `upload_method` | How to send | Success |
-|---|---|---|
-| `PUT` | Body raw to `upload_url` with the declared `Content-Type` | `200` |
-| `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` |
+```js
+await fetch(data.upload_url, {
+  method: "PUT",
+  headers: data.upload_headers,   // { "x-ms-blob-type": "BlockBlob", "Content-Type": "audio/mpeg" }
+  body: file,
+});
+```
 
-Either way the `Content-Type` is signed into the ticket — send a different one and S3 rejects
-the signature.
+> Azure rejects a block-blob PUT without `x-ms-blob-type`, with a `400` that comes from the
+> storage account rather than from this API. `upload_fields` is always `{}` — it held the S3
+> POST policy's form fields, which Azure has no equivalent for.
 
 ### `upload_status`
 
 | Status | Meaning |
 |---|---|
 | `PENDING` | Row reserved, upload outstanding. Set by step 1. |
-| `CONFIRMED` | Object verified in the bucket. Set by step 3, and the default for rows created any other way. |
+| `CONFIRMED` | Object verified in the container. Set by step 3, and the default for rows created any other way. |
 | `FAILED` | The presigned URL could not be issued, or the uploaded object was oversized and deleted. |
 
 > **A `PENDING` recording can still be attached to a call log.** Nothing checks `upload_status` when
@@ -75,7 +78,7 @@ the signature.
 
 ### 1. Request an Upload URL
 
-Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
+Reserves a recording row and returns a short-lived signed (SAS) URL to `PUT` the audio to.
 
 - **Path**: `POST /api/v1/core/agent-call-logs/request-upload-url/`
 - **Headers**: `Authorization: Bearer <token>`, plus `X-Tenant-ID: <tenant uuid>` for agent tokens
@@ -87,7 +90,7 @@ Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `filename` * | string | The recording's name, e.g. `call_123.mp3`. Used for the extension and the stored object key. | Required. Max **255**. Sanitised to a basename before the key is built, so a crafted value cannot steer the upload outside your tenant's prefix. |
-| `content_type` * | enum | MIME type, baked into the presigned URL. Your `PUT` must send the **same** value. | Required. Only `audio/mpeg` or `audio/mp3`. Anything else → 400. |
+| `content_type` * | enum | MIME type. Comes back in `upload_headers`; send it from there rather than reconstructing it. | Required. Only `audio/mpeg` or `audio/mp3`. Anything else → 400. |
 | `file_size_in_bytes` * | integer | Declared size. A **declaration**, not the enforced ceiling — the real limit is `max_bytes` (50 MB), enforced during the upload only under `POST` and otherwise at confirm. | Required. Must be **≥ 1**. |
 | `agent` | UUID | Which bot produced the recording. | **Required for agent tokens**; ignored for ordinary users. Must exist and belong to the tenant named in `X-Tenant-ID`. |
 
@@ -99,8 +102,12 @@ Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
     "data": {
       "file_id": "123e4567-e89b-12d3-a456-426614174000",
       "upload_method": "PUT",
-      "upload_url": "https://bucket.s3.amazonaws.com/t-7bf2…/call_recordings/…?X-Amz-Signature=…",
+      "upload_url": "https://<acct>.blob.core.windows.net/<container>/t-7bf2…/call_recordings/…?sv=…&sp=c&sig=…",
       "upload_fields": {},
+      "upload_headers": {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": "audio/mpeg"
+      },
       "expires_in_minutes": 15,
       "max_bytes": 52428800,
       "object_key": "t-7bf26cf4-…/call_recordings/123e4567-…_call_123.mp3"
@@ -135,7 +142,7 @@ Reserves a recording row and returns a temporary S3 URL to `PUT` the audio to.
 
 ### 2. Confirm the Upload
 
-Call after your `PUT` to S3 succeeds. Verifies the object really arrived, records its true size,
+Call after your `PUT` to blob storage succeeds. Verifies the object really arrived, records its true size,
 and marks the row usable.
 
 - **Path**: `POST /api/v1/core/agent-call-logs/confirm-upload/`
@@ -159,7 +166,7 @@ and marks the row usable.
     "data": {
       "id": "123e4567-e89b-12d3-a456-426614174000",
       "tenant": { "id": "7bf2…", "name": "Alpha Corp", "subdomain": "alpha-corp" },
-      "file": "https://bucket.s3.amazonaws.com/…?X-Amz-Expires=86400…",
+      "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…",
       "original_name": "call_123.mp3",
       "extension": ".mp3",
       "file_size_in_bytes": 2411008,
@@ -178,28 +185,28 @@ and marks the row usable.
 | **201** | Verified and recorded. Now usable as `recording_file`. | `File confirmed and saved successfully.` |
 | **400** | Neither `file_id` nor `object_key` supplied. | `Provide file_id (preferred) or object_key.` |
 | **400** | `original_name` missing on the legacy `object_key` path. | `This field is required when using object_key.` |
-| **400** | The object is not in the bucket — the `PUT` never landed. | `File not found in storage bucket. Did the upload succeed?` |
-| **400** | The **actual** object is over 50 MB. **The object is deleted from S3** and the row marked `FAILED`. | `File size exceeds the limit of 50 MB.` |
+| **400** | The object is not in the container — the `PUT` never landed. | `File not found in storage. Did the upload succeed?` |
+| **400** | The **actual** object is over 50 MB. **The object is deleted from blob storage** and the row marked `FAILED`. | `File size exceeds the limit of 50 MB.` |
 | **400** | Agent token: `agent` omitted, or `X-Tenant-ID` missing/invalid. | `agent field is required for VB_AGENT.` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
 | **403** | Ordinary user with no active tenant mapping. | `No active tenant mapping.` |
 | **403** | Agent token: the `agent` belongs to a different tenant than `X-Tenant-ID`. | `The specified agent does not belong to the requested tenant.` |
 | **404** | `file_id` unknown or another tenant's. | `Recording not found.` |
 | **404** | Agent token: no such `agent`. | `Agent not found.` |
-| **404** | An `object_key` outside the resolved tenant's prefix. | `File not found in storage bucket. Did the upload succeed?` |
+| **404** | An `object_key` outside the resolved tenant's prefix. | `File not found in storage. Did the upload succeed?` |
 | **500** | The storage service could not be queried. | `Failed to verify file upload.` |
 
 > **The declared size from step 1 is overwritten with the object's real size.** `file_size_in_bytes`
-> in the response is what S3 actually holds, not what you claimed — so it is safe to display.
+> in the response is what storage actually holds, not what you claimed — so it is safe to display.
 
 > **Oversized uploads are deleted, not merely rejected.** Exceeding 50 MB removes the object from
-> the bucket and marks the row `FAILED`, so a rejected upload cannot linger as an orphan you are
+> the container and marks the row `FAILED`, so a rejected upload cannot linger as an orphan you are
 > billed for.
 
 > **A foreign `object_key` returns 404, not 403.** Deliberate — a 403 would confirm the object
 > exists in some other tenant.
 
-> **The tenant is resolved before anything touches S3.** The oversize branch deletes the object it
+> **The tenant is resolved before anything touches blob storage.** The oversize branch deletes the object it
 > was handed, so an unauthorised key must never reach it.
 
 ---
@@ -226,7 +233,7 @@ On read, the log expands it:
   "original_name": "call_123.mp3",
   "extension": ".mp3",
   "file_size_in_bytes": 2411008,
-  "file": "https://bucket.s3.amazonaws.com/…?X-Amz-Expires=86400…"
+  "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…"
 }
 ```
 
@@ -248,7 +255,7 @@ On read, the log expands it:
 |---|---|---|
 | 1 | Recordings have no list, retrieve, or delete endpoint. | They can only be read nested inside a call log. Orphaned uploads — reserved or confirmed but never attached — are invisible through the API and accumulate. |
 | 2 | `upload_status` is not exposed by the serializer. | A client cannot tell a `PENDING` recording from a `CONFIRMED` one, and nothing blocks attaching an unconfirmed recording to a log. |
-| 3 | The 50 MB ceiling is not checked at step 1. | An oversized upload is only rejected after the bytes have been transferred to S3. |
+| 3 | The 50 MB ceiling is not checked at step 1. | An oversized upload is only rejected after the bytes have been transferred to blob storage. |
 | 4 | `content_type` is not re-verified at step 2. | A file whose declared type was MP3 but whose content is not is stored regardless. |
 | 5 | There is no `discard` counterpart to the Knowledge Base flow. | Failed and abandoned uploads cannot be cleaned up through the API. |
 

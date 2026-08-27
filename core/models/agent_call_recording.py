@@ -18,7 +18,7 @@ class AgentCallRecording(TenantBaseModelCore):
     file = models.FileField(
         upload_to=agent_call_recording_upload_path,
         max_length=500,
-        help_text=_("The MP3 recording file stored in the S3 bucket.")
+        help_text=_("The MP3 recording file stored in the blob storage container.")
     )
     upload_status = models.CharField(
         max_length=10,

@@ -15,8 +15,8 @@ import os
 from core.serializers.uploads import upload_ticket_fields
 from core.serializers.kb_files import KBFilesSerializer, RequestUploadUrlSerializer, ConfirmUploadSerializer
 from core.services import uploads as upload_service
-from utils.s3_storage.service import S3StorageService
-from utils.s3_storage.keys import (
+from utils.blob_storage.service import AzureBlobStorageService
+from utils.blob_storage.keys import (
     build_tenant_object_key,
     is_object_key_owned_by_tenant,
 )
@@ -180,8 +180,8 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
         )
 
     @extend_schema(
-        summary="Request a secure S3 upload URL",
-        description="Generates a temporary Presigned PUT URL allowing the frontend to upload a file directly to the storage bucket.",
+        summary="Request a secure upload URL",
+        description="Generates a short-lived signed (SAS) PUT URL allowing the frontend to upload a file directly to blob storage. The response's upload_headers must be sent with that PUT.",
         request=RequestUploadUrlSerializer,
         responses={
             200: inline_serializer(
@@ -241,7 +241,7 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
                 object_key,
                 content_type,
                 max_bytes=max_bytes,
-                storage=S3StorageService(),
+                storage=AzureBlobStorageService(),
             )
         except Exception:
             logger.exception("Could not presign KB upload for tenant %s", tenant.id)
@@ -261,8 +261,8 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
         }, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Confirm a direct S3 upload",
-        description="Verifies the file arrived in S3 and creates the Knowledge Base File record.",
+        summary="Confirm a direct upload",
+        description="Verifies the file arrived in blob storage and creates the Knowledge Base File record.",
         request=ConfirmUploadSerializer,
         responses={
             201: inline_serializer(
@@ -273,7 +273,7 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
                     "data": KBFilesSerializer()
                 }
             ),
-            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or file missing in S3.")
+            400: OpenApiResponse(response=GeneralResponseSerializer, description="Validation failed or file missing in blob storage.")
         }
     )
     @action(detail=False, methods=["post"], url_path="confirm-upload")
@@ -287,7 +287,7 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
         object_key = serializer.validated_data.get("object_key")
         original_name = serializer.validated_data.get("original_name")
 
-        # Security: resolve the tenant BEFORE touching S3. The oversize branch below
+        # Security: resolve the tenant BEFORE touching blob storage. The oversize branch below
         # deletes the object it was handed, so an unauthorized key must never reach it.
         try:
             tenant = request.user.tenant_mapping.tenant
@@ -314,21 +314,21 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
             # Security: the key must live inside this tenant's namespace. Report 404
             # rather than 403 so the response cannot probe for another tenant's objects.
             if not is_object_key_owned_by_tenant(object_key, tenant.id, folder="kb_files"):
-                return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"status": False, "message": "File not found in storage. Did the upload succeed?"}, status=status.HTTP_404_NOT_FOUND)
 
         extension = serializer.validated_data.get("extension")
         if not extension:
             extension = os.path.splitext(original_name or "")[1].lower()
 
-        storage_service = S3StorageService()
+        storage_service = AzureBlobStorageService()
 
-        # Security: verify the file actually exists in S3 before recording it
+        # Security: verify the file actually exists in blob storage before recording it
         try:
             exists = storage_service.verify_object_exists(object_key)
             if not exists:
-                return Response({"status": False, "message": "File not found in storage bucket. Did the upload succeed?"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"status": False, "message": "File not found in storage. Did the upload succeed?"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Security: verify actual file size to enforce limit on direct S3 uploads
+            # Security: verify actual file size to enforce limit on direct uploads
             file_stats = storage_service.get_file_disk_usage(object_key)
             max_size = getattr(settings, "DATA_UPLOAD_MAX_MEMORY_SIZE", 11 * 1024 * 1024)
             if file_stats.get("total_size_bytes", 0) > max_size:
@@ -405,7 +405,7 @@ class KnowledgeBaseViewSet(EntitlementGuardMixin, TenantBaseViewSet):
         
     @extend_schema(
         summary="Discard uploaded Knowledge Base files",
-        description="Permanently deletes an array of uploaded KB files and their associated S3 objects. Use this when a user uploads files but then discards the KB creation process.",
+        description="Permanently deletes an array of uploaded KB files and their associated storage objects. Use this when a user uploads files but then discards the KB creation process.",
         request=inline_serializer(
             name="DiscardFilesRequest",
             fields={

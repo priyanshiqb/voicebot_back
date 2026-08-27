@@ -1,89 +1,110 @@
 """
-Presigned upload tickets: the size ceiling as something the object store enforces.
+Upload tickets: what the client is handed, and what the ticket can and cannot promise.
 
-A presigned PUT cannot bound an upload. ``ContentLength`` has to be signed as an exact
-value, which a browser cannot control, so it was commented out and the URL accepts a
-body of any size — a ticket issued for a 1 MB file will take 500 MB, and the overage is
-only found at confirm, after it has been transferred and stored.
+A SAS PUT cannot bound an upload. Azure has no signable size condition at any API
+version, so a ticket issued for a 1 MB file will take 500 MB and the overage is only
+found at confirm, after it has been transferred and stored. That is not a gap to be
+closed later — the S3 presigned POST that *could* sign a ``content-length-range`` has no
+Azure equivalent, and the option is gone rather than unimplemented.
 
-A presigned POST can: ``content-length-range`` is signed into the policy and the store
-rejects an oversize body mid-upload. These tests hold the two apart, and check that each
-flow signs *its own* ceiling rather than a shared guess.
+Two things follow, and both are asserted here because both are easy to lose in a
+refactor:
 
-``UPLOAD_PRESIGN_METHOD`` still defaults to PUT, because switching is a breaking change
-for the client. That default is deliberate and is asserted below, so flipping it is a
-decision someone makes rather than something that drifts.
+- The confirm-time measure-and-delete is the only size enforcement there is, so each
+  flow still has to sign *its own* ceiling into the ticket it returns.
+- The ticket has to carry ``upload_headers``. Azure rejects a block-blob PUT without
+  ``x-ms-blob-type``, and that rejection comes from the storage account rather than from
+  this API — a client that drops the headers sees what looks like a storage outage.
 """
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from django.core.checks import Error, Warning
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, TestCase
 
-from core.checks import check_upload_presign_method, check_upload_url_ttl
+from core.checks import (
+    check_object_storage_configured,
+    check_upload_presign_method,
+    check_upload_url_ttl,
+)
 from core.services import uploads as upload_service
+
+#: Azurite's published development account. Public, documented by Microsoft, and valid
+#: base64 — which is all `generate_blob_sas` needs to produce a real signature offline.
+TEST_ACCOUNT = "devstoreaccount1"
+TEST_KEY = (
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/"
+    "KBHBeksoGMGw=="
+)
 
 
 def fake_storage():
     storage = MagicMock()
-    storage.get_presigned_post.return_value = {
-        "url": "https://bucket.example/",
-        "fields": {"key": "t-1/catalog/x.jpg", "policy": "…", "x-amz-signature": "…"},
+    storage.get_presigned_put_url.return_value = (
+        "https://acct.blob.core.windows.net/c/t-1/catalog/x.jpg?sig=…"
+    )
+    storage.get_upload_headers.return_value = {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": "image/jpeg",
     }
-    storage.get_presigned_put_url.return_value = "https://bucket.example/t-1/catalog/x.jpg"
     return storage
 
 
 class UploadTicketTests(SimpleTestCase):
-    def test_post_mode_returns_form_fields(self):
+    def test_the_ticket_carries_a_put_url_and_no_form_fields(self):
         storage = fake_storage()
 
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
-            ticket = upload_service.build_upload_ticket(
-                "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=storage
-            )
+        ticket = upload_service.build_upload_ticket(
+            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=storage
+        )
 
-        self.assertEqual(ticket["upload_method"], "POST")
-        self.assertEqual(ticket["upload_url"], "https://bucket.example/")
-        self.assertIn("policy", ticket["upload_fields"])
+        self.assertEqual(ticket["upload_method"], "PUT")
+        self.assertEqual(
+            ticket["upload_url"],
+            "https://acct.blob.core.windows.net/c/t-1/catalog/x.jpg?sig=…",
+        )
         self.assertEqual(ticket["max_bytes"], 1024)
-        storage.get_presigned_put_url.assert_not_called()
 
-    def test_post_mode_signs_the_size_ceiling(self):
-        """The whole point. The ceiling has to reach the policy, not just the response."""
+    def test_upload_fields_stays_present_and_empty(self):
+        """Kept in the envelope rather than removed. It held the S3 POST policy's signed
+        form fields; a client that reads it unconditionally should get an empty dict, not
+        a KeyError."""
+        ticket = upload_service.build_upload_ticket(
+            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=fake_storage()
+        )
+
+        self.assertIn("upload_fields", ticket)
+        self.assertEqual(ticket["upload_fields"], {})
+
+    def test_the_ticket_carries_the_mandatory_blob_type_header(self):
+        """Without this the browser's PUT is rejected by Azure, not by us, so the failure
+        reads as a storage outage rather than as a missing header."""
+        ticket = upload_service.build_upload_ticket(
+            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=fake_storage()
+        )
+
+        self.assertEqual(ticket["upload_headers"]["x-ms-blob-type"], "BlockBlob")
+
+    def test_the_declared_content_type_reaches_the_headers(self):
+        """A SAS cannot pin Content-Type on a write, so the only way the blob gets stored
+        with the right type is for the client to send it."""
         storage = fake_storage()
 
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
-            upload_service.build_upload_ticket(
-                "t-1/catalog/x.jpg", "image/jpeg", max_bytes=4096, storage=storage
-            )
+        upload_service.build_upload_ticket(
+            "t-1/kb_files/x.pdf", "application/pdf", max_bytes=1024, storage=storage
+        )
 
-        kwargs = storage.get_presigned_post.call_args.kwargs
-        self.assertEqual(kwargs["max_bytes"], 4096)
-        self.assertEqual(kwargs["min_bytes"], 1)
+        storage.get_upload_headers.assert_called_once_with("application/pdf")
 
-    def test_put_mode_returns_no_fields(self):
-        storage = fake_storage()
-
-        with self.settings(UPLOAD_PRESIGN_METHOD="PUT"):
+    def test_the_method_is_case_and_space_insensitive(self):
+        with self.settings(UPLOAD_PRESIGN_METHOD=" put "):
             ticket = upload_service.build_upload_ticket(
-                "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=storage
+                "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=fake_storage()
             )
 
         self.assertEqual(ticket["upload_method"], "PUT")
-        self.assertEqual(ticket["upload_fields"], {})
-        storage.get_presigned_post.assert_not_called()
-
-    def test_the_method_is_case_and_space_insensitive(self):
-        storage = fake_storage()
-
-        with self.settings(UPLOAD_PRESIGN_METHOD=" post "):
-            ticket = upload_service.build_upload_ticket(
-                "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=storage
-            )
-
-        self.assertEqual(ticket["upload_method"], "POST")
 
     def test_an_unknown_method_raises_rather_than_guessing(self):
         """Falling back would silently downgrade a security control. Loud is correct —
@@ -95,131 +116,162 @@ class UploadTicketTests(SimpleTestCase):
                     storage=fake_storage(),
                 )
 
+    def test_post_is_rejected_rather_than_silently_downgraded(self):
+        """A leftover UPLOAD_PRESIGN_METHOD=POST from the S3 configuration asked for a
+        store-enforced size ceiling. Azure cannot provide one, and quietly issuing an
+        unbounded PUT instead would answer a security request with a security hole."""
+        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
+            with self.assertRaises(ImproperlyConfigured):
+                upload_service.build_upload_ticket(
+                    "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024,
+                    storage=fake_storage(),
+                )
+
     def test_the_ttl_comes_from_settings(self):
         storage = fake_storage()
 
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST", UPLOAD_URL_TTL_MINUTES=5):
+        with self.settings(UPLOAD_URL_TTL_MINUTES=5):
             ticket = upload_service.build_upload_ticket(
                 "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, storage=storage
             )
 
         self.assertEqual(ticket["expires_in_minutes"], 5)
-        self.assertEqual(storage.get_presigned_post.call_args.kwargs["expiry_minutes"], 5)
+        self.assertEqual(
+            storage.get_presigned_put_url.call_args.kwargs["expiry_minutes"], 5
+        )
 
     def test_the_default_is_put(self):
-        """Asserted on purpose. POST is the safer mode but a breaking change for the
-        client, so backend and frontend have to ship together — the default must not
-        drift to POST without someone choosing it."""
         self.assertEqual(upload_service.DEFAULT_UPLOAD_METHOD, "PUT")
 
+    def test_put_is_the_only_offered_method(self):
+        """Asserted so that re-adding POST is a deliberate act. The schema advertises
+        UPLOAD_METHODS as the choices for `upload_method`, so a stray entry here becomes
+        a value clients are told to expect and the service cannot produce."""
+        self.assertEqual(upload_service.UPLOAD_METHODS, ("PUT",))
 
-class PresignedPostContractTests(SimpleTestCase):
-    """What actually reaches boto3, since that is where the enforcement lives."""
 
-    def _service(self, client):
-        from utils.s3_storage.service import S3StorageService
+class SasContractTests(SimpleTestCase):
+    """What actually gets signed.
 
-        with patch("utils.s3_storage.service.boto3.client", return_value=client):
-            service = S3StorageService()
-        service.bucket_name = "test-bucket"
-        service.custom_domain = None
-        return service
+    No mocking: `generate_blob_sas` is pure local crypto, so these run the real signer
+    against the emulator's public development key and read the result back off the query
+    string — which is exactly what Azure will parse.
+    """
 
-    def _conditions(self, client):
-        return client.generate_presigned_post.call_args.kwargs["Conditions"]
+    settings_kwargs = dict(
+        AZURE_ACCOUNT_NAME=TEST_ACCOUNT,
+        AZURE_ACCOUNT_KEY=TEST_KEY,
+        AZURE_CONTAINER="test-container",
+        AZURE_CONNECTION_STRING=None,
+        AZURE_PUBLIC_ENDPOINT=None,
+        AZURE_ENDPOINT_SUFFIX="core.windows.net",
+    )
 
-    def test_the_content_length_range_condition_is_present(self):
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {"url": "https://s3/", "fields": {}}
+    def _service(self, **overrides):
+        from utils.blob_storage.service import AzureBlobStorageService
 
-        self._service(client).get_presigned_post(
-            "t-1/kb_files/x.pdf", "application/pdf", max_bytes=11 * 1024 * 1024
+        with self.settings(**{**self.settings_kwargs, **overrides}):
+            return AzureBlobStorageService()
+
+    def _query(self, url):
+        return parse_qs(urlparse(url).query)
+
+    def test_an_upload_sas_grants_create_and_not_write(self):
+        """`create` refuses a Put Blob against a blob that already exists; `write` does
+        not. That is the one bound this ticket has that the presigned PUT it replaced did
+        not, and widening it to fix a permission error would silently remove it."""
+        url = self._service().get_presigned_put_url(
+            "t-1/catalog/x.jpg", "image/jpeg", 1024
         )
 
-        self.assertIn(
-            ["content-length-range", 1, 11 * 1024 * 1024],
-            self._conditions(client),
-            "without this condition the policy does not bound the upload at all, "
-            "which is the entire reason for using POST over PUT",
+        self.assertEqual(self._query(url)["sp"], ["c"])
+
+    def test_an_upload_sas_is_scoped_to_one_blob(self):
+        url = self._service().get_presigned_put_url(
+            "t-1/catalog/x.jpg", "image/jpeg", 1024
         )
 
-    def test_the_content_type_is_pinned(self):
-        """Otherwise a client can declare an image and upload an HTML document, which
-        matters because these objects are served back through presigned GET URLs."""
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {"url": "https://s3/", "fields": {}}
-
-        self._service(client).get_presigned_post(
-            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024
+        self.assertEqual(self._query(url)["sr"], ["b"])
+        self.assertTrue(
+            urlparse(url).path.endswith("/test-container/t-1/catalog/x.jpg"),
+            urlparse(url).path,
         )
 
-        self.assertIn({"Content-Type": "image/jpeg"}, self._conditions(client))
+    def test_a_download_sas_grants_read_only(self):
+        url = self._service().get_presigned_url_for_object("t-1/kb_files/x.pdf")
+
+        self.assertEqual(self._query(url)["sp"], ["r"])
+
+    def test_every_sas_is_signed_and_expires(self):
+        url = self._service().get_presigned_put_url(
+            "t-1/catalog/x.jpg", "image/jpeg", 1024
+        )
+
+        query = self._query(url)
+        self.assertIn("sig", query)
+        self.assertIn("se", query)
+
+    def test_the_upload_headers_name_the_block_blob_type(self):
         self.assertEqual(
-            client.generate_presigned_post.call_args.kwargs["Fields"]["Content-Type"],
-            "image/jpeg",
+            self._service().get_upload_headers("image/jpeg"),
+            {"x-ms-blob-type": "BlockBlob", "Content-Type": "image/jpeg"},
         )
 
-    def test_a_zero_byte_upload_is_refused_by_default(self):
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {"url": "https://s3/", "fields": {}}
+    def test_the_public_endpoint_rewrites_the_host_and_keeps_the_path(self):
+        """In Docker the app addresses Azurite as `azurite:10000`, which a browser cannot
+        resolve. The emulator also puts the account name in the path, so a rewrite that
+        replaced more than the host would drop `/devstoreaccount1` and 404."""
+        url = self._service(
+            AZURE_CONNECTION_STRING=(
+                f"DefaultEndpointsProtocol=http;AccountName={TEST_ACCOUNT};"
+                f"AccountKey={TEST_KEY};"
+                f"BlobEndpoint=http://azurite:10000/{TEST_ACCOUNT};"
+            ),
+            AZURE_PUBLIC_ENDPOINT="http://127.0.0.1:10000",
+        ).get_presigned_put_url("t-1/catalog/x.jpg", "image/jpeg", 1024)
 
-        self._service(client).get_presigned_post(
-            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024
-        )
-
-        minimum = next(
-            c[1] for c in self._conditions(client)
-            if isinstance(c, list) and c[0] == "content-length-range"
-        )
-        self.assertEqual(minimum, 1)
-
-    def test_the_key_is_pinned_exactly(self):
-        """The key travels to the client in the form fields, as it already does inside a
-        presigned PUT's path. It is signed, so it cannot be swapped for another
-        tenant's — and confirm-upload still refuses to accept a key at all."""
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {"url": "https://s3/", "fields": {}}
-
-        self._service(client).get_presigned_post(
-            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024
-        )
-
+        parsed = urlparse(url)
+        self.assertEqual(parsed.netloc, "127.0.0.1:10000")
         self.assertEqual(
-            client.generate_presigned_post.call_args.kwargs["Key"], "t-1/catalog/x.jpg"
+            parsed.path, f"/{TEST_ACCOUNT}/test-container/t-1/catalog/x.jpg"
         )
 
-    def test_the_custom_domain_rewrites_the_url(self):
-        """In Docker the signing endpoint is `minio:9000`, which a browser cannot
-        resolve. Same rewrite the PUT path does."""
-        from utils.s3_storage.service import S3StorageService
-
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {
-            "url": "http://minio:9000/test-bucket",
-            "fields": {"key": "t-1/catalog/x.jpg"},
-        }
-        with patch("utils.s3_storage.service.boto3.client", return_value=client):
-            service = S3StorageService()
-        service.bucket_name = "test-bucket"
-        service.custom_domain = "http://127.0.0.1:9000"
-
-        result = service.get_presigned_post(
-            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024
+    def test_the_signature_survives_the_host_rewrite(self):
+        """The reason the rewrite is legitimate here and was a gamble under S3: a service
+        SAS signs the canonicalized resource, not the Host header. Same blob, same
+        permissions, different host — same signature."""
+        kwargs = dict(
+            AZURE_CONNECTION_STRING=(
+                f"DefaultEndpointsProtocol=http;AccountName={TEST_ACCOUNT};"
+                f"AccountKey={TEST_KEY};"
+                f"BlobEndpoint=http://azurite:10000/{TEST_ACCOUNT};"
+            ),
         )
+        direct = self._service(**kwargs, AZURE_PUBLIC_ENDPOINT=None)
+        rewritten = self._service(**kwargs, AZURE_PUBLIC_ENDPOINT="http://127.0.0.1:10000")
 
-        self.assertEqual(result["url"], "http://127.0.0.1:9000/test-bucket")
+        signed = self._query(
+            direct.get_presigned_url_for_object("t-1/kb_files/x.pdf")
+        )["sig"]
+        swapped = self._query(
+            rewritten.get_presigned_url_for_object("t-1/kb_files/x.pdf")
+        )["sig"]
 
-    def test_the_expiry_is_in_seconds(self):
-        client = MagicMock()
-        client.generate_presigned_post.return_value = {"url": "https://s3/", "fields": {}}
+        self.assertEqual(signed, swapped)
 
-        self._service(client).get_presigned_post(
-            "t-1/catalog/x.jpg", "image/jpeg", max_bytes=1024, expiry_minutes=15
-        )
+    def test_signing_without_an_account_key_fails_loudly(self):
+        """The silent alternative is a URL with no `sig`, which Azure answers with 403 —
+        at upload time, in the browser, with nothing in our logs."""
+        with self.assertRaises(ValueError):
+            self._service(AZURE_ACCOUNT_KEY=None).get_presigned_put_url(
+                "t-1/catalog/x.jpg", "image/jpeg", 1024
+            )
 
-        self.assertEqual(
-            client.generate_presigned_post.call_args.kwargs["ExpiresIn"], 900
-        )
+    def test_signing_without_a_container_fails_loudly(self):
+        with self.assertRaises(ValueError):
+            self._service(AZURE_CONTAINER=None).get_presigned_put_url(
+                "t-1/catalog/x.jpg", "image/jpeg", 1024
+            )
 
 
 class FlowCeilingTests(TestCase):
@@ -245,8 +297,8 @@ class FlowCeilingTests(TestCase):
 
     def test_no_upload_view_presigns_directly_any_more(self):
         """Every flow must go through build_upload_ticket, or one of them keeps issuing
-        unbounded PUT URLs after the others were fixed — which is exactly how catalog
-        media ended up missing from the sweep and the key audit."""
+        tickets without the mandatory headers after the others were fixed — which is
+        exactly how catalog media ended up missing from the sweep and the key audit."""
         import inspect
 
         from core.views import agent_call_log, catalog_item_media, contact_import
@@ -259,14 +311,15 @@ class FlowCeilingTests(TestCase):
                     ".get_presigned_put_url(",
                     source,
                     f"{module.__name__} presigns an upload directly instead of calling "
-                    f"upload_service.build_upload_ticket, so it will not honour "
-                    f"UPLOAD_PRESIGN_METHOD and cannot bound the upload size.",
+                    f"upload_service.build_upload_ticket, so its ticket will not carry "
+                    f"upload_headers and every upload through it will be rejected by "
+                    f"Azure.",
                 )
                 self.assertIn("build_upload_ticket", source)
 
 
-class CatalogPostModeEndToEndTests(TestCase):
-    """One real request through a real endpoint in POST mode.
+class CatalogTicketEndToEndTests(TestCase):
+    """One real request through a real endpoint.
 
     The unit tests above prove the builder; this proves the wiring — that the view
     reaches it, passes its own ceiling, and returns the ticket to the client intact.
@@ -275,7 +328,7 @@ class CatalogPostModeEndToEndTests(TestCase):
     def setUp(self):
         from core.tests.catalog.views.base import CatalogAPITestCase
 
-        # Borrow the catalog fixtures without subclassing into its S3 patch decorator.
+        # Borrow the catalog fixtures without subclassing into its storage patch decorator.
         self.helper = CatalogAPITestCase(methodName="run")
         self.helper.setUp()
         self.item = self.helper.make_item("Nike Air Max")
@@ -290,25 +343,27 @@ class CatalogPostModeEndToEndTests(TestCase):
             "file_size_in_bytes": 1024,
         }
 
-    @patch("core.views.catalog_item_media.S3StorageService")
-    def test_post_mode_returns_a_usable_form_ticket(self, storage):
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
+    def test_the_endpoint_returns_a_usable_ticket(self, storage):
         from core.tests.catalog.views.base import MEDIA
 
-        storage.return_value.get_presigned_post.return_value = {
-            "url": "https://bucket.example/",
-            "fields": {"key": "t-1/catalog/x.jpg", "policy": "abc"},
+        storage.return_value.get_presigned_put_url.return_value = "https://blob/put"
+        storage.return_value.get_upload_headers.return_value = {
+            "x-ms-blob-type": "BlockBlob",
+            "Content-Type": "image/jpeg",
         }
 
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST", CATALOG_MAX_MEDIA_BYTES=2048):
+        with self.settings(CATALOG_MAX_MEDIA_BYTES=2048):
             response = self.api.post(
                 f"{MEDIA}request-upload-url/", self._payload(), format="json"
             )
 
         self.assertEqual(response.status_code, 200, response.data)
         data = response.data["data"]
-        self.assertEqual(data["upload_method"], "POST")
-        self.assertEqual(data["upload_url"], "https://bucket.example/")
-        self.assertEqual(data["upload_fields"]["policy"], "abc")
+        self.assertEqual(data["upload_method"], "PUT")
+        self.assertEqual(data["upload_url"], "https://blob/put")
+        self.assertEqual(data["upload_fields"], {})
+        self.assertEqual(data["upload_headers"]["x-ms-blob-type"], "BlockBlob")
         self.assertEqual(data["max_bytes"], 2048)
         self.assertIn("media_id", data)
         # Still no object key of our own making in the response body.
@@ -316,40 +371,19 @@ class CatalogPostModeEndToEndTests(TestCase):
 
         # And the ceiling reached the signer, not just the response body.
         self.assertEqual(
-            storage.return_value.get_presigned_post.call_args.kwargs["max_bytes"], 2048
+            storage.return_value.get_presigned_put_url.call_args.args[2], 2048
         )
-        storage.return_value.get_presigned_put_url.assert_not_called()
 
-    @patch("core.views.catalog_item_media.S3StorageService")
-    def test_put_mode_still_works_unchanged(self, storage):
-        """The default path. Existing clients must keep working until the frontend
-        ships multipart support."""
-        from core.tests.catalog.views.base import MEDIA
-
-        storage.return_value.get_presigned_put_url.return_value = "https://s3/put"
-
-        with self.settings(UPLOAD_PRESIGN_METHOD="PUT"):
-            response = self.api.post(
-                f"{MEDIA}request-upload-url/", self._payload(), format="json"
-            )
-
-        data = response.data["data"]
-        self.assertEqual(data["upload_method"], "PUT")
-        self.assertEqual(data["upload_url"], "https://s3/put")
-        self.assertEqual(data["upload_fields"], {})
-        storage.return_value.get_presigned_post.assert_not_called()
-
-    @patch("core.views.catalog_item_media.S3StorageService")
+    @patch("core.views.catalog_item_media.AzureBlobStorageService")
     def test_a_presign_failure_marks_the_row_failed(self, storage):
         from core.models.catalog_item_media import CatalogItemMedia
         from core.tests.catalog.views.base import MEDIA
 
-        storage.return_value.get_presigned_post.side_effect = RuntimeError("down")
+        storage.return_value.get_presigned_put_url.side_effect = RuntimeError("down")
 
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
-            response = self.api.post(
-                f"{MEDIA}request-upload-url/", self._payload(), format="json"
-            )
+        response = self.api.post(
+            f"{MEDIA}request-upload-url/", self._payload(), format="json"
+        )
 
         self.assertEqual(response.status_code, 503, response.data)
         media = CatalogItemMedia.all_objects.get(item=self.item)
@@ -367,15 +401,20 @@ class UploadCheckTests(SimpleTestCase):
         self.assertTrue(any(isinstance(r, Error) for r in results))
         self.assertEqual(results[0].id, "core.E001")
 
-    def test_put_is_flagged_as_unenforceable(self):
-        with self.settings(UPLOAD_PRESIGN_METHOD="PUT"):
+    def test_post_is_an_error_with_an_explanation(self):
+        """POST was valid under S3. Someone carrying it forward deserves to be told why
+        it is gone rather than just that it is wrong."""
+        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
             results = check_upload_presign_method(None)
 
-        self.assertTrue(any(isinstance(r, Warning) for r in results))
-        self.assertEqual(results[0].id, "core.W001")
+        self.assertEqual(results[0].id, "core.E001")
+        self.assertIn("Azure Blob has no equivalent", results[0].hint)
 
-    def test_post_is_clean(self):
-        with self.settings(UPLOAD_PRESIGN_METHOD="POST"):
+    def test_put_is_clean(self):
+        """PUT cannot enforce a size ceiling during the upload, and on Azure nothing can,
+        so this is not a warning — a check that can never be resolved only teaches people
+        to ignore `manage.py check`. The bound lives at confirm instead."""
+        with self.settings(UPLOAD_PRESIGN_METHOD="PUT"):
             self.assertEqual(check_upload_presign_method(None), [])
 
     def test_a_ticket_outliving_the_sweep_is_an_error(self):
@@ -394,3 +433,24 @@ class UploadCheckTests(SimpleTestCase):
 
     def test_the_shipped_defaults_are_consistent(self):
         self.assertEqual(check_upload_url_ttl(None), [])
+
+
+class StorageConfiguredCheckTests(SimpleTestCase):
+    """The failure this catches is silent: uploads land on the container's own disk and
+    disappear on the next restart, discovered later as a file that 404s."""
+
+    def test_unconfigured_storage_warns_outside_debug(self):
+        with self.settings(DEBUG=False, USE_AZURE_STORAGE=False, AZURE_CONTAINER=None):
+            results = check_object_storage_configured(None)
+
+        self.assertTrue(any(isinstance(r, Warning) for r in results))
+        self.assertEqual(results[0].id, "core.W002")
+        self.assertIn("AZURE_CONTAINER", results[0].hint)
+
+    def test_local_development_is_not_nagged(self):
+        with self.settings(DEBUG=True, USE_AZURE_STORAGE=False):
+            self.assertEqual(check_object_storage_configured(None), [])
+
+    def test_configured_storage_is_clean(self):
+        with self.settings(DEBUG=False, USE_AZURE_STORAGE=True):
+            self.assertEqual(check_object_storage_configured(None), [])

@@ -663,7 +663,7 @@ class DiscardAndCleanupTests(ImportTestCase):
         )
 
         with patch(
-            "utils.s3_storage.service.S3StorageService.delete_blob_direct",
+            "utils.blob_storage.service.AzureBlobStorageService.delete_blob_direct",
             side_effect=Exception("bucket unreachable"),
         ):
             purged = import_service.cleanup_expired_sessions()
@@ -730,7 +730,7 @@ class UploadEndpointTests(ImportTestCase):
         from unittest.mock import patch
 
         with patch(
-            "utils.s3_storage.service.S3StorageService.get_presigned_put_url",
+            "utils.blob_storage.service.AzureBlobStorageService.get_presigned_put_url",
             return_value="https://example/put",
         ):
             response = self.client_alex.post(
@@ -765,7 +765,7 @@ class UploadEndpointTests(ImportTestCase):
         from unittest.mock import patch
 
         with patch(
-            "utils.s3_storage.service.S3StorageService.get_presigned_put_url",
+            "utils.blob_storage.service.AzureBlobStorageService.get_presigned_put_url",
             return_value="https://example/put",
         ):
             created = self.client_alex.post(
@@ -780,10 +780,10 @@ class UploadEndpointTests(ImportTestCase):
         file_id = created.data["data"]["file_id"]
 
         with patch(
-            "utils.s3_storage.service.S3StorageService.verify_object_exists",
+            "utils.blob_storage.service.AzureBlobStorageService.verify_object_exists",
             return_value=True,
         ), patch(
-            "utils.s3_storage.service.S3StorageService.get_file_disk_usage",
+            "utils.blob_storage.service.AzureBlobStorageService.get_file_disk_usage",
             return_value={"total_size_bytes": 100},
         ) as usage:
             self.client_alex.post(

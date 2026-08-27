@@ -38,8 +38,8 @@ Five things govern everything on this page:
 | `PUT` / `PATCH` | `/knowledge-base/{id}/` | Update, using the flag system |
 | `DELETE` | `/knowledge-base/{id}/` | Soft-delete (needs `?force=true` if in use) |
 | `POST` | `/knowledge-base/upload_file/` | Upload a document directly (multipart) |
-| `POST` | `/knowledge-base/request-upload-url/` | Presigned S3 upload — step 1 |
-| `POST` | `/knowledge-base/confirm-upload/` | Presigned S3 upload — step 2 |
+| `POST` | `/knowledge-base/request-upload-url/` | Signed-URL upload — step 1 |
+| `POST` | `/knowledge-base/confirm-upload/` | Signed-URL upload — step 2 |
 | `POST` | `/knowledge-base/discard-files/` | Permanently delete unattached uploads |
 | `GET` | `/knowledge-base/dropdown/` | Label/value picker options |
 | `POST` | `/knowledge-base/bulk-delete/` | Bulk soft-delete (**hyphen**) |
@@ -102,10 +102,10 @@ succeeded carries both `failed_at` and `completed_at`; compare them to see which
 Files must exist before they can be attached. There are two ways to create one, and they produce
 the same `KBFiles` row.
 
-| | **Direct multipart** (§6) | **Presigned S3** (§7–8) |
+| | **Direct multipart** (§6) | **Signed URL upload** (§7–8) |
 |---|---|---|
-| Calls | 1 | 2, plus your own `PUT` to S3 |
-| File passes through this API | Yes | No — the browser uploads straight to S3 |
+| Calls | 1 | 2, plus your own `PUT` to blob storage |
+| File passes through this API | Yes | No — the browser uploads straight to blob storage |
 | Best for | Small files, server-side scripts | Browser uploads, large files |
 | Endpoint | `POST /upload_file/` | `POST /request-upload-url/` → `POST /confirm-upload/` |
 
@@ -119,7 +119,7 @@ the same `KBFiles` row.
 > **The size limit is enforced twice on the presigned path** — once against the size you declare in
 > `request-upload-url`, and again against the object's *actual* size at `confirm-upload`. Declaring
 > a small size and uploading a large file fails the second check, and **the object is deleted from
-> S3** rather than left as an orphan.
+> blob storage** rather than left as an orphan.
 
 An uploaded file that is never attached stays as an orphan row. Clean those up with
 [`discard-files`](#9-discard-uploaded-files).
@@ -207,7 +207,7 @@ The full record, with every component expanded and each carrying its own ingesti
       "files": [
         {
           "id": "c3d4…",
-          "file": "https://bucket.s3.amazonaws.com/t-7bf2…/kb_files/…?X-Amz-Expires=86400…",
+          "file": "https://<acct>.blob.core.windows.net/<container>/t-7bf2…/kb_files/…?sv=…&sp=r&se=…&sig=…",
           "original_name": "setup.pdf",
           "extension": ".pdf",
           "is_processed": false,
@@ -247,7 +247,7 @@ The full record, with every component expanded and each carrying its own ingesti
   ```
 
 > **`file` is a presigned download URL, not a stored path** — generated per request and valid for
-> **24 hours**. Do not cache or persist it. If S3 storage is not configured, the raw storage path is
+> **24 hours**. Do not cache or persist it. If blob storage is not configured, the raw storage path is
 > returned instead.
 
 > **The parent's `processing_status` is not a rollup.** A base can read `COMPLETED` while one of its
@@ -453,7 +453,7 @@ Sends the file through this API. Simplest path; best for server-side callers and
     "message": "File uploaded successfully",
     "data": {
       "id": "c3d4e5f6-…",
-      "file": "https://bucket.s3.amazonaws.com/…?X-Amz-Expires=86400…",
+      "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…",
       "original_name": "setup.pdf",
       "extension": ".pdf",
       "processing_status": "PENDING"
@@ -477,14 +477,14 @@ base. Uploading alone attaches nothing.
 
 ### 7. Request an Upload URL (presigned, step 1)
 
-Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes to directly.
+Reserves a file row and returns a short-lived signed (SAS) URL your client `PUT`s the bytes to directly.
 
 - **Path**: `POST /api/v1/core/knowledge-base/request-upload-url/`
 
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `filename` * | string | The file's name, used to derive the extension and the stored object key. | Required, max **255**. Extension must be `.pdf`, `.docx`, or `.txt`. |
-| `content_type` * | string | MIME type, baked into the presigned URL — your `PUT` must send the **same** `Content-Type` header or S3 rejects it. | Required, max **100**. Not cross-checked against `filename`. |
+| `content_type` * | string | MIME type. Comes back in `upload_headers`; send it from there rather than reconstructing it. | Required, max **100**. Not cross-checked against `filename`. |
 | `file_size_in_bytes` * | integer | Declared size. A **declaration**, not the enforced ceiling — see the note under the response. | Required. Must not exceed **10 MB**. |
 
 - **Success Response (200 OK)**:
@@ -495,8 +495,12 @@ Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes 
     "data": {
       "file_id": "c3d4e5f6-…",
       "upload_method": "PUT",
-      "upload_url": "https://bucket.s3.amazonaws.com/t-7bf2…/kb_files/…?X-Amz-Signature=…",
+      "upload_url": "https://<acct>.blob.core.windows.net/<container>/t-7bf2…/kb_files/…?sv=…&sp=c&sig=…",
       "upload_fields": {},
+      "upload_headers": {
+        "x-ms-blob-type": "BlockBlob",
+        "Content-Type": "application/pdf"
+      },
       "expires_in_minutes": 15,
       "max_bytes": 11534336,
       "object_key": "t-7bf26cf4-…/kb_files/c3d4e5f6-…_setup.pdf"
@@ -505,22 +509,20 @@ Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes 
   }
   ```
 
-> **Branch on `upload_method`; do not hardcode it.** It comes from deployment
-> configuration (`UPLOAD_PRESIGN_METHOD`) and changes without an API version bump.
+> **Send every header in `upload_headers`.** Azure rejects a block-blob PUT without
+> `x-ms-blob-type: BlockBlob`, and that rejection comes from the storage account rather
+> than from this API — so omitting it looks like a storage outage, not a client bug.
+> Success is **`201 Created`**.
 >
-> | `upload_method` | How to send | Success | `upload_fields` |
-> |---|---|---|---|
-> | `PUT` | Body raw to `upload_url`, with the declared `Content-Type` | `200` | `{}` |
-> | `POST` | `upload_fields` as `multipart/form-data`, **file part last**, no `Content-Type` header of your own | `204` | the policy fields |
+> `upload_fields` is always `{}`. It held the signed form fields of the S3 POST policy the
+> previous backend used; Azure Blob has no equivalent. It stays in the envelope so clients
+> that read it unconditionally keep working.
 
-> **Under `PUT`, the size limit is not enforced during the upload.** `ContentLength`
-> cannot be signed into a presigned PUT in a way a browser can satisfy, so a ticket
-> issued for a 1 MB file will accept a 500 MB one. The overage is caught at step 2,
-> which measures the stored object and deletes it if it overruns — but the bytes have
-> already been transferred and stored by then.
->
-> Under `POST`, `max_bytes` is signed into the policy as a `content-length-range`
-> condition and storage rejects an oversize body mid-upload with `EntityTooLarge`.
+> **The size limit is not enforced during the upload.** An Azure SAS carries no size
+> condition at any API version, so a ticket issued for a 1 MB file will accept a 500 MB
+> one. `confirm-upload` measures the stored object and deletes it if it overruns — but the
+> bytes have already been transferred by then. **Check the size client-side against
+> `max_bytes` before uploading.**
 
 | Status | When | `message` |
 |---|---|---|
@@ -539,7 +541,7 @@ Reserves a file row and returns a temporary S3 URL your client `PUT`s the bytes 
 
 ### 8. Confirm the Upload (presigned, step 2)
 
-Call after your `PUT` to S3 succeeds. Verifies the object really arrived and marks the row usable.
+Call after your `PUT` to blob storage succeeds. Verifies the object really arrived and marks the row usable.
 
 - **Path**: `POST /api/v1/core/knowledge-base/confirm-upload/`
 
@@ -556,8 +558,8 @@ Call after your `PUT` to S3 succeeds. Verifies the object really arrived and mar
 |---|---|---|
 | **201** | Verified and recorded. Now usable in a `files` array. | `File confirmed and saved successfully.` |
 | **400** | Neither `file_id` nor `object_key` supplied. | `Provide file_id (preferred) or object_key.` |
-| **400** | The object is not in the bucket — the `PUT` never landed. | `File not found in storage bucket. Did the upload succeed?` |
-| **400** | The **actual** object is over 10 MB. **The object is deleted from S3** and the row marked `FAILED`. | `File size exceeds the limit of 10 MB.` |
+| **400** | The object is not in the container — the `PUT` never landed. | `File not found in storage. Did the upload succeed?` |
+| **400** | The **actual** object is over 10 MB. **The object is deleted from blob storage** and the row marked `FAILED`. | `File size exceeds the limit of 10 MB.` |
 | **400** | `original_name` missing on the legacy path, or a disallowed extension. | first validation error |
 | **403** | No active tenant mapping. | `Your user account is not associated with any active tenant.` |
 | **404** | `file_id` unknown or another tenant's; or an `object_key` outside your tenant's prefix. | `File not found.` |
@@ -566,7 +568,7 @@ Call after your `PUT` to S3 succeeds. Verifies the object really arrived and mar
 > **A foreign `object_key` returns 404, not 403.** Deliberate — a 403 would confirm the object exists
 > in some other tenant.
 
-> **The tenant is resolved before anything touches S3.** The oversize branch deletes the object it
+> **The tenant is resolved before anything touches blob storage.** The oversize branch deletes the object it
 > was handed, so an unauthorised key must never reach it.
 
 ---
@@ -588,7 +590,7 @@ Permanently removes uploads that were never attached — the "user changed their
 | **400** | `file_ids` missing, not a list, or empty. | `A valid list of file_ids is required.` |
 | **403** | No tenant mapping, **or any unexpected failure during deletion**. | `Permission denied or error occurred.` |
 
-> **This is a hard delete, not a soft one.** The database row and the S3 object are both destroyed
+> **This is a hard delete, not a soft one.** The database row and the stored blob are both destroyed
 > and cannot be recovered — unlike everything else on this page.
 
 > **It does not check whether the file is attached to a knowledge base.** Discarding an attached file
@@ -750,7 +752,7 @@ call.
     "files": [
       {
         "id": "18c8c81e-…",
-        "file": "https://bucket.s3.amazonaws.com/…?X-Amz-Expires=86400…",
+        "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…",
         "original_name": "setup.pdf",
         "extension": ".pdf",
         "file_size_in_bytes": 102400,
@@ -859,7 +861,7 @@ listed here.
 | `ETL_SERVER_URL` | *(required)* | Where ingestion is POSTed. No default — the app will not start without it. |
 | `ETL_SYSTEM_TOKEN` | `dummy_etl_system_token_for_local_dev` | Bearer token sent to the ETL service, and the credential it authenticates back with. |
 | `DATA_UPLOAD_MAX_MEMORY_SIZE` | `11534336` (11 MiB) | The upload ceiling. User-facing messages call it "10 MB". |
-| `USE_S3_STORAGE` | derived from the S3 settings | When enabled, `file` fields render as 24-hour presigned URLs. |
+| `USE_AZURE_STORAGE` | derived, all-or-nothing, from `AZURE_ACCOUNT_NAME` + `AZURE_ACCOUNT_KEY` + `AZURE_CONTAINER` | When enabled, `file` fields render as 24-hour signed (SAS) URLs. When not, uploads fall back to local disk and are lost on restart — `manage.py check` warns (`core.W002`) outside `DEBUG`. |
 | `CALLBACK_URL_BASE` | unset | Overrides the callback URL handed to the ETL service. |
 | `BACKEND_PROJECT_URL` | `http://localhost:8000` | Last-resort base for the callback URL. |
 

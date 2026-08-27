@@ -197,7 +197,7 @@ class CommandTests(OrphanedObjectTestCase):
 
         out = StringIO()
         with patch(
-            "core.management.commands.audit_orphaned_objects.S3StorageService",
+            "core.management.commands.audit_orphaned_objects.AzureBlobStorageService",
             return_value=storage,
         ):
             call_command("audit_orphaned_objects", *args, stdout=out)

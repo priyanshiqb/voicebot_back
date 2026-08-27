@@ -28,10 +28,9 @@ def upload_ticket_fields():
         "upload_method": serializers.ChoiceField(
             choices=UPLOAD_METHODS,
             help_text=(
-                "How to send the file. POST: multipart form with `upload_fields`, file "
-                "part last, success is 204. PUT: raw body with the declared "
-                "Content-Type, success is 200. Deployment configuration — branch on it "
-                "rather than hardcoding."
+                "How to send the file. Always `PUT`: raw body, the headers from "
+                "`upload_headers`, success is 200. Declared rather than implied so a "
+                "client branches on it instead of hardcoding the verb."
             ),
         ),
         "upload_url": serializers.CharField(
@@ -40,8 +39,19 @@ def upload_ticket_fields():
         "upload_fields": serializers.DictField(
             child=serializers.CharField(),
             help_text=(
-                "POST only: signed policy fields to send as form fields before the file "
-                "part. Empty under PUT."
+                "Always empty. Held the signed form fields of the S3 POST policy the "
+                "object store used to enforce; Azure Blob has no equivalent. Kept in the "
+                "envelope so clients that read it unconditionally do not break."
+            ),
+        ),
+        "upload_headers": serializers.DictField(
+            child=serializers.CharField(),
+            help_text=(
+                "Request headers that MUST be sent with the upload. Azure rejects a "
+                "block-blob PUT without `x-ms-blob-type: BlockBlob`, and that rejection "
+                "comes from the storage account rather than from this API — omitting "
+                "these looks like a storage outage, not a client bug. Send every entry "
+                "as given; do not filter or reorder."
             ),
         ),
         "expires_in_minutes": serializers.IntegerField(

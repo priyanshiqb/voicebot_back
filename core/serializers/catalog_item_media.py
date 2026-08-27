@@ -24,20 +24,20 @@ ALLOWED_EXTENSIONS = {
 
 
 def presigned_media_url(instance):
-    """A time-limited GET URL, or the raw name when S3 is not in play.
+    """A time-limited GET URL, or the raw name when blob storage is not in play.
 
     Failures are swallowed to the stored name rather than raised: a catalog listing
     must not 500 because the object store hiccupped on one thumbnail.
     """
     if not (instance.file and instance.file.name):
         return None
-    if not getattr(settings, "USE_S3_STORAGE", False):
+    if not getattr(settings, "USE_AZURE_STORAGE", False):
         return instance.file.name
 
-    from utils.s3_storage.service import S3StorageService
+    from utils.blob_storage.service import AzureBlobStorageService
 
     try:
-        return S3StorageService().get_presigned_url_for_object(
+        return AzureBlobStorageService().get_presigned_url_for_object(
             instance.file.name, expiry_hours=24
         )
     except Exception:

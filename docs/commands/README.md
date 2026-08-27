@@ -92,7 +92,7 @@ Safe to automate — and already is (`purge-expired-sessions`, daily). Unlike
 |---|---|---|
 | `PENDING_UPLOAD_TTL_HOURS` | 24 | Sweep cutoff, and the default audit window |
 | `UPLOAD_URL_TTL_MINUTES` | 15 | Upload ticket lifetime. Must stay well below the sweep cutoff — `manage.py check` enforces it |
-| `UPLOAD_PRESIGN_METHOD` | `PUT` | `POST` signs the size limit into the upload policy |
+| `UPLOAD_PRESIGN_METHOD` | `PUT` | The only supported value. `POST` was an S3 presigned-POST policy; Azure Blob has no equivalent, so it is now a `core.E001` error |
 | `UPLOAD_VERIFY_CONTENT` | `True` | Checks uploaded bytes against the declared extension at confirm |
 | `USER_SESSION_RETENTION_DAYS` | 30 | How long an expired login session is kept, measured from expiry |
 | `USER_SESSION_PURGE_BATCH` | 5000 | Rows deleted per chunk by the session sweep |

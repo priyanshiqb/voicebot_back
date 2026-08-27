@@ -223,44 +223,53 @@ STATICFILES_DIRS = [
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# S3 / MinIO / Cloudflare R2 Storage Configuration
-S3_ENDPOINT_URL = env("S3_ENDPOINT_URL", default=None)
-S3_ACCESS_KEY_ID = env("S3_ACCESS_KEY_ID", default=None)
-S3_SECRET_ACCESS_KEY = env("S3_SECRET_ACCESS_KEY", default=None)
-S3_BUCKET_NAME = env("S3_BUCKET_NAME", default=None)
-S3_REGION_NAME = env("S3_REGION_NAME", default="us-east-1")
-S3_CUSTOM_DOMAIN = env("S3_CUSTOM_DOMAIN", default=None)
+# Azure Blob Storage Configuration
+#
+# AZURE_CONNECTION_STRING is optional and exists for Azurite, whose endpoint puts the
+# account in the URL *path* (http://azurite:10000/devstoreaccount1) rather than in the
+# subdomain a real account uses. Both django-storages and utils.blob_storage take the
+# endpoint from it when present.
+#
+# AZURE_ACCOUNT_KEY is not optional even when a connection string is set: signing a
+# service SAS needs the shared key. A managed identity can serve django-storages but
+# cannot sign a SAS without first fetching a user delegation key, which is a different
+# code path and not implemented here.
+AZURE_ACCOUNT_NAME = env("AZURE_ACCOUNT_NAME", default=None)
+AZURE_ACCOUNT_KEY = env("AZURE_ACCOUNT_KEY", default=None)
+AZURE_CONTAINER = env("AZURE_CONTAINER", default=None)
+AZURE_CONNECTION_STRING = env("AZURE_CONNECTION_STRING", default=None)
+AZURE_ENDPOINT_SUFFIX = env("AZURE_ENDPOINT_SUFFIX", default="core.windows.net")
+# Browser-reachable host, when it differs from the one the app talks to. Local dev needs
+# it because a browser cannot resolve the `azurite` compose hostname.
+AZURE_PUBLIC_ENDPOINT = env("AZURE_PUBLIC_ENDPOINT", default=None)
 
-USE_S3_STORAGE = all(
+USE_AZURE_STORAGE = all(
     [
-        S3_ACCESS_KEY_ID,
-        S3_SECRET_ACCESS_KEY,
-        S3_BUCKET_NAME,
+        AZURE_ACCOUNT_NAME,
+        AZURE_ACCOUNT_KEY,
+        AZURE_CONTAINER,
     ]
 )
 
-if USE_S3_STORAGE:
-    AWS_ACCESS_KEY_ID = S3_ACCESS_KEY_ID
-    AWS_SECRET_ACCESS_KEY = S3_SECRET_ACCESS_KEY
-    AWS_STORAGE_BUCKET_NAME = S3_BUCKET_NAME
-    AWS_S3_REGION_NAME = S3_REGION_NAME
-    AWS_QUERYSTRING_AUTH = env.bool("AWS_QUERYSTRING_AUTH", default=False)
+if USE_AZURE_STORAGE:
+    if AZURE_PUBLIC_ENDPOINT:
+        public_endpoint_parsed = (
+            urlparse(AZURE_PUBLIC_ENDPOINT)
+            if "://" in AZURE_PUBLIC_ENDPOINT
+            else urlparse(f"http://{AZURE_PUBLIC_ENDPOINT}")
+        )
+        # Netloc only. django-storages swaps the host and keeps the path, which is what
+        # the emulator's /devstoreaccount1 prefix depends on.
+        AZURE_CUSTOM_DOMAIN = public_endpoint_parsed.netloc
+        AZURE_SSL = public_endpoint_parsed.scheme == "https"
 
-    if S3_ENDPOINT_URL:
-        AWS_S3_ENDPOINT_URL = S3_ENDPOINT_URL
-
-    if S3_CUSTOM_DOMAIN:
-        custom_domain_parsed = urlparse(S3_CUSTOM_DOMAIN) if "://" in S3_CUSTOM_DOMAIN else urlparse(f"http://{S3_CUSTOM_DOMAIN}")
-        AWS_S3_CUSTOM_DOMAIN = custom_domain_parsed.netloc
-        AWS_S3_URL_PROTOCOL = f"{custom_domain_parsed.scheme}:"
-
-    AWS_S3_SIGNATURE_VERSION = "s3v4"
-    AWS_S3_FILE_OVERWRITE = False
-    AWS_DEFAULT_ACL = None
+    # Uploads are addressed by a server-generated, collision-free key, so an overwrite
+    # is always a mistake rather than an intended replacement.
+    AZURE_OVERWRITE_FILES = False
 
     STORAGES = {
         "default": {
-            "BACKEND": "storages.backends.s3.S3Storage",
+            "BACKEND": "storages.backends.azure_storage.AzureStorage",
         },
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
@@ -612,21 +621,20 @@ CONTACT_IMPORT_COMMIT_BATCH_SIZE = env.int(
 )
 CONTACT_MAX_TAGS_PER_CONTACT = env.int("CONTACT_MAX_TAGS_PER_CONTACT", default=25)
 
-# How a presigned upload ticket is issued.
-#   POST — browser form upload. The per-flow size ceiling is signed into the policy as
-#          a `content-length-range` condition, so the object store rejects an oversize
-#          body *during* the upload. This is the only way the limit is actually a limit.
-#   PUT  — single presigned PUT. Simpler for the client but unbounded: a URL issued for
-#          a 1 MB file will accept a 500 MB one, and confirm-upload only discovers that
-#          after the bytes have been transferred and stored.
+# How a presigned upload ticket is issued. PUT is the only supported value.
 #
-# Defaults to PUT because switching is a BREAKING CHANGE for the frontend — POST needs
-# multipart form data with the returned fields, file part last — so backend and client
-# have to ship together. Verify the object store supports POST Object first: check
-# Cloudflare R2 against its current S3 compatibility list before flipping. Note that
-# Azure Blob has no POST-policy equivalent at all, so this option goes away with the
-# migration — see docs/implementation-plan-scratch/azure-blob-migration-plan.md §2.
-# `manage.py check` warns while this is PUT.
+# The client sends the file body raw to a SAS URL, with the headers the ticket declares
+# in `upload_headers` (Azure requires `x-ms-blob-type: BlockBlob`; without it the PUT is
+# rejected by the storage account, not by us). A success is 200.
+#
+# There is deliberately no POST option. The S3 backend this replaced could sign a
+# `content-length-range` into a browser POST policy, so the object store refused an
+# oversize body mid-upload; an Azure SAS carries no size condition at any API version,
+# so that control does not exist here and cannot be added. The per-flow `max_bytes`
+# ceiling is enforced at confirm-upload instead — the object is measured and deleted if
+# it is over — which costs the transfer but bounds what is stored. A leftover
+# `UPLOAD_PRESIGN_METHOD=POST` in an environment file is an error at `manage.py check`
+# rather than a silent downgrade.
 UPLOAD_PRESIGN_METHOD = env.str("UPLOAD_PRESIGN_METHOD", default="PUT")
 
 # How long an upload ticket stays valid. Must stay well under PENDING_UPLOAD_TTL_HOURS

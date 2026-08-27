@@ -18,10 +18,10 @@ class AgentCallRecordingSerializer(TenantBaseModelCoreSerializer):
         from django.conf import settings
         ret = super().to_representation(instance)
         if instance.file and instance.file.name:
-            if getattr(settings, 'USE_S3_STORAGE', False):
-                from utils.s3_storage.service import S3StorageService
+            if getattr(settings, 'USE_AZURE_STORAGE', False):
+                from utils.blob_storage.service import AzureBlobStorageService
                 try:
-                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                    ret['file'] = AzureBlobStorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
                 except Exception:
                     pass
         return ret
@@ -35,10 +35,10 @@ class AgentCallRecordingRefSerializer(serializers.ModelSerializer):
         from django.conf import settings
         ret = super().to_representation(instance)
         if instance.file and instance.file.name:
-            if getattr(settings, 'USE_S3_STORAGE', False):
-                from utils.s3_storage.service import S3StorageService
+            if getattr(settings, 'USE_AZURE_STORAGE', False):
+                from utils.blob_storage.service import AzureBlobStorageService
                 try:
-                    ret['file'] = S3StorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
+                    ret['file'] = AzureBlobStorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
                 except Exception:
                     pass
         return ret
