@@ -19,6 +19,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
     healthcheck:
@@ -55,6 +56,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       backend-wsgi:
@@ -86,6 +88,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       backend-wsgi:
@@ -126,6 +129,7 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       backend-wsgi:
