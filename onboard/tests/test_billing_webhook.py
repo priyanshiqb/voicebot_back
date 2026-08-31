@@ -10,6 +10,8 @@ non-2xx forever and retrying a payload that will fail identically achieves nothi
 another chance to half-apply something.
 """
 
+import hashlib
+import hmac
 import json
 import sys
 from datetime import timedelta
@@ -161,7 +163,8 @@ class SignatureAndIdempotencyTests(WebhookTestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, TxnStatus.PENDING)
 
-    @override_settings(PAYMENTS_ALLOW_UNSIGNED=False, TESTING=False)
+    @override_settings(PAYMENTS_ALLOW_UNSIGNED=False, TESTING=False,
+                       RAZORPAY_WEBHOOK_SECRET="whsec_bw03")
     def test_bw03_the_signature_is_checked_against_the_raw_bytes(self):
         """BW-03: **the ordering bug that would have broken every live webhook.**
 
@@ -169,6 +172,12 @@ class SignatureAndIdempotencyTests(WebhookTestCase):
         ``request.body`` raises ``RawPostDataException`` afterwards. Reading the body
         first is mandatory, and a re-serialised dict would not hash to what Razorpay
         signed even when it looks identical.
+
+        The payload reaches the SDK as ``str``, not as the ``bytes`` of
+        ``request.body``: the SDK does ``bytes(body, "utf-8")`` internally, which
+        raises ``TypeError`` on bytes. What matters here is that it is *this* body
+        decoded rather than a re-serialised dict, which is what the assertion below
+        pins — the octets hashed are identical either way.
         """
         order = self.order(transaction_type=TxnType.TOP_UP, credits_purchased=100,
                            subscription=self.subscription)
@@ -184,9 +193,11 @@ class SignatureAndIdempotencyTests(WebhookTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(stub.utility.calls), 1)
-        verified_payload, signature, _ = stub.utility.calls[0]
-        self.assertEqual(verified_payload, body)
+        verified_payload, signature, secret = stub.utility.calls[0]
+        self.assertEqual(verified_payload, body.decode())
+        self.assertNotIsInstance(verified_payload, bytes)
         self.assertEqual(signature, "sig")
+        self.assertEqual(secret, "whsec_bw03")
 
     def test_bw04_a_redelivered_event_applies_nothing_a_second_time(self):
         """BW-04: **the outer guard.** Razorpay redelivers as a matter of course."""
@@ -585,4 +596,91 @@ class RobustnessTests(WebhookTestCase):
         self.assertTrue(
             selected_for_update,
             "the transaction row must be selected FOR UPDATE before it is applied",
+        )
+
+
+@override_settings(
+    PAYMENTS_ALLOW_UNSIGNED=False,
+    TESTING=False,
+    RAZORPAY_WEBHOOK_SECRET="whsec_regression_secret",
+)
+class RealSdkSignatureTests(WebhookTestCase):
+    """BW-29 to BW-31 — the real SDK, through the view, over real bytes.
+
+    Every other signature test in this module patches ``razorpay_client`` out for
+    ``_StubClient``, and the live tests in ``test_razorpay_live`` call the SDK
+    directly having already done ``body.decode()`` themselves. So nothing ever ran
+    the genuine ``verify_webhook_signature`` against the genuine ``request.body``,
+    and nothing noticed that the SDK does ``bytes(body, "utf-8")`` internally —
+    which raises ``TypeError`` on the bytes the view hands it. The view caught that
+    ``TypeError`` and reported a bad signature, so in production every correctly
+    signed webhook was rejected. These tests pin the real path.
+    """
+
+    def sign(self, body, secret="whsec_regression_secret"):
+        return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    def post(self, body, signature, **extra):
+        with patch.object(sys, "argv", ["manage.py", "runserver"]):
+            return APIClient().post(
+                WEBHOOK_URL,
+                body,
+                content_type="application/json",
+                HTTP_X_RAZORPAY_SIGNATURE=signature,
+                **extra,
+            )
+
+    def test_bw29_a_genuinely_signed_body_is_accepted_by_the_real_sdk(self):
+        """BW-29: the regression. This failed with 400 before the decode fix."""
+        order = self.order(transaction_type=TxnType.TOP_UP, credits_purchased=100,
+                           subscription=self.subscription)
+        body = captured_body(order.razorpay_order_id, event_id="evt_real_sdk")
+
+        response = self.post(body, self.sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        log = RazorpayWebhookLog.objects.get(event_id="evt_real_sdk")
+        self.assertTrue(log.is_signature_valid)
+        self.assertIsNone(log.error_message)
+        order.refresh_from_db()
+        self.assertEqual(order.status, TxnStatus.SUCCESSFUL)
+
+    def test_bw30_a_wrong_secret_still_fails_against_the_real_sdk(self):
+        """BW-30: the fix must not have turned verification into a rubber stamp."""
+        order = self.order(transaction_type=TxnType.TOP_UP, credits_purchased=100)
+        body = captured_body(order.razorpay_order_id, event_id="evt_wrong_secret")
+
+        response = self.post(body, self.sign(body, secret="not-the-secret"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("SIGNATURE_CHECK_FAILED", response.json()["errors"])
+        order.refresh_from_db()
+        self.assertEqual(order.status, TxnStatus.PENDING)
+
+    def test_bw31_the_event_id_is_read_from_the_header_razorpay_actually_sends(self):
+        """BW-31: **a real webhook body has no top-level ``id``.**
+
+        Razorpay carries the event id in ``X-Razorpay-Event-Id``. Reading it from
+        the body left ``event_id`` NULL on every production event, and
+        ``get_or_create(event_id=None)`` then kept matching the same NULL row, so
+        the whole log collapsed to one entry and the outer idempotency guard never
+        fired. The redelivery below is what that broke.
+        """
+        order = self.order(transaction_type=TxnType.TOP_UP, credits_purchased=100,
+                           subscription=self.subscription)
+        body = json.dumps({
+            "event": "payment.captured",
+            "payload": {"payment": {"entity": {
+                "id": "pay_hdr", "order_id": order.razorpay_order_id}}},
+        }).encode()
+        signature = self.sign(body)
+
+        first = self.post(body, signature, HTTP_X_RAZORPAY_EVENT_ID="evt_from_header")
+        second = self.post(body, signature, HTTP_X_RAZORPAY_EVENT_ID="evt_from_header")
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["message"], "already processed")
+        self.assertEqual(
+            RazorpayWebhookLog.objects.filter(event_id="evt_from_header").count(), 1
         )

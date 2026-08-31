@@ -1,0 +1,29 @@
+# Line endings.
+#
+# Everything is stored in the repository with LF; `text=auto` normalises on commit
+# so a Windows checkout cannot push CRLF back in.
+* text=auto
+
+# These are executed *inside a container*, where /bin/sh is dash. `core.autocrlf=true`
+# on a Windows clone rewrites them to CRLF on checkout, `COPY . .` bakes the CRs into
+# the image, and dash then reads the trailing \r as part of the command itself:
+#
+#     /app/scripts/entrypoint.sh: 2: set: Illegal option -^M
+#
+# The container exits 2 before it runs a line of it. Building on Linux hid this,
+# because the conversion never happened there. `eol=lf` pins the *working tree* copy
+# to LF regardless of core.autocrlf, which is what the build context picks up.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+docker-compose*.yml text eol=lf
+
+# Binary — never touch these.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary

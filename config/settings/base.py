@@ -267,6 +267,16 @@ if USE_AZURE_STORAGE:
     # is always a mistake rather than an intended replacement.
     AZURE_OVERWRITE_FILES = False
 
+    # django-storages signs `.url()` only when this is set. Left unset, AzureStorage
+    # hands out a bare blob URL, and an account with public access disabled answers
+    # those `409 Public access is not permitted on this storage account` — so every
+    # read that goes through `FileField.url` rather than through utils.blob_storage
+    # fails while uploads, which are signed separately, keep working. The admin's file
+    # links are the most visible casualty.
+    #
+    # 24h matches the expiry the serializers already request when they presign by hand.
+    AZURE_URL_EXPIRATION_SECS = env.int("AZURE_URL_EXPIRATION_SECS", default=86400)
+
     STORAGES = {
         "default": {
             "BACKEND": "storages.backends.azure_storage.AzureStorage",

@@ -1,6 +1,9 @@
+import logging
 from rest_framework import serializers
 from tenant.common.serializers.tenant_base_model_core_serializer import TenantBaseModelCoreSerializer
 from core.models.agent_call_recording import AgentCallRecording
+
+logger = logging.getLogger(__name__)
 
 class AgentCallRecordingSerializer(TenantBaseModelCoreSerializer):
     class Meta(TenantBaseModelCoreSerializer.Meta):
@@ -23,7 +26,15 @@ class AgentCallRecordingSerializer(TenantBaseModelCoreSerializer):
                 try:
                     ret['file'] = AzureBlobStorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
                 except Exception:
-                    pass
+                    # Falls back to the storage backend's own URL, which is only
+                    # fetchable because AZURE_URL_EXPIRATION_SECS makes it a signed
+                    # one. Logged rather than passed: a silent except here is why a
+                    # broken read surfaced as a 409 from Azure with nothing in the
+                    # application logs to connect it to.
+                    logger.warning(
+                        "Could not presign %s for %s; falling back to the backend URL.",
+                        instance.file.name, instance.pk, exc_info=True,
+                    )
         return ret
 
 class AgentCallRecordingRefSerializer(serializers.ModelSerializer):
@@ -40,7 +51,15 @@ class AgentCallRecordingRefSerializer(serializers.ModelSerializer):
                 try:
                     ret['file'] = AzureBlobStorageService().get_presigned_url_for_object(instance.file.name, expiry_hours=24)
                 except Exception:
-                    pass
+                    # Falls back to the storage backend's own URL, which is only
+                    # fetchable because AZURE_URL_EXPIRATION_SECS makes it a signed
+                    # one. Logged rather than passed: a silent except here is why a
+                    # broken read surfaced as a 409 from Azure with nothing in the
+                    # application logs to connect it to.
+                    logger.warning(
+                        "Could not presign %s for %s; falling back to the backend URL.",
+                        instance.file.name, instance.pk, exc_info=True,
+                    )
         return ret
 
 class RequestRecordingUploadUrlSerializer(serializers.Serializer):
