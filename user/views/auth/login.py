@@ -99,6 +99,7 @@ class LoginAPIView(ResponseMixin, APIView):
             data={
                 "access": str(access),
                 "refresh": str(refresh),
+                "user_type": user.user_type,
                 "user": UserRefSerializer(user).data
             },
             message="Login successful"

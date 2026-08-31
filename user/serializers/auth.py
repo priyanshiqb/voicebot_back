@@ -62,6 +62,7 @@ class LoginSerializer(serializers.Serializer):
 class LoginResponseSerializer(serializers.Serializer):
     access = serializers.CharField()
     refresh = serializers.CharField()
+    user_type = serializers.CharField()
     user = serializers.DictField()
 
 
