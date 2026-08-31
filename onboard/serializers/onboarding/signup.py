@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.core.validators import RegexValidator
 from onboard.models import TempUser, Plan
+from utils.emails import validate_not_disposable
 import re
 
 User = get_user_model()
@@ -63,6 +64,9 @@ class TempUserSignupSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         email_lower = value.strip().lower()
+        # Before the uniqueness checks: a throwaway address is refused on its own
+        # merits, and there is no reason to hit the database for one.
+        validate_not_disposable(email_lower)
         if User.objects.filter(email=email_lower).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         if TempUser.objects.filter(email=email_lower).exists():

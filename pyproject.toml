@@ -48,5 +48,6 @@ dependencies = [
     # `manage.py audit_timezone_offsets` after any lockfile refresh.
     "tzdata>=2026.3",
     "azure-storage-blob>=12.24",
+    "disposable-email-domains>=0.0.246",
 ]
 

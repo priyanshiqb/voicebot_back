@@ -190,7 +190,7 @@ Creates the `TempUser` and emails a 6-digit OTP.
 | `first_name` * | string | Given name. | Required. **2–30** characters, **letters only** — no spaces, digits, hyphens, or apostrophes. `O'Brien` and `Mary Jane` are rejected. |
 | `last_name` * | string | Family name. | Required. Same rules as `first_name`. |
 | `business_name` * | string | The organisation's name. Becomes the tenant name, and seeds its subdomain. | Required. **2–255** characters. Any characters allowed. |
-| `email` * | string | Sign-in address. | Required. **6–100** characters, valid email. Must not exist as an active user **or** a pending registration. Lower-cased. |
+| `email` * | string | Sign-in address. | Required. **6–100** characters, valid email. Must not exist as an active user **or** a pending registration. **Disposable/temporary domains are rejected** — see the note below. Lower-cased. |
 | `password` * | string | The eventual account password. | Required. **8–32** characters, no spaces, at least one uppercase, one lowercase, one digit, and one of `!@#$%^&*(),.?":{}\|<>`. |
 | `confirm_password` * | string | Repeat of `password`. | Required. Must match exactly. |
 | `referral_code` | string | Partner or referral code, recorded on the tenant as `referred_by_code`. | Optional, may be blank or null. Max **50**. **Not validated** against anything — any string is accepted and stored. |
@@ -319,7 +319,7 @@ For a mistyped address, before verification.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `temp_registration_id` * | UUID | From step 3. | Required. Must match a pending, **unverified** registration. |
-| `new_email` * | string | The corrected address. | Required, valid email. Must not exist as an active user or another pending registration. |
+| `new_email` * | string | The corrected address. | Required, valid email. Must not exist as an active user or another pending registration. **Disposable/temporary domains are rejected**, same rule as signup. |
 
 | Status | When | `message` | `errors` |
 |---|---|---|---|
@@ -328,6 +328,26 @@ For a mistyped address, before verification.
 | **400** | Already verified — the address is now fixed. | `Email is already verified` | `["EMAIL_ALREADY_VERIFIED"]` |
 | **400** | Taken by an active account. | `Validation failed` | `{"new_email": ["User account with this email address already exists."]}` |
 | **400** | Taken by another pending signup. | `Validation failed` | `{"new_email": ["A pending registration already exists for this email address."]}` |
+| **400** | Disposable/temporary address. | `Validation failed` | `{"new_email": ["Disposable or temporary email addresses are not accepted. Please sign up with a permanent email address."]}` |
+
+> **Disposable addresses are refused on both doors.**
+>
+> A throwaway inbox expires on its own, which defeats what the onboarding email is
+> for: proving the person can be reached again, and giving support a thread to pull.
+> A `payment.authorized` for a paid plan had already arrived against a `@yopmail.com`
+> address before this was added.
+>
+> The rule applies to `/register-pending/` **and** `/change-email/` — checking only
+> the first would leave switching to a throwaway address after signup as a way around
+> it. Subdomains count: `user@mail.yopmail.com` is rejected exactly like
+> `user@yopmail.com`.
+>
+> The domain list ships with the `disposable-email-domains` package (~8k domains);
+> bump the pin to pick up new providers. Two settings adjust it without touching code:
+> `DISPOSABLE_EMAIL_EXTRA_BLOCKED` for providers the pinned list has not caught up
+> with, and `DISPOSABLE_EMAIL_ALLOWLIST` to release a domain the community list has
+> swept up by mistake. Ordinary consumer mail — Gmail, Outlook, Yahoo — is **not**
+> affected; only throwaway providers are.
 
 > **No cooldown applies here**, so this is also the escape hatch when a user is stuck behind the
 > resend cooldown and is willing to re-enter their address.

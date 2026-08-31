@@ -468,6 +468,15 @@ wheels = [
 ]
 
 [[package]]
+name = "disposable-email-domains"
+version = "0.0.246"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/6c/e62ec2ab55d6d8e89ff1c1b10311146834d846f1205b4298c07da83f4004/disposable_email_domains-0.0.246.tar.gz", hash = "sha256:2f4983d8a432b4e7d5e037881dd5459ed7f1cb5e4a6fcce6bf61e5f136956800", size = 102061, upload-time = "2026-08-27T16:28:34.166Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/dc/f8f1809c55425c9db8347b3488dc72e6cfa7e9127d1c915ea3f739b36d0a/disposable_email_domains-0.0.246-py3-none-any.whl", hash = "sha256:655ac4c83d6ed593f5d556688de05002de662dc370df3e47afbe5837b0fa27b4", size = 52431, upload-time = "2026-08-27T16:28:32.57Z" },
+]
+
+[[package]]
 name = "django"
 version = "6.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1802,6 +1811,7 @@ dependencies = [
     { name = "charset-normalizer" },
     { name = "cryptography" },
     { name = "daphne" },
+    { name = "disposable-email-domains" },
     { name = "django" },
     { name = "django-cors-headers" },
     { name = "django-defender" },
@@ -1841,6 +1851,7 @@ requires-dist = [
     { name = "charset-normalizer", specifier = ">=3.4" },
     { name = "cryptography", specifier = ">=48.0.0" },
     { name = "daphne", specifier = ">=4.1.2" },
+    { name = "disposable-email-domains", specifier = ">=0.0.246" },
     { name = "django", specifier = ">=6.0.5" },
     { name = "django-cors-headers", specifier = ">=4.7.0" },
     { name = "django-defender", specifier = ">=0.9.8" },

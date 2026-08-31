@@ -521,6 +521,17 @@ TENANT_SMTP_ALLOW_PRIVATE_HOSTS = env.bool(
 # endpoint opens outbound SMTP connections to a host the caller supplies.
 SMTP_TEST_THROTTLE_PER_HOUR = env.int("SMTP_TEST_THROTTLE_PER_HOUR", default=5)
 
+# Disposable-email rejection at signup. The domain list itself comes from the
+# `disposable-email-domains` package (see utils/emails/disposable.py); these two only
+# adjust it at the edges.
+#
+# EXTRA_BLOCKED covers providers the pinned list has not caught up with. ALLOWLIST is
+# the one that matters operationally: the upstream list is community-maintained and
+# does occasionally include a domain a paying customer really uses, and without an
+# override that customer cannot sign up at all.
+DISPOSABLE_EMAIL_EXTRA_BLOCKED = env.list("DISPOSABLE_EMAIL_EXTRA_BLOCKED", default=[])
+DISPOSABLE_EMAIL_ALLOWLIST = env.list("DISPOSABLE_EMAIL_ALLOWLIST", default=[])
+
 # Razorpay Credentials
 # Razorpay. No defaults, deliberately.
 #
