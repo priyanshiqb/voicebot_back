@@ -66,22 +66,33 @@ class RazorpayWebhookView(ResponseMixin, APIView):
         raw_body = request.body
 
         signature = request.headers.get("X-Razorpay-Signature")
-        event_id = request.data.get("id")
+        # Razorpay puts the event id in a header. A webhook body has no top-level
+        # "id" — reading it from `request.data` left event_id NULL on every real
+        # event, so get_or_create(event_id=None) kept finding the one NULL row and
+        # every event in production overwrote a single log entry. The body is still
+        # consulted as a fallback because the test fixtures synthesise it there.
+        event_id = request.headers.get("X-Razorpay-Event-Id") or request.data.get("id")
         event = request.data.get("event")
 
         signature_valid = self._verify(raw_body, signature)
 
-        # get_or_create, not create: event_id is unique, and `created=False` is how a
-        # redelivery is recognised.
-        log_entry, created = RazorpayWebhookLog.objects.get_or_create(
-            event_id=event_id,
-            defaults={
-                "event_type": event,
-                "signature": signature,
-                "is_signature_valid": signature_valid,
-                "payload": request.data,
-            },
-        )
+        fields = {
+            "event_type": event,
+            "signature": signature,
+            "is_signature_valid": signature_valid,
+            "payload": request.data,
+        }
+
+        if event_id:
+            # get_or_create, not create: event_id is unique, and `created=False` is
+            # how a redelivery is recognised.
+            log_entry, created = RazorpayWebhookLog.objects.get_or_create(
+                event_id=event_id, defaults=fields
+            )
+        else:
+            # No id to deduplicate on, so there is nothing to look up — and looking
+            # anyway would match an unrelated earlier event that also had none.
+            log_entry, created = RazorpayWebhookLog.objects.create(**fields), True
 
         if not created and event_id:
             logger.info("razorpay event %s already processed; ignoring redelivery", event_id)
@@ -123,9 +134,17 @@ class RazorpayWebhookView(ResponseMixin, APIView):
         is_testing = getattr(settings, "TESTING", False) or "test" in sys.argv
         if is_testing or settings.PAYMENTS_ALLOW_UNSIGNED:
             return True
+        if not signature or not settings.RAZORPAY_WEBHOOK_SECRET:
+            return False
         try:
+            # `payload` is `request.body`, i.e. bytes. The SDK's verify_signature
+            # does `bytes(body, "utf-8")` on whatever it is handed, which raises
+            # TypeError for bytes — and that TypeError was caught below and reported
+            # as a bad signature, so every genuine webhook was rejected no matter
+            # what the secret was. Decode first; the HMAC covers the same octets.
+            body = payload.decode("utf-8") if isinstance(payload, bytes) else payload
             razorpay_client.utility.verify_webhook_signature(
-                payload, signature, settings.RAZORPAY_WEBHOOK_SECRET
+                body, signature, settings.RAZORPAY_WEBHOOK_SECRET
             )
             return True
         except Exception:

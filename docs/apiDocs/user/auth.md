@@ -76,6 +76,7 @@ Exchange credentials for a token pair and open a session.
     "data": {
       "access": "eyJhbGciOiJIUzI1NiIs…",
       "refresh": "eyJhbGciOiJIUzI1NiIs…",
+      "user_type": "USER",
       "user": {
         "id": "5fa85f64-5717-4562-b3fc-2c963f66afa7",
         "email": "alex@acme.com",
