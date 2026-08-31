@@ -109,7 +109,8 @@ Non-committal lookup for live form feedback.
       "email": "jane@example.com",
       "available": true,
       "exists_in_active_users": false,
-      "exists_in_pending_registrations": false
+      "exists_in_pending_registrations": false,
+      "is_disposable": false
     },
     "errors": null
   }
@@ -117,14 +118,27 @@ Non-committal lookup for live form feedback.
 
 | Field | Meaning |
 |---|---|
-| `available` | `true` when the address is free in **both** tables. |
+| `available` | `true` when the address is free in **both** tables **and** is not disposable. |
 | `exists_in_active_users` | Taken by a real account — including **soft-deleted** ones, which still reserve the address. |
 | `exists_in_pending_registrations` | Taken by an unfinished signup. |
+| `is_disposable` | A throwaway/temporary domain, which `/register-pending/` will refuse. |
 
 | Status | When | `message` |
 |---|---|---|
 | **200** | Checked. | `Email availability checked (fast-path).` or `(slow-path).` |
+| **200** | Disposable domain. | `Email availability checked (disposable domain).` |
 | **400** | `email` missing or malformed. | `Validation failed` |
+
+> **`available: false` has three causes, not two.** A form that renders "already taken"
+> for every falsy `available` will tell a user with a `@yopmail.com` address something
+> untrue and unactionable. Read `is_disposable` and say so instead — that is the whole
+> reason it is a separate flag rather than folded into the existing two.
+>
+> A disposable address short-circuits ahead of the Bloom filter and the database, so
+> `exists_in_active_users` and `exists_in_pending_registrations` are both `false` in
+> that response. They mean "not checked", not "free" — if the address is disposable,
+> whether it is also taken was never looked up. This endpoint applies the same rule and
+> the same `DISPOSABLE_EMAIL_ALLOWLIST` as signup, so the two never disagree.
 
 > **The `message` tells you which path answered.** A Bloom filter answers "definitely free"
 > instantly (`fast-path`); anything it flags is confirmed against the database (`slow-path`). The

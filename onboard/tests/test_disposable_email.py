@@ -8,7 +8,9 @@ step is a way to walk a registration onto a throwaway address after signup has p
 """
 
 from django.test import SimpleTestCase, TestCase, override_settings
-from rest_framework import serializers
+from django.urls import reverse
+from rest_framework import serializers, status
+from rest_framework.test import APIClient
 
 from onboard.serializers.onboarding.email import ChangeEmailSerializer
 from onboard.serializers.onboarding.signup import TempUserSignupSerializer
@@ -116,3 +118,55 @@ class ChangeEmailRejectionTests(TestCase):
             ChangeEmailSerializer().validate_new_email("Ops@AcmeCorp.com"),
             "ops@acmecorp.com",
         )
+
+
+class CheckEmailEndpointTests(TestCase):
+    """CH: `/onboard/check-email/`, the form's live "is this address usable?" probe.
+
+    Reported as ``available: false`` with ``is_disposable: true`` rather than as a
+    400. The endpoint's contract is a 200 carrying booleans — "already taken" is
+    reported that way — and answering the disposable case differently would make the
+    one rejection the signup form most needs to explain the only one it has to dig
+    out of an error body.
+    """
+
+    def setUp(self):
+        self.url = reverse("api-v1:check-email")
+
+    def check(self, email):
+        return APIClient().post(self.url, {"email": email}, format="json")
+
+    def test_a_disposable_address_is_reported_unavailable(self):
+        response = self.check("kamal.hasan@yopmail.com")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data["data"]
+        self.assertFalse(data["available"])
+        self.assertTrue(data["is_disposable"])
+
+    def test_the_disposable_reason_is_distinguishable_from_already_taken(self):
+        """A form that says "already taken" for every `available: false` would tell
+        the user the wrong thing, so the two flags must not be conflated."""
+        data = self.check("someone@mailinator.com").data["data"]
+
+        self.assertTrue(data["is_disposable"])
+        self.assertFalse(data["exists_in_active_users"])
+        self.assertFalse(data["exists_in_pending_registrations"])
+
+    def test_an_ordinary_free_address_is_still_available(self):
+        data = self.check("fully.available@example.com").data["data"]
+
+        self.assertTrue(data["available"])
+        self.assertFalse(data["is_disposable"])
+
+    def test_a_subdomain_of_a_throwaway_domain_is_caught_here_too(self):
+        self.assertTrue(self.check("qa@mail.yopmail.com").data["data"]["is_disposable"])
+
+    @override_settings(DISPOSABLE_EMAIL_ALLOWLIST=["yopmail.com"])
+    def test_the_allowlist_applies_to_this_endpoint_as_well(self):
+        """Local development allowlists yopmail; check-email has to agree with signup
+        or the form blocks an address the API would happily accept."""
+        data = self.check("dev@yopmail.com").data["data"]
+
+        self.assertTrue(data["available"])
+        self.assertFalse(data["is_disposable"])

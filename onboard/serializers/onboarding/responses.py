@@ -117,6 +117,15 @@ class CheckEmailResponseDataSerializer(serializers.Serializer):
     available = serializers.BooleanField(required=True)
     exists_in_active_users = serializers.BooleanField(required=True)
     exists_in_pending_registrations = serializers.BooleanField(required=True)
+    is_disposable = serializers.BooleanField(
+        required=True,
+        help_text=(
+            "The address is a disposable/temporary one and will be refused at signup. "
+            "It is a third reason for `available: false`, distinct from the two "
+            "`exists_in_*` flags — a form that only says \"already taken\" when "
+            "`available` is false will tell the user the wrong thing here."
+        ),
+    )
 
 
 class CheckEmailResponseSerializer(BaseEnvelopeSerializer):

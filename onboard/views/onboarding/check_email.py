@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 
 from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
+from utils.emails import is_disposable_email
 from onboard.serializers.onboarding import CheckEmailSerializer, CheckEmailResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
@@ -35,6 +36,26 @@ class CheckEmailView(ResponseMixin, APIView):
 
         email = serializer.validated_data["email"].strip().lower()
 
+        # A throwaway address is unavailable whatever the uniqueness lookups would
+        # say, so it answers here — ahead of the Redis round trip and the database.
+        #
+        # Reported as `available: false` with a reason flag rather than as a 400:
+        # this endpoint's contract is a 200 carrying booleans, and "already taken" is
+        # already reported that way. A 400 would make the one case the signup form
+        # most needs to explain the only one it has to parse out of an error body.
+        if is_disposable_email(email):
+            return self.success(
+                data={
+                    "email": email,
+                    "available": False,
+                    "exists_in_active_users": False,
+                    "exists_in_pending_registrations": False,
+                    "is_disposable": True,
+                },
+                message="Email availability checked (disposable domain).",
+                status_code=status.HTTP_200_OK
+            )
+
         # Step 1: Query Bloom Filter (Fast Path)
         from utils.bloom_filter import RedisBloomFilter
         bf = RedisBloomFilter()
@@ -44,7 +65,8 @@ class CheckEmailView(ResponseMixin, APIView):
                     "email": email,
                     "available": True,
                     "exists_in_active_users": False,
-                    "exists_in_pending_registrations": False
+                    "exists_in_pending_registrations": False,
+                    "is_disposable": False
                 },
                 message="Email availability checked (fast-path).",
                 status_code=status.HTTP_200_OK
@@ -61,7 +83,8 @@ class CheckEmailView(ResponseMixin, APIView):
                 "email": email,
                 "available": available,
                 "exists_in_active_users": exists_in_active,
-                "exists_in_pending_registrations": exists_in_pending
+                "exists_in_pending_registrations": exists_in_pending,
+                "is_disposable": False
             },
             message="Email availability checked (slow-path).",
             status_code=status.HTTP_200_OK
