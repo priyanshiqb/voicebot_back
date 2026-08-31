@@ -71,7 +71,7 @@ they do it cannot drift apart.**
 | Module | Path | Status |
 |---|---|---|
 | [Plan configuration](./plans.md) | `/ops/plans/` | ✅ built |
-| Tenants & the 360 view | `/ops/tenants/` | planned |
+| [Tenants & the 360 view](./tenants.md) | `/ops/tenants/` | ✅ built |
 | Payments | `/ops/transactions/` | planned |
 | Manual onboarding | `/ops/onboarding/` | planned |
 | Operators | `/ops/operators/` | planned |

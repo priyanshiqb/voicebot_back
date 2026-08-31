@@ -11,4 +11,5 @@ app_name = "ops"
 
 urlpatterns = [
     path("", include("ops.urls.plan")),
+    path("", include("ops.urls.tenant")),
 ]

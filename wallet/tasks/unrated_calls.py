@@ -16,6 +16,46 @@ logger = logging.getLogger(__name__)
 GRACE_MINUTES = 15
 
 
+def unrated_for(tenant_id=None, *, hours=24):
+    """Completed calls with no matching usage deduction, newest first.
+
+    **One rule, two callers.** The nightly sweep below runs it across every tenant;
+    the admin console asks the same question about one tenant while support has them
+    on the phone. A second copy would let the screen and the job disagree about
+    whether revenue went uncollected, which is the one thing neither may do.
+
+    ``tenant_id`` narrows it to one tenant; ``None`` is the whole platform. The grace
+    window and the charged-set lookback are the same either way, so a call that the
+    sweep considers still in flight is not reported as a problem on the console
+    thirty seconds later.
+
+    Returns tuples of ``(provider_call_id, tenant_id, duration_seconds, created_at)``.
+    """
+    from core.models.agent_call_log import AgentCallLog
+    from wallet.models import CreditLedger
+
+    since = timezone.now() - timedelta(hours=hours)
+    cutoff = timezone.now() - timedelta(minutes=GRACE_MINUTES)
+
+    charged = CreditLedger.all_objects.filter(
+        entry_type=CreditLedger.EntryType.USAGE_DEDUCTION,
+        created_at__gte=since - timedelta(hours=1),
+    )
+    if tenant_id is not None:
+        charged = charged.filter(tenant_id=tenant_id)
+
+    rows = AgentCallLog.objects.filter(created_at__gte=since, created_at__lte=cutoff)
+    if tenant_id is not None:
+        rows = rows.filter(tenant_id=tenant_id)
+
+    return list(
+        rows.exclude(Q(duration_seconds=0) | Q(duration_seconds__isnull=True))
+        .exclude(provider_call_id__in=set(charged.values_list("reference_id", flat=True)))
+        .order_by("-created_at")
+        .values_list("provider_call_id", "tenant_id", "duration_seconds", "created_at")
+    )
+
+
 @shared_task(base=ReportedTask, name="wallet.tasks.report_unrated_calls")
 def report_unrated_calls(hours=24):
     """Find completed calls with no matching usage deduction.
@@ -32,27 +72,9 @@ def report_unrated_calls(hours=24):
     whatever rate is stamped now, which is not the rate that applied when the call
     happened.
     """
-    from core.models.agent_call_log import AgentCallLog
-    from wallet.models import CreditLedger
+    rows = unrated_for(hours=hours)
 
-    since = timezone.now() - timedelta(hours=hours)
-    cutoff = timezone.now() - timedelta(minutes=GRACE_MINUTES)
-
-    charged = set(
-        CreditLedger.all_objects.filter(
-            entry_type=CreditLedger.EntryType.USAGE_DEDUCTION,
-            created_at__gte=since - timedelta(hours=1),
-        ).values_list("reference_id", flat=True)
-    )
-
-    rows = list(
-        AgentCallLog.objects.filter(created_at__gte=since, created_at__lte=cutoff)
-        .exclude(Q(duration_seconds=0) | Q(duration_seconds__isnull=True))
-        .exclude(provider_call_id__in=charged)
-        .values_list("provider_call_id", "tenant_id", "duration_seconds")
-    )
-
-    for provider_call_id, tenant_id, duration in rows:
+    for provider_call_id, tenant_id, duration, _created_at in rows:
         logger.error(
             "unrated call: %s (tenant=%s, %ss) — completed but never charged",
             provider_call_id, tenant_id, duration,

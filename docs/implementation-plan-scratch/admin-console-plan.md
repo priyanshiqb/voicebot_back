@@ -36,7 +36,7 @@ the work. This is routing, aggregation and permissions.
 | Call data for analytics | ✅ `AgentCallLog` — duration, tier, outcome, mood, campaign, agent |
 | Credit movements | ✅ `CreditLedger`, append-only, with the rating that produced each |
 | Django admin | ✅ 66 models — **keep it** as the engineering escape hatch |
-| **Operator API** | ❌ none |
+| **Operator API** | ✅ `/api/v1/ops/` — plans (module 1) and tenants (milestone 2) |
 | **Analytics endpoints** | ❌ none |
 | **Manual onboarding endpoint** | ❌ none |
 | **Platform-staff roles** | ✅ `PlatformRole`, `console_permissions`, `IsPlatformStaff`, `HasConsolePermission` |
@@ -285,12 +285,12 @@ Most of this plan is routing over existing code. These are the genuinely new pie
 
 | | Milestone | Unblocks |
 | :--- | :--- | :--- |
-| ~~1~~ | ✅ `IsPlatformStaff`, `PlatformRole`, `OperatorAuditLog` — *`/ops/` router still to do* | Everything. The audit log was built **first**, not last — retrofitting who-did-what is impossible |
-| 2 | Tenant list + 360 read endpoint | Support can see. Read-only is already most of the value |
+| ~~1~~ | ✅ `IsPlatformStaff`, `PlatformRole`, `OperatorAuditLog`, and the `/ops/` router | Everything. The audit log was built **first**, not last — retrofitting who-did-what is impossible |
+| ~~2~~ | ✅ [Tenant list + 360 read endpoint](./admin-panel/milestone-2-tenant-360.md) — plus `PATCH` and enforcement. **`suspend` deferred:** `Tenant.is_active` is enforced nowhere, so the button would change nothing | Support can see. Read-only is already most of the value |
 | 3 | Support actions | Support can act without an engineer |
 | 4 | Payments list + replay | Stuck payments stop needing a shell |
 | 5 | Manual onboarding | Sales-led deals stop needing a developer |
-| 6 | Plan catalogue | Commercial self-serves |
+| ~~6~~ | ✅ Plan catalogue — [built first](./plan-configuration-module-plan.md), out of order: nothing can be sold until plans exist | Commercial self-serves |
 | 7 | Analytics overview + timeseries | "How are we doing" has an answer |
 | 8 | Usage snapshot + near-limit | Proactive support |
 

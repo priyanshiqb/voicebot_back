@@ -50,6 +50,7 @@
 * **🛠 Admin Console**
   * [Overview & Access Model](apiDocs/ops/README.md)
   * [Plan Configuration API](apiDocs/ops/plans.md)
+  * [Tenant Console API — list & 360](apiDocs/ops/tenants.md)
   * [Plan — operator API & screens](implementation-plan-scratch/admin-console-plan.md)
   * [Module 1 — Plan Configuration](implementation-plan-scratch/plan-configuration-module-plan.md)
   * [Campaign Lifecycle & Billing](implementation-plan-scratch/campaign-lifecycle-and-billing.md)

@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
-from django.db.models import Sum
 
-from wallet.models import CreditLedger, Wallet
+from wallet.models import Wallet
+from wallet.services import reconciliation
 
 
 class Command(BaseCommand):
@@ -34,35 +34,25 @@ class Command(BaseCommand):
         # Two queries for the whole table, not three per wallet. The readable version
         # was 3n queries — fine at seventeen wallets, unusable at a hundred thousand,
         # and this job is a full scan by definition.
-        totals = {}
-        for row in (
-            CreditLedger.all_objects.values("wallet_id", "bucket")
-            .annotate(total=Sum("amount"))
-        ):
-            entry = totals.setdefault(row["wallet_id"], {})
-            entry[row["bucket"]] = row["total"] or 0
+        #
+        # The comparison itself lives in `wallet.services.reconciliation` so the admin
+        # console asks the same question of one wallet and cannot get a different
+        # answer. Passing `sums` in is what preserves the two-query property.
+        totals = reconciliation.bulk_ledger_sums()
 
         for wallet in Wallet.objects.select_related("tenant").iterator():
             checked += 1
             sums = totals.get(wallet.pk, {})
-            allocated = sums.get(CreditLedger.Bucket.ALLOCATED, 0)
-            purchased = sums.get(CreditLedger.Bucket.PURCHASED, 0)
-            total = allocated + purchased
-
-            problems = []
-            if total != wallet.balance:
-                problems.append(f"balance {wallet.balance} vs ledger {total}")
-            if allocated != wallet.allocated_balance:
-                problems.append(f"allocated {wallet.allocated_balance} vs ledger {allocated}")
-            if purchased != wallet.purchased_balance:
-                problems.append(f"purchased {wallet.purchased_balance} vs ledger {purchased}")
+            total = reconciliation.ledger_total(wallet, sums=sums)
+            problems = reconciliation.check(wallet, sums=sums)
 
             if not problems:
                 continue
 
             drifted += 1
+            detail = "; ".join(p["message"] for p in problems)
             self.stderr.write(self.style.ERROR(
-                f"DRIFT wallet={wallet.pk} tenant={wallet.tenant} :: {'; '.join(problems)}"
+                f"DRIFT wallet={wallet.pk} tenant={wallet.tenant} :: {detail}"
             ))
 
             if options["fix"]:

@@ -63,6 +63,11 @@ class OperatorAuditLog(BaseModelCore):
         ENFORCEMENT_CHANGE = "enforcement.change", "Changed enforcement"
         TENANT_ONBOARD = "tenant.onboard", "Onboarded a tenant manually"
         TENANT_SUSPEND = "tenant.suspend", "Suspended a tenant"
+        # Editing a tenant's own record — name, timezone, language. Its own code
+        # rather than folded into TENANT_ONBOARD, because "who changed this
+        # customer's name" and "who created this customer" are different questions,
+        # and a sub-manager may reasonably hold one without the other.
+        TENANT_PROFILE = "tenant.profile", "Edited tenant profile"
         # Commercial
         PLAN_CHANGE = "plan.change", "Edited the catalogue"
 

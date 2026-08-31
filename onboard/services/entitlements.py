@@ -202,7 +202,7 @@ def current_usage(tenant_id, resource, subscription=None):
         from core.models.campaign import Campaign
         return (
             Campaign.all_objects.filter(tenant_id=tenant_id)
-            .filter(_campaign_consumes_allowance())
+            .filter(campaign_consumes_allowance())
             .count()
         )
 
@@ -219,8 +219,14 @@ def current_usage(tenant_id, resource, subscription=None):
     return 0
 
 
-def _campaign_consumes_allowance():
+def campaign_consumes_allowance():
     """Q for a campaign that is holding an allowance slot.
+
+    **Public, because the admin console counts campaigns too.** If the console
+    counted them differently, a tenant's 360 would show 4 active campaigns beside an
+    entitlement row reading ``5 / 5``, and support would file a bug against the wrong
+    system.
+
 
     A campaign counts if it **ever ran** — ``started_at`` is stamped once, in the
     same save that sets RUNNING, and nothing can take that back. Deleting a
@@ -270,7 +276,7 @@ def _windowed_usage(tenant_id, resource, since):
         # window and fire them all the moment the next one opens.
         return (
             Campaign.all_objects.filter(tenant_id=tenant_id, created_at__gte=since)
-            .filter(_campaign_consumes_allowance())
+            .filter(campaign_consumes_allowance())
             .count()
         )
 
