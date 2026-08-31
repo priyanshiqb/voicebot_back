@@ -39,30 +39,21 @@
 	email {$ACME_EMAIL}
 }
 
-# 1a. REST API Gateway (Django WSGI Gunicorn Server)
+# 1. Combined REST API & WebSockets Gateway
 {$SCHEME}api{$ENV_NAME}.{$DOMAIN} {
 	import error_handler
 	import security_headers
 	import compression
+
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @websockets {$ASGI_HOST}:8000
 	reverse_proxy {$WSGI_HOST}:8000
 
 	log {
 		output file /var/log/caddy/api_access.log {
-			roll_size 10mb
-			roll_keep 3
-		}
-	}
-}
-
-# 1b. WebSockets Gateway (Django ASGI Daphne Server)
-{$SCHEME}ws{$ENV_NAME}.{$DOMAIN} {
-	import error_handler
-	import security_headers
-	import compression
-	reverse_proxy {$ASGI_HOST}:8000
-
-	log {
-		output file /var/log/caddy/ws_access.log {
 			roll_size 10mb
 			roll_keep 3
 		}
