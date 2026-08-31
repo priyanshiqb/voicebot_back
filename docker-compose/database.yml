@@ -48,6 +48,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
     restart: always
     networks:
       - backend
@@ -73,6 +74,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
     networks:
       - backend
     restart: always

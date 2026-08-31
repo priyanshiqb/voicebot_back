@@ -25,6 +25,7 @@ services:
         required: false
       redis:
         condition: service_healthy
+        required: false
     networks:
       - backend
       - shared_network
@@ -58,6 +59,7 @@ services:
         required: false
       redis:
         condition: service_healthy
+        required: false
       backend-dev:
         condition: service_started
     networks:
@@ -100,6 +102,7 @@ services:
         required: false
       redis:
         condition: service_healthy
+        required: false
       backend-dev:
         condition: service_started
     networks:
