@@ -357,7 +357,7 @@ stateDiagram-v2
 | `DRAFT` | Created, not launched | API on create | **All** | ✅ | ✅ |
 | `SCHEDULED` | Waiting for its start time | `launch` | name, description, schedule | ❌ | ✅ |
 | `MATERIALIZING` | Freezing the audience (transient) | `launch` / beat | **None** | ❌ | ❌ 409 |
-| `HANDING_OFF` | Reserved for a future push-style handoff | — | **None** | ❌ | ❌ 409 |
+| `HANDING_OFF` | Audience frozen; runner being notified | Materialisation | **None** | ❌ | ❌ 409 |
 | `RUNNING` | Audience frozen; runner may work it | Materialisation | name, description | ❌ | ❌ 409 |
 | `PAUSED` | Operator-held | `pause` | name, description | ❌ | ✅ |
 | `COMPLETED` | Every member terminal | *(see note)* | **None** | ❌ | ✅ |
@@ -371,9 +371,16 @@ stateDiagram-v2
 > reported campaign stays `RUNNING` with `pending_count = 0`. The status exists in the enum now so
 > that adding the sweep later is not a migration, and so its meaning never has to change.
 
-> **Note on `HANDING_OFF`:** reserved. The current design has the runner **pull** context, so a
-> campaign goes straight from `MATERIALIZING` to `RUNNING`. If the handoff ever becomes a push
-> from this backend, `HANDING_OFF` is the state for "sent, not yet acknowledged".
+> **Note on `HANDING_OFF`:** no longer reserved. When `CAMPAIGN_RUNNER_NOTIFY_ENABLED` is on,
+> materialisation ends here rather than at `RUNNING`, a background task POSTs the campaign to the
+> runner, and the campaign moves to `RUNNING` once that POST succeeds. `RUNNING` therefore means
+> *the runner has been told* — without the intermediate state there is no way to distinguish
+> "notified and dialling" from "notify still queued" from "notify failed and nobody is dialling".
+>
+> With the flag off, materialisation goes straight to `RUNNING` exactly as before.
+>
+> The runner may pull `/context/` while a campaign is still `HANDING_OFF` — it is in
+> `WORKABLE_STATUSES` — so a runner that reacts to the push immediately is served correctly.
 
 ### Which statuses group together
 

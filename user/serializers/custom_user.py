@@ -9,6 +9,7 @@ from utils.serializers.hybrid_related_field import HybridRelatedField
 from onboard.serializers.timezone import TimezoneRefSerializer
 from onboard.serializers.language import LanguageRefSerializer
 from onboard.models import Timezone, Language
+from tenant.models.TenantUserMapping import TenantUserMapping
 
 
 class UserRefSerializer(serializers.ModelSerializer):
@@ -108,14 +109,40 @@ class UserSerializer(BaseModelCoreSerializer):
             **validated_data
         )
     
+    def validate(self, attrs):
+        """Refuse a password on update.
+
+        Setting one here was an account takeover. Every tenant user can reach every
+        colleague's row -- ``CustomUserViewSet.get_queryset`` widens the queryset to
+        the whole tenant, deliberately, so that people can maintain each other's
+        details -- so a writable password meant any user could overwrite a colleague's
+        credentials and then log in as them.
+
+        Two ways to set a password remain, and both prove something first:
+        ``/users/change-password/`` verifies the current password, and the reset flow
+        proves control of the mailbox. This was the third, and it proved nothing.
+
+        Rejected rather than quietly dropped: a client that believes it changed a
+        password and did not is worse off than one told which endpoint to call.
+        """
+        if self.instance is not None and "password" in attrs:
+            raise serializers.ValidationError({
+                "password": (
+                    "A password cannot be set here. Use /users/change-password/ to "
+                    "change your own password."
+                )
+            })
+        return attrs
+
     def update(self, instance, validated_data):
-        password = validated_data.pop("password", None)
-        
+        # Belt and braces. `validate` already rejects this, but `update` is reachable
+        # from any future caller that builds validated_data itself, and the cost of
+        # being wrong here is somebody else's account.
+        validated_data.pop("password", None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        
-        if password:
-            instance.set_password(password)
+
         instance.save()
         return instance
     
@@ -167,6 +194,30 @@ class UserDropdownSerializer(serializers.ModelSerializer):
             return obj.email
 
 
+class SetRoleSerializer(serializers.Serializer):
+    """Role change payload.
+
+    `OWNER` is rejected rather than offered. Ownership is *transferred*, never granted:
+    the partial unique constraint permits one live owner per tenant, so setting a second
+    would be an IntegrityError at best, and at worst — if the constraint were ever
+    relaxed — a tenant where two people can remove each other.
+    """
+
+    role = serializers.ChoiceField(
+        choices=[
+            TenantUserMapping.Role.ADMIN,
+            TenantUserMapping.Role.MEMBER,
+        ]
+    )
+
+    def validate_role(self, value):
+        if value == TenantUserMapping.Role.OWNER:
+            raise serializers.ValidationError(
+                "Use the transfer-ownership endpoint to change the owner."
+            )
+        return value
+
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(
         required=True,
@@ -206,4 +257,4 @@ class ChangePasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError({"confirm_password": "New passwords do not match."})
         if data["old_password"] == data["new_password"]:
             raise serializers.ValidationError({"new_password": "New password cannot be the same as old password."})
-        return data
+        return data

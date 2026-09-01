@@ -317,6 +317,11 @@ REST_FRAMEWORK = {
     # from normal traffic until the table is full of junk.
     "DEFAULT_THROTTLE_RATES": {
         "device_token_register": env.str("DEVICE_TOKEN_REGISTER_RATE", default="600/hour"),
+        # Invitation acceptance is unauthenticated and the token is its only
+        # credential, so an unthrottled endpoint is an invitation to enumerate. Keyed
+        # on client IP, which is all an anonymous caller has. Generous enough that a
+        # genuine invitee mistyping their password a few times is unaffected.
+        "invitation_accept": env.str("INVITATION_ACCEPT_RATE", default="20/hour"),
     },
     # Subclasses drf-spectacular's AutoSchema to document the X-Tenant-ID header on the
     # operations agent tokens can reach, driven off each viewset's
@@ -717,6 +722,18 @@ CAMPAIGN_MAX_SELECTED_CONTACTS = env.int("CAMPAIGN_MAX_SELECTED_CONTACTS", defau
 CAMPAIGN_MAX_MEMBERS = env.int("CAMPAIGN_MAX_MEMBERS", default=100_000)
 CAMPAIGN_MATERIALIZE_BATCH_SIZE = env.int("CAMPAIGN_MATERIALIZE_BATCH_SIZE", default=1000)
 CAMPAIGN_MAX_CONCURRENT_RUNNING = env.int("CAMPAIGN_MAX_CONCURRENT_RUNNING", default=5)
+
+# Tenant seat invitations
+# How long an invitation link stays usable. Days, not minutes: this is onboarding, not
+# a password reset, and the invitee may not read their mail today. The token is 256
+# bits from `secrets`, so a long window is not a guessing risk — the risk it carries is
+# a seat held by somebody who never joined, which `sweep_expired` reclaims.
+TENANT_INVITATION_EXPIRY_DAYS = env.int("TENANT_INVITATION_EXPIRY_DAYS", default=7)
+# Where the invitation email sends people. The API and the app are different origins,
+# so this cannot be derived from the request — a link to the API is a dead end for a
+# person. Empty produces an obviously-broken relative link rather than one pointing at
+# somebody else's domain.
+FRONTEND_BASE_URL = env.str("FRONTEND_BASE_URL", default="")
 
 # Campaign runner handoff
 # The runner cannot discover campaigns on its own: /campaign-runner/ exposes only

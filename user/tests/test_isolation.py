@@ -25,7 +25,13 @@ class UserTenantIsolationTests(TestCase):
         )
         self.manager_a.is_active = True
         self.manager_a.save()
-        TenantUserMapping.objects.create(user=self.manager_a, tenant=self.tenant_a)
+        # Roles now decide who may act on whom. manager_a runs tenant A, which is
+        # what this suite always assumed when it asserted they could edit a colleague.
+        TenantUserMapping.objects.create(
+            user=self.manager_a,
+            tenant=self.tenant_a,
+            role=TenantUserMapping.Role.OWNER,
+        )
 
         self.employee_a = User.objects.create_user(
             email="employee_a@example.com",
@@ -35,7 +41,11 @@ class UserTenantIsolationTests(TestCase):
         )
         self.employee_a.is_active = True
         self.employee_a.save()
-        TenantUserMapping.objects.create(user=self.employee_a, tenant=self.tenant_a)
+        TenantUserMapping.objects.create(
+            user=self.employee_a,
+            tenant=self.tenant_a,
+            role=TenantUserMapping.Role.MEMBER,
+        )
 
         # Create Tenant B & its users
         self.tenant_b = Tenant.objects.create(name="Tenant B", subdomain="tenant-b")
@@ -48,7 +58,11 @@ class UserTenantIsolationTests(TestCase):
         )
         self.manager_b.is_active = True
         self.manager_b.save()
-        TenantUserMapping.objects.create(user=self.manager_b, tenant=self.tenant_b)
+        TenantUserMapping.objects.create(
+            user=self.manager_b,
+            tenant=self.tenant_b,
+            role=TenantUserMapping.Role.OWNER,
+        )
 
         # Superuser
         self.superuser = User.objects.create_superuser(
@@ -113,7 +127,7 @@ class UserTenantIsolationTests(TestCase):
         self.assertEqual(mapping.tenant, self.tenant_a)
 
     def test_update_user_permissions_and_fields(self):
-        """Verify that a user can update themselves, other users in the same tenant, but not users in other tenants, and can update timezone & language fields."""
+        """Verify that a manager can update themselves, other users in the same tenant, but not users in other tenants, and can update timezone & language fields."""
         from onboard.models import Timezone, Language
         
         test_tz, _ = Timezone.objects.get_or_create(

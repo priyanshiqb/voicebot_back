@@ -116,6 +116,7 @@
   * [Authentication](apiDocs/user/auth.md)
   * [Sessions](apiDocs/user/sessions.md)
   * [Users](apiDocs/user/users.md)
+  * [Tenant Invitations](apiDocs/user/invitations.md)
   * [Forgot Password Resend](apiDocs/user/forgot_password_resend.md)
 
 * **🏢 Tenant APIs**

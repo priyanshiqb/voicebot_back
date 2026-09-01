@@ -64,6 +64,7 @@ class EmailDeliveryLog(BaseModelCore):
         EMAIL_CHANGE = "EMAIL_CHANGE", "Email change verification"
         PASSWORD_RESET = "PASSWORD_RESET", "Password reset OTP"
         SMTP_TEST = "SMTP_TEST", "Tenant SMTP test message"
+        TENANT_INVITATION = "TENANT_INVITATION", "Tenant seat invitation"
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"

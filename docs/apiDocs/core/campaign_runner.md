@@ -16,6 +16,7 @@ the human-facing side, see the [Campaigns API](campaign.md).
 ## Contents
 
 - [Division of responsibility](#division-of-responsibility)
+- [How the runner learns a campaign exists](#how-the-runner-learns-a-campaign-exists)
 - [Authentication](#authentication)
 - [Scoping warning](#-scoping-warning)
 - [Endpoint index](#endpoint-index)
@@ -44,6 +45,85 @@ them, so status validation and counter maintenance stay in one place.
 **Suppressed members are never sent.** Contacts on do-not-call, or with denied or withdrawn
 consent, are filtered out before the context response is built. The runner does not have to
 implement DNC and cannot get it wrong.
+
+---
+
+## How the runner learns a campaign exists
+
+**This backend POSTs to the runner when a campaign is ready.** There is no list endpoint here and
+no due-work queue — every route below is `detail=True`, keyed by a campaign id — so without that
+notification the runner has no way to discover a campaign at all. The push is the discovery
+mechanism, not a latency optimisation.
+
+### What we send
+
+`POST` to `CAMPAIGN_RUNNER_NOTIFY_URL`, with `Authorization: Bearer <CAMPAIGN_RUNNER_TOKEN>` and
+`X-Handoff-Id` duplicating the body field so the runner can dedupe at its edge without parsing
+JSON.
+
+```json
+{
+  "campaign_id": "5fa85f64-…",
+  "tenant_id": "3c1b9a02-…",
+  "handoff_id": "9f1c7e44-…",
+  "agent_id": "7b2d5a10-…",
+  "pending_count": 470
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `campaign_id` | What to fetch from [`GET /{id}/context/`](#get-idcontext). |
+| `tenant_id` | What to send back as `X-Tenant-ID` on every call. |
+| `handoff_id` | **Idempotency key.** See the contract below. |
+| `agent_id` | Lets the runner warm bot config before pulling context. |
+| `pending_count` | Advisory, like `credits` — lets the runner size its queue. The authoritative list is what `/context/` returns. |
+
+> ### The contract we ask of the runner
+>
+> **Two notifications carrying the same `handoff_id` are the same job — ignore the second.**
+> **A different `handoff_id` for the same `campaign_id` supersedes the earlier one.**
+>
+> `handoff_id` is re-minted on every `/launch/`, so it identifies *this attempt* at running *this
+> campaign*. Delivery retries repeat it; a relaunch replaces it. Without this rule, a retried or
+> swept notification dials the audience twice.
+
+### What we expect back
+
+| Response | We do |
+|---|---|
+| `2xx` | Mark the handoff `SENT` and move the campaign to `RUNNING`. |
+| `429` | Retry with backoff, honouring `Retry-After` when it is a plain number of seconds. |
+| `5xx`, timeout, connection error | Retry with backoff — 30s, 60s, 120s, 240s, 480s. |
+| Any other `4xx` | **Give up immediately.** A rejected token or malformed body fails identically on every attempt. |
+
+A permanently failed handoff sets `handoff_status = FAILED` and leaves the campaign in
+`HANDING_OFF` rather than failing it — the audience is already materialised and correct, and
+`HANDING_OFF` is workable, so a manual replay can still pull `/context/`. A sweeper re-notifies
+campaigns stuck there, reusing the same `handoff_id`.
+
+### `handoff_status`
+
+| Value | Set when |
+|---|---|
+| `PENDING` | Campaign materialised; nothing sent yet. |
+| `SENT` | The runner accepted the notification. |
+| `ACKED` | The runner pulled `/context/` for the first time. |
+| `FAILED` | Delivery gave up. Visible, and retried by the sweeper. |
+
+> **It only ever moves forward.** The runner can pull `/context/` and reach `ACKED` before the
+> notify task has committed `SENT`, so the writes are guarded — an acknowledged campaign is never
+> dragged back. Do not infer ordering from it beyond "at least this far".
+
+### Configuration
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `CAMPAIGN_RUNNER_NOTIFY_ENABLED` | `false` | Master switch. Off, materialisation goes straight to `RUNNING` and nothing is sent. |
+| `CAMPAIGN_RUNNER_NOTIFY_URL` | *(empty)* | The runner's campaign-start endpoint. No default on purpose. |
+| `CAMPAIGN_RUNNER_TOKEN` | *(empty)* | Bearer token for the push. **Distinct from the `VB_AGENT` token the runner uses to call back** — this one authenticates us *to* the runner. |
+| `CAMPAIGN_RUNNER_TIMEOUT` | `10` | Seconds. |
+| `CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES` | `20` | How long a campaign may sit in `HANDING_OFF` before the sweeper re-notifies. Must exceed the retry budget above. |
 
 ---
 
@@ -426,8 +506,12 @@ the identical batch — already-applied items come back as `ignored`.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant R as Runner
     participant API as Backend
+    participant R as Runner
+
+    API->>R: POST {campaign_id, tenant_id, handoff_id}
+    Note over R: dedupe on handoff_id
+    R-->>API: 2xx
 
     R->>API: GET /campaign-runner/{id}/context/?page=1
     API-->>R: 200 {campaign, agent, members[]} + meta.next

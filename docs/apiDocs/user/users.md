@@ -34,10 +34,15 @@ Four things govern this API:
 | `POST` | `/auth/users/change-password/` | Change your own password |
 | `GET` | `/auth/users/dropdown/` | Label/value picker options |
 | `POST` | `/auth/users/bulk_delete/` | Bulk soft-delete |
+| `POST` | `/auth/users/{id}/set-role/` | Promote or demote between `ADMIN` and `MEMBER` |
+| `POST` | `/auth/users/{id}/transfer-ownership/` | Hand `OWNER` to somebody else |
 
 ---
 
 ## Who can see and change whom
+
+**Visibility and edit rights are no longer the same thing.** Everyone at a tenant can *see* their
+colleagues; what they may *do* to them comes from `TenantUserMapping.role`.
 
 | Caller | Visible set |
 |---|---|
@@ -45,11 +50,33 @@ Four things govern this API:
 | User with a tenant mapping | Their own record **plus every user mapped to the same tenant**. |
 | User without a tenant mapping | Their own record only. |
 
-> **Visibility and edit rights are the same thing here.** There is no role check on update or
-> delete — any user who can see a colleague can also change that colleague's email, password,
-> `is_active`, and `session_timeout_hours`, and can soft-delete them. An ordinary `USER` can do this
-> to an `ADMIN`. If your product needs "only admins may manage teammates", it must be enforced
-> before this API, because this API does not enforce it.
+### Roles
+
+Set per tenant on the membership, not on the user account. `CustomUser.user_type` is a different
+thing entirely — it marks machine and platform accounts and is never a tenant role.
+
+| Role | May do |
+|---|---|
+| `OWNER` | Everything an admin can, plus transfer ownership. **Exactly one per tenant**, enforced by a database constraint. Cannot be edited, removed, or demoted by anybody else. |
+| `ADMIN` | Create, edit, remove, and re-role other people. **Cannot touch the owner.** |
+| `MEMBER` | Edit only their own record. The default for a newly created or invited account. |
+
+| Action | `MEMBER` | `ADMIN` | `OWNER` |
+|---|---|---|---|
+| List / retrieve colleagues | ✅ | ✅ | ✅ |
+| Edit **own** record | ✅ | ✅ | ✅ |
+| Edit / delete a **member or admin** | ❌ 403 | ✅ | ✅ |
+| Edit / delete the **owner** | ❌ 403 | ❌ 403 | ✅ (self) |
+| Create a user · invite · bulk delete | ❌ 403 | ✅ | ✅ |
+| `set-role` | ❌ 403 | ✅ | ✅ |
+| `transfer-ownership` | ❌ 403 | ❌ 403 | ✅ |
+
+> **The owner is deliberately untouchable by others.** Without that, two admins can remove each
+> other, or remove whoever holds the billing relationship, leaving a tenant that cannot appoint
+> anyone. Ownership moves only by transfer, which demotes the outgoing owner to `ADMIN` in the same
+> transaction so there is never a moment with two owners or none.
+
+> **A password can never be set through this resource.** See §4.
 
 > **Soft-deleting or deactivating a user does not sign them out.** Their existing sessions keep
 > working until the tokens expire — revoke them via [Sessions](./sessions.md) as a separate step.
@@ -187,8 +214,19 @@ Adds a colleague to **your** tenant.
 
 **Read-only — ignored if you send them:** `id`, `is_verified`, `tenant`, `subscription`.
 
+> **Only an owner or admin may create a user.** A member gets a **403**, checked *before* the
+> plan-limit check so a member is never handed a 402 that discloses how full the plan is.
+
+> **The new user arrives as a `MEMBER`**, whatever the creator's own role. Promotion is a separate,
+> deliberate act through [set-role](#10-set-a-users-role), so nobody is created already able to
+> remove the person who created them.
+
 > **`user_type` cannot be set.** It is absent from the serializer, so every user created here gets
-> the model default `USER`. Promoting someone to `ADMIN` is a Django-admin action.
+> the model default `USER`. That field is not a tenant role — see [Roles](#roles).
+
+> **Consider [inviting](./invitations.md) instead.** Creating a user here means *you* choose their
+> password and then tell them what it is. An invitation lets them set their own and never shares a
+> credential.
 
 > **The new user is mapped to your tenant automatically**, inside the same transaction as the
 > account itself — so if the mapping fails, no orphaned user is left behind. Superusers are the
@@ -204,6 +242,8 @@ Adds a colleague to **your** tenant.
 | **400** | `password` rejected by a Django validator. | e.g. `This password is too common.` | `{"password": [...]}` |
 | **400** | `timezone` or `language` id does not exist. | `Invalid pk "…" - object does not exist.` | `{"<field>": [...]}` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
+| **402** | Your plan has no seats left. | `QUOTA_EXCEEDED` | `{"detail": …}` |
+| **403** | You are a `MEMBER`. | `Only an owner or admin can manage the people at this organisation.` | `{"detail": …}` |
 | **403** | You have no tenant mapping to add the user to. | `Your user account is not associated with any active tenant.` | `{"detail": …}` |
 | **403** | Agent token. | `This endpoint is not available to agent tokens.` | `{"detail": …}` |
 
@@ -224,14 +264,22 @@ Adds a colleague to **your** tenant.
 |---|---|---|---|
 | **200** | Updated. | `Updated successfully` | `null` |
 | **400** | Any validation error from §3, including the new email colliding. | as §3 | `{"<field>": [...]}` |
+| **400** | `password` was included. | `A password cannot be set here. Use /users/change-password/ to change your own password.` | `{"password": [...]}` |
+| **403** | You may not modify this user — wrong role, or the target is the owner. | `You do not have permission to modify this user.` | `{"detail": …}` |
 | **401** / **403** | As in §1. | — | — |
 | **404** | No such user, or outside your visible set. | `Not found.` | `{"detail": …}` |
 
-> **Sending `password` here changes it, with no old-password check.** That is a genuine password
-> reset performed by whoever can see the record — and, per
-> [Who can see and change whom](#who-can-see-and-change-whom), that is any colleague in the tenant.
-> Use [change-password](#7-change-your-password) for the self-service flow, which does verify the
-> current password.
+> **Sending `password` here is refused with a 400.** It used to change the password with no
+> old-password check, which — combined with every colleague being visible — meant any user could
+> overwrite a teammate's credentials and sign in as them. Two ways to set a password remain, and
+> both prove something first: [change-password](#7-change-your-password) verifies the current one,
+> and the [invitation](./invitations.md) and [reset](./auth.md) flows prove control of the mailbox.
+>
+> The rejection is explicit rather than a silent drop, so a client cannot believe it changed a
+> password that it did not.
+
+> **Editing anybody but yourself requires `OWNER` or `ADMIN`**, and nobody but the owner may edit
+> the owner. `is_active` is covered by this too — deactivating a colleague is a manager action.
 
 > **Changing `email` changes the user's login identity immediately**, and their existing sessions
 > keep working. It does not send a verification email; `is_verified` is untouched.
@@ -245,8 +293,9 @@ Adds a colleague to **your** tenant.
 
 | Status | When | `message` |
 |---|---|---|
-| **200** | Soft-deleted. | `Deleted successfully` |
-| **401** / **403** | As in §1. | — |
+| **200** | Soft-deleted, and the seat released. | `Deleted successfully` |
+| **403** | You are a `MEMBER`, or the target is the owner. | `You do not have permission to modify this user.` |
+| **401** | Missing or invalid token. | — |
 | **404** | No such user, already deleted, or outside your visible set. | `Not found.` |
 
 **Soft delete** — the row survives with `is_deleted: true` and drops out of every list.
@@ -258,8 +307,18 @@ Adds a colleague to **your** tenant.
 > **The email stays taken.** Uniqueness on `email` has no "not deleted" condition, so a
 > soft-deleted user's address cannot be reused for a new account.
 
-> **Nothing stops you deleting yourself.** There is no self-protection check and no
-> last-admin guard.
+> **Deleting anybody but yourself requires `OWNER` or `ADMIN`, and the owner cannot be deleted
+> by anyone else.** A 403 covers both cases with the same message, so it cannot be used to work out
+> who the owner is.
+
+> **The seat goes back to your plan.** The `USER` allowance counts live tenant memberships, so the
+> membership is soft-deleted in the same transaction as the user. Without that the seat would stay
+> consumed forever — the `OneToOneField` cascade never fires here, because a soft delete is a flag
+> write rather than a delete.
+
+> **Nothing stops you deleting yourself**, including as the owner. There is no self-protection
+> check, and a tenant whose owner deletes themselves is left with no owner until one is appointed
+> out of band.
 
 ---
 
@@ -342,11 +401,64 @@ name still renders as something identifiable.
 | **200** | All soft-deleted. | `Bulk deleted successfully` |
 | **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
 | **400** | Any id unknown, already deleted, or outside your visible set — **nothing is deleted**. | `Some ids are invalid` |
-| **401** / **403** | As in §1. | — |
+| **403** | You are a `MEMBER`, or any id in the batch is one you may not remove — **nothing is deleted**. | `You do not have permission to modify this user.` |
+| **401** | Missing or invalid token. | — |
 
 > **Duplicate ids fail the whole request.** De-duplicate client-side.
 
+> **Requires `OWNER` or `ADMIN`.** Every id is permission-checked *before* anything is deleted,
+> so a batch containing one user you may not remove — the owner, say — removes **nobody**. That is
+> deliberate: a partial success would tell you which single id was protected.
+
+> **Seats are released for every user removed**, exactly as in §5.
+
 > **No session revocation here either**, and no guard against including yourself.
+
+---
+
+### 10. Set a User's Role
+
+Promote or demote somebody between `ADMIN` and `MEMBER`.
+
+- **Path**: `POST /api/v1/auth/users/{id}/set-role/`
+- **Request Payload**: `{ "role": "ADMIN" }`
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `role` * | enum | The new role. | Required. `ADMIN` or `MEMBER` only. |
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Role updated. Returns the user object from §2. | `Role updated` |
+| **400** | `role` is `OWNER` or not a valid choice. | `"OWNER" is not a valid choice.` |
+| **403** | You are a `MEMBER`, or the target is the owner. | `Only an owner or admin can manage the people at this organisation.` |
+| **404** | Outside your visible set. | `Not found.` |
+
+> **`OWNER` cannot be granted here.** Use [transfer-ownership](#11-transfer-ownership), which moves
+> the role rather than duplicating it. Only one live owner per tenant exists, and it is a database
+> constraint rather than a convention — granting a second would fail at the database anyway.
+
+> **A member cannot promote themselves.** Acting on your own record is normally allowed, so this
+> endpoint additionally requires that you already be a manager.
+
+---
+
+### 11. Transfer Ownership
+
+- **Path**: `POST /api/v1/auth/users/{id}/transfer-ownership/`
+- **Request Payload**: none.
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Ownership moved. Returns the new owner. | `Ownership transferred` |
+| **403** | You are not the current owner, or the target belongs to another organisation. | `Only the current owner can transfer ownership.` |
+| **404** | Outside your visible set. | `Not found.` |
+
+> **The outgoing owner becomes an `ADMIN`**, not a member — they were running the account a moment
+> ago, and dropping them to the lowest role is a surprise nobody asked for.
+
+> **Both writes happen in one locked transaction**, so there is never a moment where a tenant has
+> two owners or none, even under two simultaneous transfers.
 
 ---
 
@@ -354,9 +466,9 @@ name still renders as something identifiable.
 
 | # | Gap | Impact |
 |---|---|---|
-| 1 | **Visibility equals edit rights, with no role check.** Any user in a tenant can edit or delete any other user in that tenant, including admins, and can reset their password by `PATCH`ing `password`. | Privilege escalation within a tenant. Enforce roles upstream if you need them. |
-| 2 | **No session revocation on deactivate, delete, or password change.** | A removed or compromised account keeps working until its access token expires. |
-| 3 | **`user_type` is not exposed.** | Roles cannot be read or set through the API, so a client cannot tell an admin from an ordinary user. |
+| 1 | **No session revocation on deactivate, delete, or password change.** | A removed or compromised account keeps working until its access token expires. Revoke via [Sessions](./sessions.md) as a separate step. |
+| 2 | **A user's role is not in any response payload.** It is enforced on every write, but a client cannot read it back — so a UI cannot grey out actions it knows will 403. | Clients must attempt the action and handle the 403. |
+| 3 | **No last-owner guard.** The owner can delete themselves, leaving the tenant with none. | Recovery needs an out-of-band fix. |
 | 4 | **Password rules differ between create/update and change/reset.** | A password accepted at creation may be rejected when the user later tries to change it. |
 | 5 | **`phone_number` is unvalidated free text**, unlike [Contacts](../core/contact.md), which normalises to E.164. | The same person's number can be stored in two different shapes across the system. |
 | 6 | **A soft-deleted user's email stays reserved.** | The address cannot be reused for a new account. |
@@ -365,5 +477,6 @@ name still renders as something identifiable.
 ## Related
 
 - [Authentication API](./auth.md) — login, password reset, token lifetimes
+- [Invitations API](./invitations.md) — adding people without choosing their password
 - [Sessions API](./sessions.md) — revoking access after a change here
 - [Timezones](../onboard/timezones.md) · [Languages](../onboard/languages.md) — the `timezone` and `language` ids
