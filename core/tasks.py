@@ -856,3 +856,62 @@ def start_due_campaigns():
     from core.services import campaigns as campaign_service
 
     return campaign_service.start_due_campaigns()
+
+
+@shared_task(base=ReportedTask, bind=True, max_retries=5, default_retry_delay=30)
+def notify_runner_campaign_start(self, campaign_id):
+    """Tell the voice runner a campaign is ready to dial.
+
+    Retries only what is worth retrying. A rejected token or a malformed body fails
+    identically on every attempt, so those are recorded and dropped immediately rather
+    than spending fifteen minutes proving it.
+
+    Backoff is 30s / 60s / 120s / 240s / 480s — roughly fifteen minutes of patience,
+    enough to ride out a runner deploy. Anything longer than that is the sweeper's job.
+    """
+    from core.services import campaign_handoff as handoff_service
+
+    try:
+        return handoff_service.notify_campaign_start(campaign_id)
+    except handoff_service.PermanentHandoffError as exc:
+        handoff_service.mark_handoff_failed(campaign_id, str(exc))
+        return None
+    except handoff_service.TransientHandoffError as exc:
+        if self.request.retries >= self.max_retries:
+            # Last attempt: record it before Celery raises MaxRetriesExceeded, or the
+            # campaign is left reading PENDING with nothing to say why.
+            handoff_service.mark_handoff_failed(
+                campaign_id, f"Gave up after {self.max_retries} attempts: {exc}"
+            )
+            return None
+        countdown = exc.retry_after
+        if countdown is None:
+            countdown = min(30 * 2 ** self.request.retries, 600)
+        raise self.retry(exc=exc, countdown=countdown)
+
+
+@shared_task(base=ReportedTask)
+def retry_stale_handoffs():
+    """Beat task: re-notify campaigns stuck mid-handoff.
+
+    The safety net under `notify_runner_campaign_start`, for the failures a task retry
+    cannot cover — a worker killed mid-task, an `on_commit` hook lost to a restart, or
+    a runner outage that outlasted the retry budget. Since the push is the runner's
+    only way to discover a campaign, without this a lost notification is a campaign
+    that never runs and nobody is told.
+    """
+    from core.services import campaign_handoff as handoff_service
+
+    campaign_ids = handoff_service.stale_handoffs()
+    for campaign_id in campaign_ids:
+        notify_runner_campaign_start.delay(str(campaign_id))
+
+    if campaign_ids:
+        # Named line, not a generic exception: campaigns sitting here across several
+        # sweeps is the condition worth alerting on.
+        failure_logger.warning(
+            "retry_stale_handoffs: re-notifying %s stalled campaign(s)",
+            len(campaign_ids),
+            extra={"campaign_ids": [str(cid) for cid in campaign_ids]},
+        )
+    return len(campaign_ids)

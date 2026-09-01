@@ -718,6 +718,29 @@ CAMPAIGN_MAX_MEMBERS = env.int("CAMPAIGN_MAX_MEMBERS", default=100_000)
 CAMPAIGN_MATERIALIZE_BATCH_SIZE = env.int("CAMPAIGN_MATERIALIZE_BATCH_SIZE", default=1000)
 CAMPAIGN_MAX_CONCURRENT_RUNNING = env.int("CAMPAIGN_MAX_CONCURRENT_RUNNING", default=5)
 
+# Campaign runner handoff
+# The runner cannot discover campaigns on its own: /campaign-runner/ exposes only
+# detail routes, keyed by an id it has no way to learn. This push is how it finds out,
+# so a failed handoff is a campaign that never runs — not a slow one.
+#
+# NOTIFY_URL has no default. An empty string with notification enabled is a
+# misconfiguration that should be obvious at the first campaign, not a connection
+# error to somebody's laptop at 3am.
+CAMPAIGN_RUNNER_NOTIFY_URL = env.str("CAMPAIGN_RUNNER_NOTIFY_URL", default="")
+CAMPAIGN_RUNNER_TOKEN = env.str("CAMPAIGN_RUNNER_TOKEN", default="")
+CAMPAIGN_RUNNER_TIMEOUT = env.int("CAMPAIGN_RUNNER_TIMEOUT", default=10)
+# Off by default so this ships dark: with it off, materialisation goes straight to
+# RUNNING exactly as it did before and no outbound call is made.
+CAMPAIGN_RUNNER_NOTIFY_ENABLED = env.bool(
+    "CAMPAIGN_RUNNER_NOTIFY_ENABLED", default=False
+)
+# How long a campaign may sit in HANDING_OFF before the sweeper re-notifies it. Must
+# stay above the notify task's own retry budget (~15 min of backoff) or the sweeper
+# stacks a second task on top of one that is still retrying.
+CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES = env.int(
+    "CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES", default=20
+)
+
 # Availability materialization
 # How many days of UTC availability windows to keep materialized ahead of today.
 # A tenant whose event templates advertise a longer booking horizon raises this
@@ -778,6 +801,13 @@ CELERY_BEAT_SCHEDULE = {
     "campaigns-start-due": {
         "task": "core.tasks.start_due_campaigns",
         "schedule": 60.0,  # every minute
+    },
+    # Safety net for handoffs the notify task could not complete — a killed worker, a
+    # lost on_commit hook, a runner outage longer than the retry budget. Slower than
+    # the start sweep because it is a backstop, not the primary path.
+    "campaigns-retry-stale-handoffs": {
+        "task": "core.tasks.retry_stale_handoffs",
+        "schedule": 300.0,  # every 5 minutes
     },
 
     # --- Billing -----------------------------------------------------------

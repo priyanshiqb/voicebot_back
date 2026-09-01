@@ -17,6 +17,7 @@ from django.utils import timezone
 from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember, suppression_reason_for
 from core.models.contact import Contact
+from core.services import campaign_handoff as handoff_service
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +121,16 @@ def _write_batch(campaign, contacts):
 
 def materialize_campaign(campaign_id):
     """
-    Freeze the audience into CampaignMember rows and move the campaign to RUNNING.
+    Freeze the audience into CampaignMember rows and hand the campaign to the runner.
 
     Batched with a savepoint per batch rather than one transaction around the whole
     audience: a single bad row must not discard a 100k-member materialisation.
+
+    Ends in HANDING_OFF when runner notification is enabled and RUNNING when it is not;
+    see the branch at the bottom.
     """
+    from core.tasks import notify_runner_campaign_start as notify_task
+
     with transaction.atomic():
         campaign = (
             Campaign.all_objects.select_for_update()
@@ -178,14 +184,34 @@ def materialize_campaign(campaign_id):
             "Every contact in this campaign is suppressed, so there is nobody to call.",
         )
 
-    campaign.status = Campaign.Status.RUNNING
+    # `started_at` is stamped here in both branches: it records when *we* began work on
+    # the campaign, and it is the moment the audience snapshot is contemporaneous with.
     campaign.started_at = timezone.now()
-    campaign.save(update_fields=["status", "started_at", "updated_at"])
+
+    if handoff_service.notify_enabled():
+        # HANDING_OFF, not RUNNING. RUNNING should mean the runner has been told; with
+        # one state for both there is no way to tell "notified and dialling" from
+        # "notify still queued" from "notify failed and nobody is dialling".
+        #
+        # The notify goes out as a task rather than inline because this function has
+        # just written up to 100k rows, and a network timeout must not be able to
+        # discard a materialisation that otherwise succeeded.
+        campaign.status = Campaign.Status.HANDING_OFF
+        campaign.save(update_fields=["status", "started_at", "updated_at"])
+        transaction.on_commit(
+            lambda: notify_task.delay(str(campaign_id))
+        )
+    else:
+        # Flag off: exactly the previous behaviour, so this ships dark.
+        campaign.status = Campaign.Status.RUNNING
+        campaign.save(update_fields=["status", "started_at", "updated_at"])
+
     logger.info(
-        "Campaign %s materialized: %s pending, %s suppressed",
+        "Campaign %s materialized: %s pending, %s suppressed, status %s",
         campaign_id,
         campaign.pending_count,
         campaign.suppressed_count,
+        campaign.status,
     )
     return campaign
 

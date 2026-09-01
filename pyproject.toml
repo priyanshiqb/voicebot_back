@@ -49,5 +49,10 @@ dependencies = [
     "tzdata>=2026.3",
     "azure-storage-blob>=12.24",
     "disposable-email-domains>=0.0.246",
+    # Explicit, not transitive: it reaches us today through google-api-python-client
+    # and razorpay, but two integrations now import it directly — the knowledge-base
+    # ETL trigger and the campaign runner handoff. A dependency that disappears when
+    # an unrelated package is dropped is not a dependency we have.
+    "requests>=2.32",
 ]
 
