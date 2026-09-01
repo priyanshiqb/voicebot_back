@@ -74,7 +74,7 @@ no summary, no probing questions.
 |---|---|---|---|
 | `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
-| `search` | string | Partial, case-insensitive match on `provider_call_id`, `caller_number`, `caller_name`. | Words split on spaces and **AND**ed. |
+| `search` | string | Partial, case-insensitive match on `provider_call_id`, `caller_number`, `callee_number`, `caller_name`. | Words split on spaces and **AND**ed. Both number columns are searched, so a customer's number finds their inbound *and* outbound calls. |
 | `ordering` | string | Sort. Default `-started_at`. | Only `started_at` and `duration_seconds`, optionally `-` prefixed. Anything else is ignored. |
 | `direction` | enum | Inbound vs outbound. | `inbound` or `outbound` — **lowercase**. |
 | `outcome` | string | **Exact** match on the disposition string. | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
@@ -213,7 +213,8 @@ The full record, including the transcript and probing-question answers.
 |---|---|---|---|
 | `provider_call_id` * | string | Your telephony provider's identifier for this call. The correlation key that links this log to a campaign member. | Required. Max **255**. **Globally unique** — re-posting the same id is a 400, so a retry after a successful write fails rather than duplicating. |
 | `agent` * | UUID | The bot that handled the call. | Required. Must exist and **belong to the tenant named in `X-Tenant-ID`** — a mismatch is a **403**, not a 404. |
-| `caller_number` * | string | The other party's number. Stored as supplied; **not** normalised to E.164 here. | Required. Max **50**. |
+| `caller_number` * | string | The number that **initiated** the call: the customer on inbound, the bot on outbound. Stored as supplied; **not** normalised to E.164 here. | Required. Max **50**. |
+| `callee_number` | string | The number that **received** the call: the bot on inbound, the customer on outbound. | Optional, nullable. Max **50**. See *Which number is the person* below. |
 | `direction` * | enum | Who placed the call. | Required. `inbound` or `outbound`, **lowercase**. |
 | `caller_name` | string | The other party's name, if known. | Optional, nullable. Max **255**. |
 | `campaign_id` | string | Free-text campaign tag. **Not a foreign key** — see the note below. | Optional, nullable. Max **255**. |
@@ -322,18 +323,44 @@ here**:
 
 | Field | Set by | Why it matters |
 |---|---|---|
-| `contact` | Resolved from `caller_number` by E.164 matching, and by `backfill_contact_links` for older rows | The link between a call and a [Contact](./contact.md) is invisible through this API. Query from the contact side instead. |
+| `contact` | Resolved from `customer_number` by E.164 matching, and by `backfill_contact_links` for older rows | The link between a call and a [Contact](./contact.md) is invisible through this API. Query from the contact side instead. |
 | `campaign_member` | The [Campaign Runner](./campaign_runner.md), when it reports an outcome carrying `provider_call_id` | The link between a call and a campaign member is likewise invisible here. |
 
 Both use `SET_NULL`, so deleting a contact or a campaign never destroys call history — but it does
 silently break the association, and nothing on this page will tell you.
+
+## Which number is the person
+
+The customer swaps ends with the direction, so neither raw column answers "who was this call
+with" on its own:
+
+| Direction | `caller_number` | `callee_number` |
+|---|---|---|
+| `inbound` | the customer | the bot's DID |
+| `outbound` | the bot's DID | the customer |
+
+Every response therefore carries a derived, read-only **`customer_number`** — the human's number
+whichever end they were on. **Read that, not the raw columns.** It is what contact resolution
+uses, and it is the only thing that handles the wrinkle below.
+
+> **Outbound rows come in two eras.** Before `callee_number` existed, the runner wrote the
+> customer into `caller_number` regardless of direction, and those rows were deliberately left as
+> they were rather than rewritten. So an outbound row with `callee_number: null` has the customer
+> in `caller_number`. `customer_number` falls back accordingly; nothing else does.
+
+`callee_number` is optional on write so the runner can adopt it on its own deploy schedule —
+requiring it would reject every call log until both services shipped together. Once every runner
+sends it, it can be made required and the fallback retired.
+
+---
 
 ## Known gaps
 
 | # | Gap | Impact |
 |---|---|---|
 | 1 | `contact` and `campaign_member` are not serialised. | You cannot tell from a call log which contact or campaign member it belongs to. |
-| 2 | `caller_number` is not normalised to E.164 on write. | Two logs for the same person can carry differently formatted numbers, and `search` matches the raw string. |
+| 2 | `caller_number` and `callee_number` are not normalised to E.164 on write. | Two logs for the same person can carry differently formatted numbers, and `search` matches the raw string. |
+| 2b | `callee_number` is optional, and older outbound rows have none. | `customer_number` covers this, but anything reading the raw columns must handle both eras itself. |
 | 3 | `mood_confidence` has no range validation. | Out-of-range values are stored and surface in reporting. |
 | 4 | `probing_questions_count` is independent of `probing_questions`. | The two can disagree; trust the array's length. |
 | 5 | `ended_at` is not checked against `started_at`. | A negative call duration is representable. |

@@ -59,7 +59,9 @@ class AgentCallLogFilter(django_filters.FilterSet):
 CALL_LOG_EXAMPLE = {
     "provider_call_id": "call-001",
     "agent": "agent-uuid-string",
+    # Inbound: the customer dialled the bot, so the bot's DID is the callee.
     "caller_number": "+91 93880 25735",
+    "callee_number": "+91 80 4718 2200",
     "caller_name": "Nisha Patel",
     "direction": "inbound",
     "duration_seconds": 326,
@@ -143,7 +145,14 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     dropdown_serializer_class = AgentCallLogDropdownSerializer
 
     filterset_class = AgentCallLogFilter
-    search_fields = ["provider_call_id", "caller_number", "caller_name"]
+    # callee_number included so searching a customer's number finds outbound calls
+    # too — on those the person is the callee, not the caller.
+    search_fields = [
+        "provider_call_id",
+        "caller_number",
+        "callee_number",
+        "caller_name",
+    ]
     ordering_fields = ["started_at", "duration_seconds"]
     ordering = ["-started_at"]
 

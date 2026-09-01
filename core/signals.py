@@ -97,7 +97,7 @@ def sync_availability_profile_timezone(sender, instance, created, **kwargs):
 @receiver(pre_save, sender=AgentCallLog)
 def link_call_log_to_contact(sender, instance, **kwargs):
     """
-    Resolve caller_number to a Contact before the row is written.
+    Resolve the customer's number to a Contact before the row is written.
 
     pre_save rather than post_save so linking costs no extra UPDATE, and it is a
     lookup on an indexed column. Resolution never fails a call log: an unknown or
@@ -108,7 +108,7 @@ def link_call_log_to_contact(sender, instance, **kwargs):
 
     from core.services.contact_resolution import find_contact
 
-    contact = find_contact(instance.tenant_id, instance.caller_number)
+    contact = find_contact(instance.tenant_id, instance.customer_number)
     if contact is not None:
         instance.contact = contact
 

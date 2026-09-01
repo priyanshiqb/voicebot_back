@@ -9,9 +9,19 @@ from core.models.agent_call_recording import AgentCallRecording
 
 class AgentCallLogRefSerializer(serializers.ModelSerializer):
     """Lightweight serializer for nested relationships."""
+    # The direction-aware "who was this call with", so a nested reference does not
+    # have to know that caller_number means different people on inbound and outbound.
+    customer_number = serializers.ReadOnlyField()
+
     class Meta:
         model = AgentCallLog
-        fields = ["id", "provider_call_id", "caller_number", "started_at"]
+        fields = [
+            "id",
+            "provider_call_id",
+            "caller_number",
+            "customer_number",
+            "started_at",
+        ]
 
 class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
     """Full detail and write serializer for AgentCallLog."""
@@ -25,6 +35,10 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
         required=False,
         allow_null=True
     )
+    # Derived, never written: the runner sends the two raw numbers and this service
+    # decides which of them is the person. Exposing it spares every client from
+    # reimplementing that rule — and from getting it wrong on old outbound rows.
+    customer_number = serializers.ReadOnlyField()
 
     class Meta(TenantBaseModelCoreSerializer.Meta):
         model = AgentCallLog
@@ -32,6 +46,11 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "provider_call_id",
             "agent",
             "caller_number",
+            # Optional on the write path on purpose: the runner adds it on its own
+            # deploy schedule, and requiring it would 400 every call log until both
+            # sides shipped together.
+            "callee_number",
+            "customer_number",
             "caller_name",
             "direction",
             "campaign_id",
@@ -66,6 +85,8 @@ class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
         read_only=True
     )
 
+    customer_number = serializers.ReadOnlyField()
+
     class Meta(TenantBaseModelCoreSerializer.Meta):
         model = AgentCallLog
         fields = TenantBaseModelCoreSerializer.Meta.fields + [
@@ -73,6 +94,8 @@ class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
             "agent",
             "mood",
             "caller_number",
+            "callee_number",
+            "customer_number",
             "direction",
             "duration_seconds",
             "service_tier",

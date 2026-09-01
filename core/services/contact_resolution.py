@@ -34,8 +34,13 @@ def find_contact(tenant_id, phone_number, region=None):
 
 
 def resolve_call_log_contact(call_log, save=True):
-    """Attach the matching Contact to a call log, if one exists."""
-    contact = find_contact(call_log.tenant_id, call_log.caller_number)
+    """Attach the matching Contact to a call log, if one exists.
+
+    Resolved from `customer_number`, not `caller_number`: on an outbound call the
+    caller is the bot, and matching on it would either find nothing or — worse — find
+    whichever Contact happens to hold the bot's own number.
+    """
+    contact = find_contact(call_log.tenant_id, call_log.customer_number)
     if contact is None or call_log.contact_id == contact.id:
         return call_log.contact
 
@@ -74,7 +79,9 @@ def backfill_call_logs(tenant_id=None, batch_size=500):
     linked = 0
     updates = []
     for call_log in batched_queryset(queryset, batch_size=batch_size):
-        contact = find_contact(call_log.tenant_id, call_log.caller_number)
+        # customer_number, so outbound rows resolve against the person rather than
+        # the bot. Old outbound rows fall back to caller_number and keep working.
+        contact = find_contact(call_log.tenant_id, call_log.customer_number)
         if contact is None:
             continue
         call_log.contact = contact

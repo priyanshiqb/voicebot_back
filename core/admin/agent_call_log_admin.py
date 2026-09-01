@@ -8,13 +8,22 @@ class AgentCallLogAdmin(TenantBaseAdminCore):
         "provider_call_id",
         "agent",
         "caller_number",
+        "callee_number",
         "direction",
         "duration_seconds",
         "outcome",
         "started_at",
     )
     list_filter = ("direction", "outcome", "agent")
-    search_fields = ("provider_call_id", "caller_number", "caller_name", "id")
+    # Both legs are searchable: customer_number is a Python property and cannot be
+    # queried, so searching for a person's number must hit whichever column holds it.
+    search_fields = (
+        "provider_call_id",
+        "caller_number",
+        "callee_number",
+        "caller_name",
+        "id",
+    )
     autocomplete_fields = ("agent",)
 
     def has_add_permission(self, request):

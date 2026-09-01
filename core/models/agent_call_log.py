@@ -23,7 +23,21 @@ class AgentCallLog(TenantBaseModelCore):
     )
     caller_number = models.CharField(
         max_length=50,
-        help_text=_("The phone number of the caller.")
+        help_text=_(
+            "The number that initiated the call: the customer on inbound, the bot on "
+            "outbound. NOTE: on outbound rows written before callee_number existed "
+            "this holds the CUSTOMER, not the bot — see `customer_number`."
+        )
+    )
+    callee_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text=_(
+            "The number that received the call: the bot on inbound, the customer on "
+            "outbound. Supplied by the runner — this service has no DID of its own to "
+            "fall back on, since Agent carries no phone number."
+        )
     )
     caller_name = models.CharField(
         max_length=255,
@@ -39,8 +53,9 @@ class AgentCallLog(TenantBaseModelCore):
         db_index=True,
         related_name="call_logs",
         help_text=_(
-            "Resolved from caller_number via E.164 matching. SET_NULL so removing a "
-            "contact never destroys call history."
+            "Resolved from customer_number via E.164 matching — the caller on inbound "
+            "and the callee on outbound, so an outbound call matches the person rather "
+            "than the bot. SET_NULL so removing a contact never destroys call history."
         ),
     )
     direction = models.CharField(
@@ -177,5 +192,27 @@ class AgentCallLog(TenantBaseModelCore):
         verbose_name = _("Agent Call Log")
         verbose_name_plural = _("Agent Call Logs")
 
+    @property
+    def customer_number(self):
+        """The human's number, whichever end of the call they were on.
+
+        Every consumer that wants "the person" — contact resolution, analytics, the
+        admin — must go through this rather than reading a column directly, because
+        outbound rows come in two eras and only this knows the difference:
+
+        - Inbound, always: the customer dialled in, so it is `caller_number`.
+        - Outbound, since `callee_number` shipped: the bot dialled out, so the customer
+          is `callee_number`.
+        - Outbound, before that: `callee_number` is NULL and `caller_number` holds the
+          customer, which is why the fallback exists and why the column is nullable —
+          NULL means "no era", an empty string would not.
+
+        Keeping the fallback here and nowhere else means retiring it later is one
+        deletion, once the old rows are gone or backfilled.
+        """
+        if self.direction == self.CallDirection.OUTBOUND:
+            return self.callee_number or self.caller_number
+        return self.caller_number
+
     def __str__(self):
-        return f"{self.provider_call_id} - {self.caller_number}"
+        return f"{self.provider_call_id} - {self.customer_number}"
