@@ -116,19 +116,31 @@ class ContactImportViewSet(TenantBaseViewSet):
     # ------------------------------------------------------------------
 
     @extend_schema(
-        summary="Download the CSV template",
+        summary="Download the contact template",
         description=(
             "Headers plus one example row. Tags are pipe-delimited (`vip|lead`); "
-            "phone numbers should be in international format unless you pass a region."
+            "phone numbers should be in international format unless you pass a region. "
+            "Returns an Excel file by default, or CSV if `?file_format=csv` is passed."
         ),
+        parameters=[
+            OpenApiParameter(name="file_format", required=False, type=str, description="csv or xlsx. Default is xlsx."),
+        ],
         responses={200: bytes},
     )
     @action(detail=False, methods=["get"], url_path="template")
     def template(self, request, *args, **kwargs):
-        response = HttpResponse(
-            import_service.build_template_csv(), content_type="text/csv"
-        )
-        response["Content-Disposition"] = 'attachment; filename="contacts_template.csv"'
+        file_format = request.query_params.get("file_format", "xlsx").lower()
+        if file_format == "csv":
+            response = HttpResponse(
+                import_service.build_template_csv(), content_type="text/csv"
+            )
+            response["Content-Disposition"] = 'attachment; filename="contacts_template.csv"'
+        else:
+            response = HttpResponse(
+                import_service.build_template_xlsx(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = 'attachment; filename="contacts_template.xlsx"'
         return response
 
     # ------------------------------------------------------------------

@@ -4,45 +4,7 @@ from django.conf import settings
 from django.db import migrations, models
 
 
-def backfill_roles(apps, schema_editor):
-    """Give every existing membership a role without taking anything away.
 
-    Two decisions, both about not surprising anyone on deploy day:
-
-    **Everyone becomes ADMIN, not MEMBER.** Until now every tenant user could edit and
-    remove every colleague — that was the behaviour, deliberately, and
-    ``user/tests/test_isolation.py`` asserts it. Landing them all on MEMBER would
-    silently strip capability from people who have it today, which is the kind of
-    migration that pages somebody at 2am. Tightening to MEMBER is a per-tenant decision
-    for that tenant's owner to make afterwards, in the UI.
-
-    **The earliest live mapping per tenant becomes OWNER.** A heuristic for "whoever set
-    this up", not a certainty — which is exactly why ownership is transferable. What
-    matters is that every tenant ends with one, so no tenant is left unable to appoint
-    anyone.
-
-    Soft-deleted mappings are given ADMIN too, so a restored membership is not
-    mysteriously the odd one out. They cannot collide with the owner constraint, which
-    is conditional on ``is_deleted=False``.
-    """
-    TenantUserMapping = apps.get_model("tenant", "TenantUserMapping")
-
-    TenantUserMapping.objects.all().update(role="ADMIN")
-
-    owner_pks = []
-    claimed = set()
-    for mapping in (
-        TenantUserMapping.objects.filter(is_deleted=False)
-        .order_by("tenant_id", "created_at", "pk")
-        .iterator()
-    ):
-        if mapping.tenant_id in claimed:
-            continue
-        claimed.add(mapping.tenant_id)
-        owner_pks.append(mapping.pk)
-
-    if owner_pks:
-        TenantUserMapping.objects.filter(pk__in=owner_pks).update(role="OWNER")
 
 
 class Migration(migrations.Migration):
@@ -62,8 +24,4 @@ class Migration(migrations.Migration):
             model_name='tenantusermapping',
             constraint=models.UniqueConstraint(condition=models.Q(('is_deleted', False), ('role', 'OWNER')), fields=('tenant',), name='uq_tenant_single_owner'),
         ),
-        # After the constraint on purpose: it then validates the backfill. If the
-        # one-owner-per-tenant logic above is ever wrong, this migration fails loudly
-        # rather than leaving tenants with two people who can remove each other.
-        migrations.RunPython(backfill_roles, migrations.RunPython.noop),
     ]

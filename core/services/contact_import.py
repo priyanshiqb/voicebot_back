@@ -9,6 +9,8 @@ import csv
 import io
 import logging
 
+import openpyxl
+
 from charset_normalizer import from_bytes
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -128,6 +130,26 @@ def build_template_csv():
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(CANONICAL_COLUMNS)
     writer.writerow([TEMPLATE_EXAMPLE_ROW[column] for column in CANONICAL_COLUMNS])
+    return buffer.getvalue()
+
+
+def build_template_xlsx():
+    """The downloadable Excel template: headers plus one example row."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Contacts"
+    
+    ws.append(CANONICAL_COLUMNS)
+    ws.append([TEMPLATE_EXAMPLE_ROW[column] for column in CANONICAL_COLUMNS])
+    
+    # Format phone_number column as Text (@) so Excel doesn't mangle numbers
+    phone_col_idx = CANONICAL_COLUMNS.index("phone_number") + 1
+    for row in ws.iter_rows(min_col=phone_col_idx, max_col=phone_col_idx, min_row=2):
+        for cell in row:
+            cell.number_format = '@'
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
     return buffer.getvalue()
 
 
@@ -434,8 +456,32 @@ def _do_parse(session):
     except Exception as exc:  # noqa: BLE001
         raise ImportError_(f"The uploaded file could not be retrieved: {exc}")
 
-    text = decode_csv_bytes(raw)
-    reader, mapping, ignored, unknown = prepare_reader(text, session.column_map)
+    if import_file.extension == '.xlsx':
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            try:
+                raw_headers = next(rows_iter)
+                fieldnames = [str(c).strip() if c is not None else "" for c in raw_headers]
+            except StopIteration:
+                fieldnames = []
+            
+            mapping, ignored, unknown = resolve_headers(fieldnames, session.column_map)
+            
+            def _xlsx_reader():
+                for row_vals in rows_iter:
+                    # Pad row with empty strings if it's shorter than fieldnames
+                    padded_row = list(row_vals)
+                    if len(padded_row) < len(fieldnames):
+                        padded_row.extend([""] * (len(fieldnames) - len(padded_row)))
+                    yield {k: (str(v) if v is not None else "") for k, v in zip(fieldnames, padded_row) if k}
+            reader = _xlsx_reader()
+        except Exception as exc:
+            raise ImportError_(f"Could not read the Excel file: {exc}")
+    else:
+        text = decode_csv_bytes(raw)
+        reader, mapping, ignored, unknown = prepare_reader(text, session.column_map)
 
     missing = missing_required_columns(mapping)
     if missing:

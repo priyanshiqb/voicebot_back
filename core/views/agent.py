@@ -48,12 +48,16 @@ class AgentOrderingFilter(filters.OrderingFilter):
             return new_ordering
         return ordering
 
+class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
+    pass
+
 class AgentFilter(django_filters.FilterSet):
-    industry = django_filters.CharFilter(field_name="agent_template__industry")
+    industry = CharInFilter(field_name="agent_template__industry", lookup_expr="in")
+    tone = CharInFilter(field_name="tone", lookup_expr="in")
 
     class Meta:
         model = Agent
-        fields = ["is_active", "tone", "industry", "agent_template", "service_tier"]
+        fields = ["is_active", "agent_template", "service_tier"]
 
 
 @extend_schema(tags=["Agent"])

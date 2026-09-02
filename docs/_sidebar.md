@@ -1,10 +1,10 @@
 * [Welcome](README.md)
 
-* **🚀 Release Notes**
+<!-- * **🚀 Release Notes**
   * [Overview & Conventions](release-note/README.md)
-  * [1.0.1](release-note/1.0.1.md)
+  * [1.0.1](release-note/1.0.1.md) -->
 
-* **📊 Executive Dashboard**
+<!-- * **📊 Executive Dashboard**
   * [BRD v3.1 Implementation Plan](dashboard/implementation-plan.md)
   * [Module Specifications](dashboard/README.md)
   * [01 - Industry & Journeys](dashboard/modules/01-industry.md)
@@ -15,13 +15,13 @@
   * [06 - Analytics & Metrics](dashboard/modules/06-analytics.md)
   * [07 - Insights Engine](dashboard/modules/07-insights.md)
   * [08 - Alerts & Action Center](dashboard/modules/08-alerts.md)
-  * [09 - Existing Module Changes](dashboard/modules/09-existing-changes.md)
+  * [09 - Existing Module Changes](dashboard/modules/09-existing-changes.md) -->
 
-* **⚡ Command Runbook**
+<!-- * **⚡ Command Runbook**
   * [Setup, Stack, Tests & Commands](runbook.md)
 
 * **🔌 WebSockets**
-  * [WS Event Protocol](wsDocs/instruction.md)
+  * [WS Event Protocol](wsDocs/instruction.md) -->
 
 * **🤖 Voicebot Agent Tokens**
   * [Tenant Scoping & Access Matrix](apiDocs/core/vb_agent_tenant_scoping.md)

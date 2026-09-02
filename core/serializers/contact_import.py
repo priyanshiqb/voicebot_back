@@ -13,12 +13,13 @@ from core.models.contact_import import (
 from core.services.contact_import import CANONICAL_COLUMNS
 from utils.phone import is_supported_region, resolve_region
 
-ALLOWED_EXTENSIONS = [".csv"]
+ALLOWED_EXTENSIONS = [".csv", ".xlsx"]
 ALLOWED_CONTENT_TYPES = [
     "text/csv",
     "application/csv",
     "text/plain",
     "application/vnd.ms-excel",  # what Windows reports for .csv
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]
 
 
@@ -38,7 +39,7 @@ class RequestContactUploadUrlSerializer(serializers.Serializer):
     def validate_content_type(self, value):
         if value.lower() not in ALLOWED_CONTENT_TYPES:
             raise serializers.ValidationError(
-                "Content type must be text/csv."
+                "Content type must be text/csv or application/vnd.openxmlformats-officedocument.spreadsheetml.sheet."
             )
         return value
 

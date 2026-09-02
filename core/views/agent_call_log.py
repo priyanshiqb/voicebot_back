@@ -51,10 +51,15 @@ logger = logging.getLogger(__name__)
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
 
 
+class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
+    pass
+
 class AgentCallLogFilter(django_filters.FilterSet):
+    outcome = CharInFilter(field_name="outcome", lookup_expr="in")
+
     class Meta:
         model = AgentCallLog
-        fields = ["direction", "outcome", "agent", "campaign_id"]
+        fields = ["direction", "agent", "campaign_id"]
 
 CALL_LOG_EXAMPLE = {
     "provider_call_id": "call-001",

@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('tenant', '0011_tenantusermapping_role_and_more'),
+        ('tenant', '0012_tenantusermapping_role_backfill'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

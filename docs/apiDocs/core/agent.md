@@ -44,9 +44,9 @@ audit fields are **not** included; use Retrieve for those.
 | `search` | string | Partial, case-insensitive match on `bot_name` or `persona_name`. |
 | `ordering` | string | `bot_name`, `created_at`, `tone`, `agent_template` (sorts by name), `languages` (sorts by length), or `total_languages_count`; prefix `-` to reverse. Default `-created_at`. |
 | `is_active` | boolean | Filter by active flag. |
-| `tone` | enum | `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`. |
+| `tone` | enum | `PROFESSIONAL`, `FRIENDLY`, `FORMAL`, `CASUAL`, `ENTHUSIASTIC`, `RUDE`. Supports multiple comma-separated values (e.g. `?tone=PROFESSIONAL,CASUAL`). |
 | `agent_template` | UUID | Only agents built from this template. |
-| `industry` | enum | Filters by the **template's** industry, not a field on the agent: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`. Agents with no template are excluded when this is set. |
+| `industry` | enum | Filters by the **template's** industry, not a field on the agent: `CLINIC_RECEPTIONIST`, `AGRICULTURAL_SUPPLIER`, `REAL_ESTATE`, `E_COMMERCE`, `RESTAURANT`, `GENERAL_ASSISTANT`, `OTHER`. Agents with no template are excluded when this is set. Supports multiple comma-separated values. |
 
 > **Not available to `VB_AGENT` tokens** — this action returns **403**. A runner is handed the
 > agent id it is acting for, so enumerating a tenant's agents is reach it never needed. Use

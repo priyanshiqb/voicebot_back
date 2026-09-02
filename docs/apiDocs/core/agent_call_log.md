@@ -77,7 +77,7 @@ no summary, no probing questions.
 | `search` | string | Partial, case-insensitive match on `provider_call_id`, `caller_number`, `callee_number`, `caller_name`. | Words split on spaces and **AND**ed. Both number columns are searched, so a customer's number finds their inbound *and* outbound calls. |
 | `ordering` | string | Sort. Default `-started_at`. | Only `started_at` and `duration_seconds`, optionally `-` prefixed. Anything else is ignored. |
 | `direction` | enum | Inbound vs outbound. | `inbound` or `outbound` — **lowercase**. |
-| `outcome` | string | **Exact** match on the disposition string. | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
+| `outcome` | string | **Exact** match on the disposition string. Supports multiple comma-separated values (e.g. `?outcome=success,failed`). | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
 | `agent` | UUID | Filter to one bot. | Must be a valid UUID. |
 | `campaign_id` | string | **Exact** match on the free-text campaign tag. | A string, not a foreign key — see §3. |
 
