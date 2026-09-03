@@ -112,6 +112,12 @@ class PlanViewSet(BaseViewSet):
     """
     queryset = Plan.objects.all()
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.action in ["list", "dropdown"]:
+            return queryset.filter(is_active=True)
+        return queryset
+
     serializer_class = PlanSerializer
     list_serializer_class = PlanListSerializer
     dropdown_serializer_class = PlanDropdownSerializer
