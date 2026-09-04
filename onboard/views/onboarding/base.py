@@ -53,8 +53,12 @@ def create_tenant_and_mapping(temp_user, user):
     )
 
     # 3. Establish 1:1 mapping between User and Tenant
+    # OWNER, explicitly. The registrant is the first and only person at this tenant,
+    # and the role default is MEMBER — which would leave a brand-new business unable
+    # to invite anyone, and the tenant with no owner to appoint one.
     TenantUserMapping.objects.create(
         user=user,
-        tenant=tenant
+        tenant=tenant,
+        role=TenantUserMapping.Role.OWNER,
     )
     return tenant

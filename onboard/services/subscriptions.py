@@ -63,10 +63,26 @@ def current_or_expired(tenant):
 
 @db_transaction.atomic
 def activate(tenant, plan, *, transaction=None, previous=None, notes="",
-             bonus_days=None):
+             bonus_days=None, snapshot_overrides=None, credit_grant=None):
     """Put a tenant on a plan: subscription, rate card, and the cycle's credits.
 
     Returns the live ``Subscription``.
+
+    **The two override arguments are for negotiated contracts** — a business that
+    paid for terms its plan does not describe — and both default to
+    ``None`` so an ordinary payment behaves exactly as it did before. They exist so a
+    custom deal still goes through this function rather than around it; a second
+    activation path is how the two drift.
+
+    ``snapshot_overrides`` is merged into ``plan_snapshot`` after it is generated, so
+    the negotiated terms become the frozen contract while the ``Plan`` row is left
+    alone. Everything reading allowances already prefers the snapshot, so a custom
+    limit needs nothing else. ``entitlements`` is merged key-by-key rather than
+    replaced, so overriding one resource does not silently drop the rest.
+
+    ``credit_grant`` replaces ``plan.allocated_credits`` for this cycle's grant only.
+    The cycle length is deliberately *not* overridable: a negotiated contract still runs
+    on its plan's billing cycle, so renewal, expiry and proration keep one meaning.
 
     **Idempotent for the same plan.** The browser-confirmed payment and the Razorpay
     webhook both complete onboarding, and both can win — so a second call for a plan
@@ -116,6 +132,9 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
                     Subscription(plan=plan, start_date=started), bonus_days
                 ),
             )
+            # After the insert, because `save()` generates the snapshot from the plan
+            # and would overwrite anything written beforehand.
+            _apply_snapshot_overrides(subscription, snapshot_overrides)
     except IntegrityError:
         # Another worker created the tenant's subscription between the check above
         # and this insert. `uniq_active_subscription_per_tenant` is what caught it,
@@ -140,11 +159,48 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
         previous.superseded_by = subscription
         previous.save(update_fields=["superseded_by", "updated_at"])
 
-    _ensure_wallet_funded(subscription, plan, transaction, wallet_service, CreditLedger, notes=notes)
+    _ensure_wallet_funded(
+        subscription, plan, transaction, wallet_service, CreditLedger,
+        notes=notes, credit_grant=credit_grant,
+    )
     return subscription
 
 
-def _ensure_wallet_funded(subscription, plan, transaction, wallet_service, CreditLedger, notes=""):
+def _apply_snapshot_overrides(subscription, overrides):
+    """Merge negotiated terms into a freshly generated snapshot.
+
+    Called after the insert, because ``save()`` generates the snapshot from the plan
+    and would overwrite anything written before it.
+
+    ``entitlements`` is merged key-by-key rather than replaced wholesale. Replacing it
+    would mean an override naming one resource silently drops the allowances for every
+    other — and since a missing key falls back to the live plan, that failure is
+    invisible until somebody hits a limit they were not sold.
+    """
+    if not overrides:
+        return subscription
+
+    snapshot = dict(subscription.plan_snapshot or {})
+    entitlements = dict(snapshot.get("entitlements") or {})
+
+    for key, value in overrides.items():
+        if key == "entitlements" and isinstance(value, dict):
+            entitlements.update(value)
+        else:
+            snapshot[key] = value
+
+    snapshot["entitlements"] = entitlements
+    # A marker so support can tell at a glance why this subscription's terms do not
+    # match its plan, without diffing the two by hand.
+    snapshot["is_custom"] = True
+
+    subscription.plan_snapshot = snapshot
+    subscription.save(update_fields=["plan_snapshot", "updated_at"])
+    return subscription
+
+
+def _ensure_wallet_funded(subscription, plan, transaction, wallet_service,
+                          CreditLedger, notes="", credit_grant=None):
     """Stamp the rate card, then grant the cycle's credits. In that order.
 
     Both steps are safe to repeat: stamping is a write of the same values, and the
@@ -164,7 +220,11 @@ def _ensure_wallet_funded(subscription, plan, transaction, wallet_service, Credi
         )
         return
 
-    allocation = plan.allocated_credits or 0
+    # A negotiated contract grants what was sold, not what the plan advertises.
+    # `is None` rather than `or`, so an explicit zero means zero.
+    allocation = (
+        plan.allocated_credits if credit_grant is None else credit_grant
+    ) or 0
     if allocation <= 0:
         return
 
