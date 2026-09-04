@@ -38,6 +38,97 @@ class CreditLedgerInline(admin.TabularInline):
         return False
 
 
+class WalletAdminForm(forms.ModelForm):
+    """Validates a hand-edited rate card before it can price a call.
+
+    ``rate_snapshot`` is what every call is billed against, and a raw JSONField will
+    accept any well-formed JSON — including a card that is missing `unit`, spells an
+    operation wrongly, or carries a string where a number belongs. None of those fail
+    at save time; they fail at call time, on a live tenant, as either a crash or a
+    silently wrong charge.
+
+    So the shape is checked here. This is not a substitute for knowing what the
+    numbers mean — it cannot tell you 3 credits a minute is the right price — but it
+    guarantees that whatever is saved is something `resolve_rate` can read.
+    """
+
+    class Meta:
+        model = Wallet
+        fields = "__all__"
+
+    def clean_rate_snapshot(self):
+        from wallet.models.credit_rate import CreditRate
+
+        snapshot = self.cleaned_data.get("rate_snapshot")
+        if snapshot in (None, "", {}):
+            # Allowed: an empty card means "fall back to the live plan", which is a
+            # legitimate state and the one a wallet starts in.
+            return snapshot
+
+        if not isinstance(snapshot, dict):
+            raise forms.ValidationError("Must be a JSON object.")
+
+        operations = snapshot.get("operations")
+        if not isinstance(operations, dict):
+            raise forms.ValidationError(
+                'Missing an "operations" object. Rating reads '
+                'rate_snapshot["operations"][<operation>] and nothing else.'
+            )
+
+        valid_operations = set(CreditRate.Operation.values)
+        valid_units = set(CreditRate.Unit.values)
+        valid_rounding = set(CreditRate.Rounding.values)
+
+        for name, entry in operations.items():
+            if name not in valid_operations:
+                raise forms.ValidationError(
+                    f'Unknown operation "{name}". One of: '
+                    f"{', '.join(sorted(valid_operations))}."
+                )
+            if not isinstance(entry, dict):
+                raise forms.ValidationError(f'"{name}" must be a JSON object.')
+
+            unit = entry.get("unit")
+            if unit not in valid_units:
+                raise forms.ValidationError(
+                    f'"{name}".unit must be one of: {", ".join(sorted(valid_units))}.'
+                )
+
+            credits_per_unit = entry.get("credits_per_unit")
+            # Bool first: `isinstance(True, int)` is True in Python, and `true` here
+            # would sail through as 1 credit.
+            if isinstance(credits_per_unit, bool) or not isinstance(
+                credits_per_unit, int
+            ):
+                raise forms.ValidationError(
+                    f'"{name}".credits_per_unit must be a whole number, not '
+                    f"{type(credits_per_unit).__name__}."
+                )
+            if credits_per_unit < 0:
+                raise forms.ValidationError(
+                    f'"{name}".credits_per_unit cannot be negative.'
+                )
+
+            rounding = entry.get("rounding", CreditRate.Rounding.CEIL)
+            if rounding not in valid_rounding:
+                raise forms.ValidationError(
+                    f'"{name}".rounding must be one of: '
+                    f"{', '.join(sorted(valid_rounding))}."
+                )
+
+            minimum_units = entry.get("minimum_units", 1)
+            if isinstance(minimum_units, bool) or not isinstance(minimum_units, int):
+                raise forms.ValidationError(
+                    f'"{name}".minimum_units must be a whole number.'
+                )
+            if minimum_units < 0:
+                raise forms.ValidationError(
+                    f'"{name}".minimum_units cannot be negative.'
+                )
+
+        return snapshot
+
+
 class CreditAdjustmentForm(ActionForm):
     """Extra fields on the action bar, so a grant needs an amount and a reason.
 
@@ -77,6 +168,7 @@ class WalletAdmin(TenantBaseAdminCore):
     """
 
     model = Wallet
+    form = WalletAdminForm
     inlines = [CreditLedgerInline]
 
     list_display = (
@@ -107,7 +199,6 @@ class WalletAdmin(TenantBaseAdminCore):
         "frozen_reason",
         "frozen_at",
         "current_plan",
-        "rate_snapshot",
         "rate_snapshot_at",
     )
 
@@ -128,7 +219,25 @@ class WalletAdmin(TenantBaseAdminCore):
             "fields": ("current_plan", "rate_snapshot", "rate_snapshot_at"),
             "description": (
                 "Stamped from the plan when a subscription activates, renews or "
-                "changes. This — not the CreditRate table — is what prices a call."
+                "changes. This — not the CreditRate table — is what prices a call. "
+                "<br><br>"
+                "<strong>Editable, and it takes effect on the next call.</strong> "
+                "Shape: <code>{\"operations\": {\"conversation_low_latency\": "
+                "{\"unit\": \"per_minute\", \"credits_per_unit\": 3, "
+                "\"rounding\": \"ceil\", \"minimum_units\": 1}}}</code>. "
+                "Operations: static_reel, conversation_high_latency, "
+                "conversation_low_latency. Units: per_event, per_second, per_minute. "
+                "Rounding: ceil, floor, nearest."
+                "<br><br>"
+                "<strong>An edit here is temporary.</strong> Renewal, a plan change "
+                "and re-activation all call set_plan_context, which rebuilds this "
+                "from the plan and discards anything typed here. For a rate that has "
+                "to survive a renewal, change the plan's CreditRate — or ask for the "
+                "per-wallet override to be built."
+                "<br><br>"
+                "An operation left out of this card is not free: rating falls through "
+                "to the live plan for it, and errors only if the plan has no rate "
+                "either."
             ),
         }),
         ("Alerting", {"fields": ("low_balance_threshold", "low_balance_notified_at")}),
