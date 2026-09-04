@@ -1,4 +1,8 @@
 import logging
+from datetime import datetime, time, timedelta
+
+from django import forms
+from django.utils import timezone
 
 from core.models.agent import Agent
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, OpenApiExample
@@ -54,12 +58,84 @@ MAX_RECORDING_BYTES = 50 * 1024 * 1024
 class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
     pass
 
+
+def filter_call_date_range(queryset, start_date=None, end_date=None):
+    """Narrow to calls whose ``created_at`` falls within ``[start_date, end_date]``.
+
+    Both bounds are inclusive calendar days, either may be None, and both are read in
+    the server timezone (UTC) — the same zone the dashboard resolves its `from`/`to`
+    in, so "calls in September" cannot mean two different things depending on which
+    endpoint asked.
+
+    Filtering is on ``created_at``, not ``started_at``, for the same reason the
+    dashboard does it: ``started_at`` is nullable, and a range filter on a nullable
+    column silently drops every row that lacks one — a call the runner posted without
+    a start time would vanish from the range rather than being counted late, and
+    nothing about the response would look wrong. ``created_at`` is always present, so
+    a range adds up to the calls that exist, and the list agrees with the dashboard
+    totals a caller clicked through from.
+
+    The trade is that a log posted well after the call ended is filed on the day it
+    arrived rather than the day it happened. That is visible and explainable; silently
+    missing calls are neither.
+    """
+    if start_date is None and end_date is None:
+        return queryset
+
+    if start_date is not None:
+        queryset = queryset.filter(
+            created_at__gte=timezone.make_aware(datetime.combine(start_date, time.min))
+        )
+    if end_date is not None:
+        # Half-open at the top — "before the next midnight" rather than
+        # "at or before 23:59:59.999999". Postgres stores microseconds, so the
+        # inclusive form drops a call filed in the last microsecond of its own day.
+        queryset = queryset.filter(
+            created_at__lt=timezone.make_aware(datetime.combine(end_date, time.min))
+            + timedelta(days=1)
+        )
+    return queryset
+
+
+class AgentCallLogFilterForm(forms.Form):
+    """Cross-field validation for the date range.
+
+    An inverted range is rejected rather than answered with an empty list: zero rows
+    is a legitimate answer to a well-formed question, so returning it for a malformed
+    one leaves the caller debugging their data instead of their query string.
+    """
+
+    def clean(self):
+        cleaned = super().clean()
+        start_date, end_date = cleaned.get("start_date"), cleaned.get("end_date")
+        if start_date and end_date and end_date < start_date:
+            raise forms.ValidationError(
+                {"end_date": "end_date must be on or after start_date."}
+            )
+        return cleaned
+
+
 class AgentCallLogFilter(django_filters.FilterSet):
     outcome = CharInFilter(field_name="outcome", lookup_expr="in")
+    start_date = django_filters.DateFilter(
+        method="filter_from_date",
+        label="Calls logged on or after this UTC date, inclusive (YYYY-MM-DD).",
+    )
+    end_date = django_filters.DateFilter(
+        method="filter_to_date",
+        label="Calls logged up to this UTC date, INCLUSIVE of the whole day (YYYY-MM-DD).",
+    )
 
     class Meta:
         model = AgentCallLog
         fields = ["direction", "agent", "campaign_id"]
+        form = AgentCallLogFilterForm
+
+    def filter_from_date(self, queryset, name, value):
+        return filter_call_date_range(queryset, start_date=value)
+
+    def filter_to_date(self, queryset, name, value):
+        return filter_call_date_range(queryset, end_date=value)
 
 CALL_LOG_EXAMPLE = {
     "provider_call_id": "call-001",
@@ -105,7 +181,13 @@ CALL_LOG_EXAMPLE = {
 @extend_schema_view(
     list=extend_schema(
         summary="List Call Logs",
-        description="Get paginated list of agent call logs under the active tenant context.",
+        description=(
+            "Get paginated list of agent call logs under the active tenant context.\n\n"
+            "Filter by `direction`, `agent`, `campaign_id`, `outcome` (comma-separated "
+            "for several), and `start_date` / `end_date` — inclusive UTC calendar days, "
+            "matched on `created_at` (when the log was written), which is the same "
+            "window the dashboard counts."
+        ),
         responses={200: AgentCallLogListSerializer(many=True)}
     ),
     retrieve=extend_schema(

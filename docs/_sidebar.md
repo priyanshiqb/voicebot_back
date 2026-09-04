@@ -119,6 +119,9 @@
   * [Tenant Invitations](apiDocs/user/invitations.md)
   * [Forgot Password Resend](apiDocs/user/forgot_password_resend.md)
 
+* **📊 Analytics APIs**
+  * [Tenant Dashboard](apiDocs/analytics/dashboard.md)
+
 * **🏢 Tenant APIs**
   * [Tenant Settings](apiDocs/tenant/settings.md)
   * [Email Configuration - SMTP](apiDocs/tenant/email_configuration.md)

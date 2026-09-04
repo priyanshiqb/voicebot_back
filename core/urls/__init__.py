@@ -28,6 +28,7 @@ urlpatterns = [
     path("", include("core.urls.business_hours")),
     path("", include("core.urls.contact_import")),
     # Campaigns
+    path("", include("core.urls.dashboard")),
     path("", include("core.urls.campaign")),
     path("", include("core.urls.campaign_runner")),
     # Product & Service Catalog

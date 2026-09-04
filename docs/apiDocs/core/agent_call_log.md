@@ -80,6 +80,8 @@ no summary, no probing questions.
 | `outcome` | string | **Exact** match on the disposition string. Supports multiple comma-separated values (e.g. `?outcome=success,failed`). | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
 | `agent` | UUID | Filter to one bot. | Must be a valid UUID. |
 | `campaign_id` | string | **Exact** match on the free-text campaign tag. | A string, not a foreign key — see §3. |
+| `start_date` | date | Calls logged on or after this day, **inclusive**. Matched on `created_at` — see the note below. | `YYYY-MM-DD`, read as a **UTC** calendar day. |
+| `end_date` | date | Calls logged up to this day, **inclusive of the whole day** — `end_date=2026-06-23` includes a log written at `23:59` that evening. | `YYYY-MM-DD`, read as a **UTC** calendar day. Must be on or after `start_date`, else **400**. |
 
 - **Success Response (200 OK)**:
   ```json
@@ -113,10 +115,19 @@ no summary, no probing questions.
 > descending sort.** The model's secondary ordering is `-created_at`, so those rows still come back
 > in a stable order rather than an arbitrary one.
 
+> **The date filters match on `created_at`, not `started_at`** — the same column the dashboard
+> ranges on, so a filtered list and the dashboard totals a user clicked through from always agree.
+> `started_at` is nullable, and ranging on it would silently drop every log the runner posted
+> without one: the list would come back short and nothing about the response would look wrong.
+> The trade is that a log posted well after the call ended is filed on the day it arrived rather
+> than the day it happened. Use `ordering=-started_at` (the default) to sort by when calls actually
+> happened.
+
 | Status | When | `message` |
 |---|---|---|
 | **200** | Zero or more rows. | `success` |
 | **400** | Unknown `direction`, or a malformed `agent` UUID. | filter error |
+| **400** | `start_date` / `end_date` not `YYYY-MM-DD`, or `end_date` before `start_date`. | filter error |
 | **400** | Agent token without `X-Tenant-ID`. | `This header is required for agent tokens.` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
 | **403** | No active tenant mapping. | `Your user account is not associated with any active tenant.` |

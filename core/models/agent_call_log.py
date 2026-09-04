@@ -191,6 +191,24 @@ class AgentCallLog(TenantBaseModelCore):
         ordering = ["-started_at", "-created_at"]
         verbose_name = _("Agent Call Log")
         verbose_name_plural = _("Agent Call Logs")
+        indexes = [
+            # Every dashboard read is "this tenant, this date range", and this table
+            # is the largest one a busy tenant owns. Without this, `tenant_id` alone
+            # is the only usable index: Postgres fetches every call the tenant has
+            # ever made and then filters by date, which is fine at a hundred rows and
+            # a sequential scan at a million.
+            #
+            # On created_at, not started_at, because that is what the dashboard
+            # filters and groups by. started_at is nullable — a log posted without
+            # one would drop out of every date-ranged figure silently — while
+            # created_at is always present, so no call can go uncounted.
+            #
+            # Descending, so the same index also serves newest-first reads.
+            models.Index(
+                fields=["tenant", "-created_at"],
+                name="core_call_tenant_created_idx",
+            ),
+        ]
 
     @property
     def customer_number(self):
