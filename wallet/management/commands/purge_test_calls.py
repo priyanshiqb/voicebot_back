@@ -13,10 +13,14 @@ the mode the rest of the billing system is built around — ``wallet.services.wa
 already has ``refund()`` for exactly this — and it is the right answer for anything
 that touched a real customer.
 
-``purge`` deletes the usage rows and the call logs outright, then rebuilds the wallet's
-balances from what remains. It leaves no trace that the calls happened, which is the
-point when they were never real business — but it is a genuine deletion of financial
-history, so it asks harder before doing it.
+``purge`` refunds the same way, then **deletes the call logs**. The calls disappear
+from history, reporting and the dashboard; the ledger keeps its charge/refund pairs.
+
+The ledger rows cannot be deleted, and that is not an oversight to work around:
+``CreditLedgerQuerySet`` closes ``delete``, ``soft_delete`` and ``update`` outright,
+because a ledger row that vanishes from the sums while still sitting in the table is
+the one failure the balance invariant cannot survive. So "fresh" here means the balance
+is restored and the calls are gone — not that the money never moved.
 
     python manage.py purge_test_calls
     python manage.py purge_test_calls --dry-run
@@ -25,7 +29,6 @@ history, so it asks harder before doing it.
 from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction as db_transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -36,11 +39,6 @@ from wallet.services import reconciliation
 
 EntryType = CreditLedger.EntryType
 Bucket = CreditLedger.Bucket
-
-#: Entry types that took credits away. Used to rebuild `lifetime_consumed` after a
-#: purge, so the figure still means "what this tenant has ever spent".
-CONSUMPTION_TYPES = [EntryType.USAGE_DEDUCTION, EntryType.USAGE_ADJUSTMENT]
-
 
 class Command(BaseCommand):
     help = "Interactively remove a tenant's test calls and restore their credits."
@@ -120,8 +118,8 @@ class Command(BaseCommand):
         mode = self._ask_choice(
             "How should the credits be returned?",
             [
-                ("refund", "Refund — post USAGE_REFUND entries, keep the history (safer)"),
-                ("purge", "Purge — delete the usage rows and call logs entirely"),
+                ("refund", "Refund only — restore the credits, keep the call logs"),
+                ("purge", "Refund and delete the call logs (ledger entries always remain)"),
             ],
             default_index=1,
         )
@@ -135,7 +133,7 @@ class Command(BaseCommand):
         if mode == "refund":
             self._do_refund(tenant, wallet, charges, reason)
         else:
-            self._do_purge(tenant, wallet, calls, charges)
+            self._do_purge(tenant, wallet, calls, charges, reason)
 
         self._verify(tenant, wallet)
 
@@ -324,10 +322,10 @@ class Command(BaseCommand):
         self.stdout.write("")
         if mode == "purge":
             self.stdout.write(self.style.ERROR(
-                f"  PURGE deletes {len(calls)} call log(s) and their usage entries "
-                "permanently.\n"
-                "  Call history is append-only by design; this is the exception, not a "
-                "tool to reach for twice."
+                f"  This permanently deletes {len(calls)} call log(s) and refunds the "
+                "credits they consumed.\n"
+                "  The ledger keeps its charge and refund entries — those cannot be "
+                "removed, by design."
             ))
         typed = self._in(f"  Type the tenant subdomain ({tenant.subdomain}) to confirm: ")
         return typed == tenant.subdomain
@@ -336,7 +334,7 @@ class Command(BaseCommand):
     # Execution
     # ------------------------------------------------------------------
 
-    def _do_refund(self, tenant, wallet, charges, reason):
+    def _do_refund(self, tenant, wallet, charges, reason, quiet=False):
         from wallet.services import wallet as svc
 
         self._heading("5. Refunding")
@@ -362,43 +360,32 @@ class Command(BaseCommand):
             "call\n  that happened. Re-run in purge mode if they should go too."
         )
 
-    @db_transaction.atomic
-    def _do_purge(self, tenant, wallet, calls, charges):
-        self._heading("5. Purging")
+    def _do_purge(self, tenant, wallet, calls, charges, reason):
+        """Refund the credits, then delete the call logs.
 
-        entry_ids = [r.pk for rows in charges.values() for r in rows]
-        deleted_entries = CreditLedger.all_objects.filter(pk__in=entry_ids).delete()[0]
+        Refund first, deliberately. It is the half that touches money, and it reads the
+        original deduction rows to know which bucket each credit came from — running it
+        after the logs were gone would still work, but a failure part-way would leave
+        the calls deleted and the credits not returned, which is the worse of the two
+        half-finished states.
+
+        Not wrapped in a single transaction with the refunds: `refund()` is atomic per
+        charge and idempotent on its reference, so a re-run finishes the job rather than
+        double-refunding. One long transaction over 37 charges would roll back work that
+        is already correct.
+        """
+        self._do_refund(tenant, wallet, charges, reason, quiet=True)
+
         deleted_calls = AgentCallLog.objects.filter(
             pk__in=[c.pk for c in calls]
         ).delete()[0]
 
-        # Rebuilt from what is left, not adjusted by arithmetic. The ledger is the
-        # source of truth for the balance, so deriving it is the only way to be certain
-        # the two agree afterwards — and it is exactly what reconciliation checks.
-        locked = Wallet.objects.select_for_update().get(pk=wallet.pk)
-        remaining = CreditLedger.all_objects.filter(wallet=locked)
-
-        sums = {
-            row["bucket"]: row["total"] or 0
-            for row in remaining.values("bucket").annotate(total=Sum("amount"))
-        }
-        locked.allocated_balance = max(0, sums.get(Bucket.ALLOCATED, 0))
-        locked.purchased_balance = max(0, sums.get(Bucket.PURCHASED, 0))
-        locked.balance = locked.allocated_balance + locked.purchased_balance
-        locked.lifetime_consumed = abs(
-            remaining.filter(entry_type__in=CONSUMPTION_TYPES).aggregate(
-                total=Sum("amount")
-            )["total"]
-            or 0
-        )
-        locked.save(update_fields=[
-            "allocated_balance", "purchased_balance", "balance",
-            "lifetime_consumed", "updated_at",
-        ])
-
         self.stdout.write(f"  Deleted {deleted_calls} call log(s).")
-        self.stdout.write(f"  Deleted {deleted_entries} ledger entr(ies).")
-        self.stdout.write(f"  Balance rebuilt from the remaining ledger: {locked.balance}")
+        self.stdout.write(
+            "  Ledger entries kept: CreditLedger is append-only, so the charge and\n"
+            "  its refund both stay on the record. The balance is what returns to "
+            "normal."
+        )
 
     # ------------------------------------------------------------------
 
