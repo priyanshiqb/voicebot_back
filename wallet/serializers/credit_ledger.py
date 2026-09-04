@@ -13,9 +13,23 @@ class CreditLedgerRatingSerializer(serializers.Serializer):
     """
 
     raw_quantity = serializers.IntegerField(read_only=True)
+    raw_unit = serializers.SerializerMethodField()
     units = serializers.IntegerField(read_only=True)
     unit_type = serializers.CharField(read_only=True)
     rate_applied = serializers.IntegerField(read_only=True)
+
+    def get_raw_unit(self, obj) -> str:
+        """What `raw_quantity` is measured in.
+
+        Without this the block is ambiguous: `raw_quantity: 47` sitting beside
+        `unit_type: "per_minute"` reads as 47 minutes, and it is 47 seconds.
+        `unit_type` describes the *rate*, not the measurement.
+
+        Seconds, always: every member of `CreditRate.Operation` is a call tier and the
+        set is deliberately closed, so nothing else is measured here. If a non-duration
+        operation is ever added, this becomes a lookup rather than a constant.
+        """
+        return "seconds"
 
 
 class CreditLedgerRefSerializer(serializers.ModelSerializer):
