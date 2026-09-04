@@ -360,9 +360,12 @@ SPECTACULAR_SETTINGS = {
         "BookingStatusEnum": "core.models.booking.Booking.Status",
         "ContactImportSessionStatusEnum": "core.models.contact_import.ContactImportSession.Status",
         "ContactImportRowStatusEnum": "core.models.contact_import.ContactImportRow.Status",
-        "NotificationLogStatusEnum": "core.models.notification_log.NotificationLog.Status",
+        # NotificationLog.Status and EmailDeliveryLog.Status are the same three
+        # values (PENDING/SENT/FAILED), and spectacular emits one component per
+        # distinct choice set — so two names for it is the duplication error it
+        # reports. One name, describing what both mean.
+        "DeliveryStatusEnum": "core.models.notification_log.NotificationLog.Status",
         "CampaignStatusEnum": "core.models.campaign.Campaign.Status",
-        "EmailDeliveryLogStatusEnum": "user.models.email_delivery_log.EmailDeliveryLog.Status",
         "TenantEmailConfigurationStatusEnum": "tenant.models.TenantEmailConfiguration.TenantEmailConfiguration.Status",
         "PlanStatusEnum": "onboard.models.plan.Plan.Status",
         "BookingParticipantResponseStatusEnum": "core.models.booking_participant.BookingParticipant.ResponseStatus",
@@ -376,6 +379,13 @@ SPECTACULAR_SETTINGS = {
         "BookingSourceEnum": "core.models.booking.Booking.Source",
         "ContactSourceEnum": "core.models.contact.Contact.Source",
         "CampaignAudienceSourceEnum": "core.models.campaign.Campaign.AudienceSource",
+        # Three different choice sets are all exposed on a field called "role", so
+        # without these spectacular invents names like "Role6d0Enum" that change
+        # whenever the schema is regenerated — and a generated client changes with
+        # them.
+        "TenantUserRoleEnum": "tenant.models.TenantUserMapping.TenantUserMapping.Role",
+        "AssignableTenantRoleEnum": "tenant.models.TenantUserMapping.ASSIGNABLE_ROLE_CHOICES",
+        "BookingParticipantRoleEnum": "core.models.booking_participant.BookingParticipant.Role",
     },
 }
 

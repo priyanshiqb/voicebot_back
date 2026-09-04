@@ -27,7 +27,12 @@ from datetime import datetime, timedelta
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 from rest_framework import status as http_status
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -69,8 +74,14 @@ def _pct_change(current, previous):
     return round(((current - previous) / previous) * 100, 1)
 
 
-class DashboardViewSet(ResponseMixin, viewsets.GenericViewSet):
-    """Read-only tenant dashboard. Everything is scoped to the caller's own tenant."""
+class DashboardViewSet(ResponseMixin, viewsets.ViewSet):
+    """Read-only tenant dashboard. Everything is scoped to the caller's own tenant.
+
+    A plain ``ViewSet``, not ``GenericViewSet``: there is no queryset and no model
+    behind this — the response is assembled from eight different ones — so a
+    ``serializer_class`` would be a fiction. GenericViewSet insists on one and
+    schema generation drops the whole view when it cannot find it.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -150,6 +161,15 @@ class DashboardViewSet(ResponseMixin, viewsets.GenericViewSet):
             OpenApiParameter("from", OpenApiTypes.DATE, description="Inclusive start, YYYY-MM-DD."),
             OpenApiParameter("to", OpenApiTypes.DATE, description="Inclusive end, YYYY-MM-DD."),
         ],
+        # Described as a free-form object rather than a serializer: the payload is
+        # eight unrelated blocks assembled by hand, and inventing eight serializers
+        # that no code path uses would be schema theatre. The shape is documented
+        # in docs/apiDocs/analytics/dashboard.md.
+        responses={
+            200: OpenApiResponse(OpenApiTypes.OBJECT, description="The dashboard payload."),
+            400: OpenApiResponse(OpenApiTypes.OBJECT, description="Malformed or oversized date range."),
+            403: OpenApiResponse(OpenApiTypes.OBJECT, description="Caller has no tenant."),
+        },
     )
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):

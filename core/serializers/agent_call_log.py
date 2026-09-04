@@ -11,7 +11,7 @@ class AgentCallLogRefSerializer(serializers.ModelSerializer):
     """Lightweight serializer for nested relationships."""
     # The direction-aware "who was this call with", so a nested reference does not
     # have to know that caller_number means different people on inbound and outbound.
-    customer_number = serializers.ReadOnlyField()
+    customer_number = serializers.CharField(read_only=True)
 
     class Meta:
         model = AgentCallLog
@@ -38,7 +38,7 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
     # Derived, never written: the runner sends the two raw numbers and this service
     # decides which of them is the person. Exposing it spares every client from
     # reimplementing that rule — and from getting it wrong on old outbound rows.
-    customer_number = serializers.ReadOnlyField()
+    customer_number = serializers.CharField(read_only=True)
 
     class Meta(TenantBaseModelCoreSerializer.Meta):
         model = AgentCallLog
@@ -85,7 +85,7 @@ class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
         read_only=True
     )
 
-    customer_number = serializers.ReadOnlyField()
+    customer_number = serializers.CharField(read_only=True)
 
     class Meta(TenantBaseModelCoreSerializer.Meta):
         model = AgentCallLog

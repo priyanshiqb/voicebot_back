@@ -9,7 +9,10 @@ from utils.serializers.hybrid_related_field import HybridRelatedField
 from onboard.serializers.timezone import TimezoneRefSerializer
 from onboard.serializers.language import LanguageRefSerializer
 from onboard.models import Timezone, Language
-from tenant.models.TenantUserMapping import TenantUserMapping
+from tenant.models.TenantUserMapping import (
+    ASSIGNABLE_ROLE_CHOICES,
+    TenantUserMapping,
+)
 
 
 class UserRefSerializer(serializers.ModelSerializer):
@@ -203,12 +206,7 @@ class SetRoleSerializer(serializers.Serializer):
     relaxed — a tenant where two people can remove each other.
     """
 
-    role = serializers.ChoiceField(
-        choices=[
-            TenantUserMapping.Role.ADMIN,
-            TenantUserMapping.Role.MEMBER,
-        ]
-    )
+    role = serializers.ChoiceField(choices=ASSIGNABLE_ROLE_CHOICES)
 
     def validate_role(self, value):
         if value == TenantUserMapping.Role.OWNER:

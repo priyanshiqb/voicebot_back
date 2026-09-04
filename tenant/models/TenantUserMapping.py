@@ -82,3 +82,14 @@ class TenantUserMapping(BaseModel):
 
     def __str__(self):
         return f"{self.user.username} -> {self.tenant.name}"
+
+
+#: Roles that can be granted directly, for serializers that offer a choice.
+#: OWNER is absent deliberately: ownership is *transferred* between existing members,
+#: never granted, and the single-owner constraint would reject a second one anyway.
+#: Defined once so the invite and set-role payloads cannot drift, and so the schema
+#: has one name for this set instead of two generated ones.
+ASSIGNABLE_ROLE_CHOICES = [
+    (TenantUserMapping.Role.ADMIN, TenantUserMapping.Role.ADMIN.label),
+    (TenantUserMapping.Role.MEMBER, TenantUserMapping.Role.MEMBER.label),
+]

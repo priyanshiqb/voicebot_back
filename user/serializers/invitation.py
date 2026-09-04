@@ -2,7 +2,10 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from tenant.models.TenantInvitation import TenantInvitation
-from tenant.models.TenantUserMapping import TenantUserMapping
+from tenant.models.TenantUserMapping import (
+    ASSIGNABLE_ROLE_CHOICES,
+    TenantUserMapping,
+)
 
 
 class InvitationRefSerializer(serializers.ModelSerializer):
@@ -72,10 +75,7 @@ class InvitationCreateSerializer(serializers.Serializer):
 
     email = serializers.EmailField()
     role = serializers.ChoiceField(
-        choices=[
-            TenantUserMapping.Role.ADMIN,
-            TenantUserMapping.Role.MEMBER,
-        ],
+        choices=ASSIGNABLE_ROLE_CHOICES,
         default=TenantUserMapping.Role.MEMBER,
     )
 
