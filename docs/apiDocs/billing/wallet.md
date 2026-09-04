@@ -165,7 +165,7 @@ Every credit movement, newest first. Paginated.
       "balance_after": 1030,
       "operation": "conversation_low_latency",
       "rating": {
-        "raw_quantity": 90, "units": 2,
+        "raw_quantity": 90, "raw_unit": "seconds", "units": 2,
         "unit_type": "per_minute", "rate_applied": 10
       },
       "reference_id": "call_9fA…",
@@ -176,6 +176,26 @@ Every credit movement, newest first. Paginated.
   "meta": { "count": 42, "next": "…", "previous": null, "page": 1, "page_size": 10 }
 }
 ```
+
+`rating` is present on usage rows and **`null` everywhere else** — a grant or a top-up
+has nothing to rate.
+
+| Field | Meaning |
+|---|---|
+| `raw_quantity` | What was measured. **Call duration in seconds** |
+| `raw_unit` | The unit `raw_quantity` is in — always `seconds` today |
+| `units` | Billable units after rounding and minimums |
+| `unit_type` | What one billable unit was, e.g. `per_minute` |
+| `rate_applied` | Credits per billable unit at the time of the charge |
+
+> **Read the duration from `raw_quantity`, not from `units`.** The example above is a
+> 90-**second** call billed as 2 **minutes**: `raw_unit` says which is which, because
+> `unit_type: "per_minute"` describes the rate, not the measurement, and `90` sitting
+> beside it otherwise reads as minutes.
+
+> These five numbers are **copied onto the row**, not looked up. That is what keeps an
+> old ledger entry explainable after a price change — the charge still shows the rate
+> that actually applied, not today's.
 
 > **Pagination shape.** Rows come back directly in `data`, with pagination under
 > `meta`. There is no `data.results`.
