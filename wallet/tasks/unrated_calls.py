@@ -11,6 +11,12 @@ from core.tasks import ReportedTask
 
 logger = logging.getLogger(__name__)
 
+#: How far back the sweep and every console that asks the same question look.
+#: One definition: the nightly task, the ops tenant-health panel and the wallet
+#: admin action all bound their window by this, so none of them can report a
+#: different answer for the same tenant at the same moment.
+DEFAULT_WINDOW_HOURS = 24
+
 #: Ignore very recent calls — a log posted seconds ago may simply not have been
 #: charged yet, because the request that charges it is still in flight.
 GRACE_MINUTES = 15
@@ -57,7 +63,7 @@ def unrated_for(tenant_id=None, *, hours=24):
 
 
 @shared_task(base=ReportedTask, name="wallet.tasks.report_unrated_calls")
-def report_unrated_calls(hours=24):
+def report_unrated_calls(hours=DEFAULT_WINDOW_HOURS):
     """Find completed calls with no matching usage deduction.
 
     Revenue quietly not collected, and the only way to notice it. Three causes, all

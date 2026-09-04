@@ -203,7 +203,15 @@ class WalletAdmin(TenantBaseAdminCore):
     )
 
     action_form = CreditAdjustmentForm
-    actions = ("grant_credits", "deduct_credits", "freeze_wallets", "unfreeze_wallets")
+    actions = (
+        "grant_credits",
+        "deduct_credits",
+        "freeze_wallets",
+        "unfreeze_wallets",
+        "check_reconciliation",
+        "fix_reconciliation",
+        "show_unrated_calls",
+    )
 
     fieldsets = (
         ("Balance", {
@@ -337,3 +345,116 @@ class WalletAdmin(TenantBaseAdminCore):
     @admin.action(description="Deduct credits (enter amount + reason above)")
     def deduct_credits(self, request, queryset):
         self._apply_adjustment(request, queryset, sign=-1)
+
+    # --- Health -----------------------------------------------------------
+    # All three call the same services as the nightly jobs and the ops console —
+    # `wallet.services.reconciliation` and `unrated_for`. A fourth copy of either
+    # comparison would let this screen disagree with the job about whether a balance
+    # adds up, and no operator would know which to believe.
+
+    @admin.action(description="Check reconciliation — does the balance match its ledger?")
+    def check_reconciliation(self, request, queryset):
+        from wallet.services import reconciliation
+
+        clean = 0
+        for wallet in queryset:
+            problems = reconciliation.check(wallet)
+            if not problems:
+                clean += 1
+                continue
+            for problem in problems:
+                self.message_user(
+                    request,
+                    f"{wallet.tenant}: {problem['message']}",
+                    level="WARNING",
+                )
+        if clean:
+            self.message_user(
+                request, f"{clean} wallet(s) reconcile against their ledger."
+            )
+
+    @admin.action(description="Fix reconciliation drift (enter reason above)")
+    def fix_reconciliation(self, request, queryset):
+        """Correct drift by *posting* the difference, never by editing the balance.
+
+        Same contract as ``reconcile_wallets --fix``: the correction is an
+        ADMIN_ADJUSTMENT ledger entry, so the repair is as auditable as whatever
+        caused it. A reason is required for the same reason a grant needs one.
+        """
+        from wallet.services import reconciliation
+        from wallet.services import wallet as svc
+
+        reason = (request.POST.get("adjustment_reason") or "").strip()
+        if not reason:
+            self.message_user(
+                request,
+                "Enter a reason — drift is a bug until somebody explains it, and a "
+                "silent correction destroys the evidence.",
+                level="ERROR",
+            )
+            return
+
+        stamp = timezone.now().strftime("%Y%m%d%H%M%S")
+        fixed = 0
+
+        for wallet in queryset:
+            if not reconciliation.check(wallet):
+                continue
+            total = reconciliation.ledger_total(wallet)
+            delta = total - wallet.balance
+            if delta == 0:
+                continue
+            try:
+                svc.adjust(
+                    wallet.tenant_id,
+                    amount=delta,
+                    reference_id=f"reconcile:{wallet.pk}:{stamp}",
+                    performed_by=request.user,
+                    notes=f"Reconciliation. {reason}".strip(),
+                )
+            except Exception as exc:  # noqa: BLE001 — surfaced to the operator
+                self.message_user(request, f"{wallet.tenant}: {exc}", level="ERROR")
+                continue
+            fixed += 1
+            self.message_user(
+                request, f"{wallet.tenant}: adjusted by {delta:+} to match the ledger."
+            )
+
+        if not fixed:
+            self.message_user(request, "Nothing to fix — every wallet reconciles.")
+
+    @admin.action(description="Show unrated calls (completed but never charged)")
+    def show_unrated_calls(self, request, queryset):
+        """Calls that produced no deduction — uncollected revenue.
+
+        Reports only. Charging retroactively would bill at whatever rate is stamped
+        now, which is not the rate that applied when the call happened.
+
+        Note what this cannot catch: a call charged at the *wrong* rate is rated,
+        reconciles, and never appears here. A missing rate shows up; a mistyped one
+        does not.
+        """
+        from wallet.tasks.unrated_calls import DEFAULT_WINDOW_HOURS, unrated_for
+
+        total = 0
+        for wallet in queryset:
+            rows = unrated_for(wallet.tenant_id, hours=DEFAULT_WINDOW_HOURS)
+            if not rows:
+                continue
+            total += len(rows)
+            self.message_user(
+                request,
+                f"{wallet.tenant}: {len(rows)} unrated call(s) in the last "
+                f"{DEFAULT_WINDOW_HOURS}h — "
+                + ", ".join(f"{call_id} ({duration}s)"
+                            for call_id, _t, duration, _c in rows[:5])
+                + (" …" if len(rows) > 5 else ""),
+                level="WARNING",
+            )
+        if not total:
+            self.message_user(
+                request,
+                f"No unrated calls in the last {DEFAULT_WINDOW_HOURS}h. "
+                "Note that calls under 15 minutes old are still within the grace "
+                "window and are not counted.",
+            )

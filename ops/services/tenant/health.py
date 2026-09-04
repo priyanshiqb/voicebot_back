@@ -18,14 +18,16 @@ from django.utils import timezone
 
 from onboard.models import Transaction
 from wallet.services import reconciliation
-from wallet.tasks.unrated_calls import unrated_for
+from wallet.tasks.unrated_calls import DEFAULT_WINDOW_HOURS, unrated_for
 
 #: How far back the payment check looks. A failed card from eight months ago is
 #: history; one from last week is why the customer is emailing.
 PAYMENT_WINDOW_DAYS = 30
 
 #: How far back the unrated-call sweep looks, matching the nightly job's default.
-UNRATED_WINDOW_HOURS = 24
+#: Kept as an alias rather than a second literal — the window is defined beside
+#: the query it bounds, in wallet.tasks.unrated_calls.
+UNRATED_WINDOW_HOURS = DEFAULT_WINDOW_HOURS
 
 #: What `subscriptions.expire()` writes when it freezes a lapsed wallet. The
 #: consistency check keys on it so an unrelated freeze — fraud, a support hold — is
