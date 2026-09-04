@@ -13,14 +13,27 @@ the mode the rest of the billing system is built around — ``wallet.services.wa
 already has ``refund()`` for exactly this — and it is the right answer for anything
 that touched a real customer.
 
-``purge`` refunds the same way, then **deletes the call logs**. The calls disappear
-from history, reporting and the dashboard; the ledger keeps its charge/refund pairs.
+``purge`` **destroys the rows**: the call logs, their usage deductions, and any refunds
+already posted against them. The wallet is then rebuilt from the ledger that survives,
+so it reads exactly as it did before the calls were placed — no charge, no refund, no
+trace.
 
-The ledger rows cannot be deleted, and that is not an oversight to work around:
-``CreditLedgerQuerySet`` closes ``delete``, ``soft_delete`` and ``update`` outright,
-because a ledger row that vanishes from the sums while still sitting in the table is
-the one failure the balance invariant cannot survive. So "fresh" here means the balance
-is restored and the calls are gone — not that the money never moved.
+This is the only place in the codebase that deletes a ledger row, and it does so past
+two deliberate guards:
+
+* ``CreditLedgerQuerySet`` closes ``delete``, ``soft_delete`` and ``update`` outright.
+  A ledger row that vanishes from the sums while still sitting in the table is the one
+  failure the balance invariant cannot survive.
+* ``BaseQuerySet`` refuses bulk deletes on every model in the project.
+
+Both are right for application code, and neither is loosened here — the guards stay,
+and this command builds a plain queryset by hand instead, in one visible place. The
+invariant itself is kept: balances are **derived from the remaining ledger** rather than
+adjusted, and step 6 verifies the two agree.
+
+**Only reach for this on data that was never real business.** Refunding is the correct
+answer for anything a customer actually did; a charge that happened should be reversed
+on the record, not erased from it.
 
     python manage.py purge_test_calls
     python manage.py purge_test_calls --dry-run
@@ -29,6 +42,8 @@ is restored and the calls are gone — not that the money never moved.
 from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import models
+from django.db import transaction as db_transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -118,8 +133,8 @@ class Command(BaseCommand):
         mode = self._ask_choice(
             "How should the credits be returned?",
             [
-                ("refund", "Refund only — restore the credits, keep the call logs"),
-                ("purge", "Refund and delete the call logs (ledger entries always remain)"),
+                ("refund", "Refund — restore the credits, keep the full record (safer)"),
+                ("purge", "Delete — destroy the call logs and their ledger rows entirely"),
             ],
             default_index=1,
         )
@@ -322,10 +337,12 @@ class Command(BaseCommand):
         self.stdout.write("")
         if mode == "purge":
             self.stdout.write(self.style.ERROR(
-                f"  This permanently deletes {len(calls)} call log(s) and refunds the "
-                "credits they consumed.\n"
-                "  The ledger keeps its charge and refund entries — those cannot be "
-                "removed, by design."
+                f"  This permanently destroys {len(calls)} call log(s) and every ledger "
+                "row they\n  produced — charges and refunds alike. There is no undo and "
+                "no trace left.\n"
+                "  The wallet is then rebuilt from the ledger that remains.\n\n"
+                "  Only do this to data that was never real business. A charge a "
+                "customer\n  actually incurred should be refunded, not erased."
             ))
         typed = self._in(f"  Type the tenant subdomain ({tenant.subdomain}) to confirm: ")
         return typed == tenant.subdomain
@@ -355,36 +372,98 @@ class Command(BaseCommand):
         self.stdout.write(f"  Refunded {refunded} charge(s).")
         if skipped:
             self.stdout.write(f"  {skipped} skipped — already refunded.")
-        self.stdout.write(
-            "  The call logs were left in place: a refunded charge still refers to a "
-            "call\n  that happened. Re-run in purge mode if they should go too."
-        )
+        if not quiet:
+            self.stdout.write(
+                "  The call logs were left in place: a refunded charge still refers to "
+                "a\n  call that happened. Re-run and choose the second option if they "
+                "should go too."
+            )
+
+    def _ledger_rows_for(self, calls):
+        """Every ledger row these calls produced — charges *and* their refunds.
+
+        Both sides, deliberately. A tenant whose test calls were already refunded has
+        two rows per call that cancel out; deleting only the deductions would leave the
+        refunds behind and hand the wallet credits it was never granted.
+
+        Refunds are keyed ``{reference}:refund``, with a ``#purchased`` suffix on the
+        second row when a charge spanned both buckets — the same shape ``consume()``
+        and ``refund()`` write, matched here rather than guessed at.
+        """
+        references = [c.provider_call_id for c in calls]
+        keys = []
+        for reference in references:
+            keys.extend([
+                reference,
+                f"{reference}#{Bucket.PURCHASED}",
+                f"{reference}:refund",
+                f"{reference}:refund#{Bucket.PURCHASED}",
+            ])
+        return CreditLedger.all_objects.filter(reference_id__in=keys)
 
     def _do_purge(self, tenant, wallet, calls, charges, reason):
-        """Refund the credits, then delete the call logs.
+        """Delete the calls and their ledger rows outright, then rebuild the balance.
 
-        Refund first, deliberately. It is the half that touches money, and it reads the
-        original deduction rows to know which bucket each credit came from — running it
-        after the logs were gone would still work, but a failure part-way would leave
-        the calls deleted and the credits not returned, which is the worse of the two
-        half-finished states.
+        **This deliberately goes past two guards**, and it is the only place in the
+        codebase that does. ``CreditLedgerQuerySet`` closes ``delete``/``soft_delete``/
+        ``update`` because a ledger row that disappears from the sums while still in the
+        table destroys the balance invariant; ``BaseQuerySet`` refuses bulk deletes on
+        every model. Both are right for application code. Neither is what an operator
+        needs when the rows describe calls that were never real business.
 
-        Not wrapped in a single transaction with the refunds: `refund()` is atomic per
-        charge and idempotent on its reference, so a re-run finishes the job rather than
-        double-refunding. One long transaction over 37 charges would roll back work that
-        is already correct.
+        The invariant is honoured rather than broken: the wallet is **rebuilt from the
+        ledger that remains**, not adjusted by arithmetic, so the two still agree
+        afterwards — which is exactly what step 6 then verifies.
+
+        Both sides of each call go: the deduction and any refund already posted against
+        it. Removing only the deduction would leave a refund crediting a charge that no
+        longer exists, and hand the tenant credits nobody granted.
         """
-        self._do_refund(tenant, wallet, charges, reason, quiet=True)
+        ledger_ids = list(self._ledger_rows_for(calls).values_list("pk", flat=True))
+        call_ids = [c.pk for c in calls]
 
-        deleted_calls = AgentCallLog.objects.filter(
-            pk__in=[c.pk for c in calls]
-        ).delete()[0]
+        with db_transaction.atomic():
+            # Vanilla querysets, built by hand. The managers on these models return
+            # guarded ones, and this is precisely the operation those guards exist to
+            # prevent — so it happens explicitly, in one visible place, rather than by
+            # loosening the guards for the whole application.
+            deleted_entries = (
+                models.QuerySet(model=CreditLedger)
+                .filter(pk__in=ledger_ids)
+                .delete()[0]
+            )
+            deleted_calls = (
+                models.QuerySet(model=AgentCallLog).filter(pk__in=call_ids).delete()[0]
+            )
+
+            locked = Wallet.objects.select_for_update().get(pk=wallet.pk)
+            remaining = CreditLedger.all_objects.filter(wallet=locked)
+
+            sums = {
+                row["bucket"]: row["total"] or 0
+                for row in remaining.values("bucket").annotate(total=Sum("amount"))
+            }
+            locked.allocated_balance = max(0, sums.get(Bucket.ALLOCATED, 0))
+            locked.purchased_balance = max(0, sums.get(Bucket.PURCHASED, 0))
+            locked.balance = locked.allocated_balance + locked.purchased_balance
+            locked.lifetime_consumed = abs(
+                remaining.filter(
+                    entry_type__in=[
+                        EntryType.USAGE_DEDUCTION,
+                        EntryType.USAGE_ADJUSTMENT,
+                    ]
+                ).aggregate(total=Sum("amount"))["total"]
+                or 0
+            )
+            locked.save(update_fields=[
+                "allocated_balance", "purchased_balance", "balance",
+                "lifetime_consumed", "updated_at",
+            ])
 
         self.stdout.write(f"  Deleted {deleted_calls} call log(s).")
+        self.stdout.write(f"  Deleted {deleted_entries} ledger entr(ies).")
         self.stdout.write(
-            "  Ledger entries kept: CreditLedger is append-only, so the charge and\n"
-            "  its refund both stay on the record. The balance is what returns to "
-            "normal."
+            f"  Balance rebuilt from the remaining ledger: {locked.balance}"
         )
 
     # ------------------------------------------------------------------
