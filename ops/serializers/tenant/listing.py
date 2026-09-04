@@ -9,6 +9,11 @@ every month.
 
 from rest_framework import serializers
 
+# The return annotations below are load-bearing, not decoration: without them
+# drf-spectacular cannot infer a SerializerMethodField's type and silently documents
+# every one of these as a string — including the three booleans and the balance, which
+# a generated client would then get wrong.
+
 
 class TenantListSerializer(serializers.Serializer):
     """Read-only. The list never writes."""
@@ -35,7 +40,7 @@ class TenantListSerializer(serializers.Serializer):
 
     last_call_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
-    def get_plan(self, obj):
+    def get_plan(self, obj) -> str | None:
         """The snapshot's name, falling back to the live plan.
 
         The snapshot is what the tenant bought. Rows written before snapshots existed
@@ -43,20 +48,20 @@ class TenantListSerializer(serializers.Serializer):
         """
         return getattr(obj, "plan_name", None) or getattr(obj, "live_plan_name", None)
 
-    def get_plan_code(self, obj):
+    def get_plan_code(self, obj) -> str | None:
         return getattr(obj, "plan_code", None) or getattr(obj, "live_plan_code", None)
 
-    def get_balance(self, obj):
+    def get_balance(self, obj) -> int:
         """A tenant with no wallet row has no credits, not an unknown number."""
         return getattr(obj, "balance", None) or 0
 
-    def get_wallet_frozen(self, obj):
+    def get_wallet_frozen(self, obj) -> bool:
         return bool(getattr(obj, "wallet_frozen", None))
 
-    def get_credits_enforced(self, obj):
+    def get_credits_enforced(self, obj) -> bool:
         # NULL means no settings row, which means the model's default — off. Serving
         # `null` here would make the console render a third state that does not exist.
         return bool(getattr(obj, "credits_enforced", None))
 
-    def get_entitlements_enforced(self, obj):
+    def get_entitlements_enforced(self, obj) -> bool:
         return bool(getattr(obj, "entitlements_enforced", None))

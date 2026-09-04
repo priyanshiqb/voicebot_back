@@ -9,6 +9,11 @@ from tenant.common.admin.tenant_base_admin_core import TenantBaseAdminCore
 from wallet.models.credit_ledger import CreditLedger
 from wallet.models.wallet import Wallet
 
+#: How many missed calls one admin action will bill in a single request. A long
+#: backlog belongs in a management command — a request that times out halfway
+#: leaves an operator guessing how much of it landed.
+MAX_RETRO_CHARGES = 50
+
 
 class CreditLedgerFormSet(BaseInlineFormSet):
     def get_queryset(self):
@@ -198,7 +203,6 @@ class WalletAdmin(TenantBaseAdminCore):
         "is_frozen",
         "frozen_reason",
         "frozen_at",
-        "current_plan",
         "rate_snapshot_at",
     )
 
@@ -209,6 +213,7 @@ class WalletAdmin(TenantBaseAdminCore):
         "freeze_wallets",
         "unfreeze_wallets",
         "check_reconciliation",
+        "charge_unrated_calls",
         "fix_reconciliation",
         "show_unrated_calls",
     )
@@ -228,6 +233,14 @@ class WalletAdmin(TenantBaseAdminCore):
             "description": (
                 "Stamped from the plan when a subscription activates, renews or "
                 "changes. This — not the CreditRate table — is what prices a call. "
+                "<br><br>"
+                "<strong>Set `current_plan` if it is empty.</strong> Rating falls back "
+                "to that plan's live CreditRate rows for any operation missing from "
+                "the card below — so with it set, adding a rate to the plan takes "
+                "effect immediately. With it empty there is no fallback at all, and "
+                "any tier absent from the card fails the charge outright. A wallet "
+                "reaches that state when stamping failed during onboarding, which also "
+                "means the cycle credits were never granted — check the balance too. "
                 "<br><br>"
                 "<strong>Editable, and it takes effect on the next call.</strong> "
                 "Shape: <code>{\"operations\": {\"conversation_low_latency\": "
@@ -422,6 +435,137 @@ class WalletAdmin(TenantBaseAdminCore):
 
         if not fixed:
             self.message_user(request, "Nothing to fix — every wallet reconciles.")
+
+    @admin.action(description="Charge unrated calls (enter reason above)")
+    def charge_unrated_calls(self, request, queryset):
+        """Bill calls that completed but were never charged.
+
+        The nightly sweep only *reports* these, for a stated reason: a retroactive
+        charge bills at whatever rate is stamped now, which is not necessarily the
+        rate that applied when the call happened. That makes it an operator decision,
+        not an automatic one — which is why this is a deliberate action behind a
+        required reason rather than a job.
+
+        Goes through ``wallet.services.wallet.consume()``, the same function the call
+        log's own charge hook uses, keyed on ``provider_call_id``. That matters: the
+        entry lands as a USAGE_DEDUCTION against the call's own reference, so the call
+        stops being reported as unrated. A manual Deduct would take the credits and
+        leave it listed forever, with nothing to distinguish it from a call that was
+        never charged at all.
+
+        Safe to re-run — ``consume`` ignores a reference it has already recorded.
+        """
+        from core.models.agent_call_log import AgentCallLog
+        from wallet.services import policy
+        from wallet.services import wallet as svc
+        from wallet.services.exceptions import (
+            InsufficientCredits,
+            RateNotConfigured,
+            WalletFrozen,
+        )
+        from wallet.tasks.unrated_calls import DEFAULT_WINDOW_HOURS, unrated_for
+
+        reason = (request.POST.get("adjustment_reason") or "").strip()
+        if not reason:
+            self.message_user(
+                request,
+                "Enter a reason — billing days after the fact is a judgement call, "
+                "and the ledger should say whose.",
+                level="ERROR",
+            )
+            return
+
+        charged = skipped = failed = 0
+
+        for wallet in queryset:
+            rows = unrated_for(wallet.tenant_id, hours=DEFAULT_WINDOW_HOURS)
+            if not rows:
+                continue
+
+            # Bounded: an admin request is not the place to work through a long
+            # backlog, and a half-finished batch that timed out is worse than one
+            # that says how much is left.
+            if len(rows) > MAX_RETRO_CHARGES:
+                self.message_user(
+                    request,
+                    f"{wallet.tenant}: {len(rows)} unrated calls — too many to charge "
+                    f"from here ({MAX_RETRO_CHARGES} at a time). Run it again, or use "
+                    "a management command for a backlog this size.",
+                    level="WARNING",
+                )
+                rows = rows[:MAX_RETRO_CHARGES]
+
+            for provider_call_id, _tenant_id, _duration, _created_at in rows:
+                log = AgentCallLog.objects.filter(
+                    provider_call_id=provider_call_id, tenant_id=wallet.tenant_id
+                ).first()
+                if log is None:
+                    skipped += 1
+                    continue
+
+                billable = policy.operation_for_call(log)
+                if billable is None:
+                    skipped += 1
+                    continue
+
+                operation, quantity = billable
+                try:
+                    entry = svc.consume(
+                        wallet.tenant_id,
+                        operation=operation,
+                        quantity=quantity,
+                        reference_id=log.provider_call_id,
+                        metadata={
+                            "agent_id": str(log.agent_id),
+                            "direction": log.direction,
+                            # Marks this as a retro-charge rather than a call-time one,
+                            # so a later audit can tell them apart.
+                            "charged_retroactively": True,
+                            "reason": reason,
+                        },
+                    )
+                except RateNotConfigured as exc:
+                    failed += 1
+                    self.message_user(
+                        request,
+                        f"{wallet.tenant}: {exc} — set `current_plan` or the rate card "
+                        "on this wallet first.",
+                        level="ERROR",
+                    )
+                    break
+                except (InsufficientCredits, WalletFrozen) as exc:
+                    failed += 1
+                    self.message_user(
+                        request, f"{wallet.tenant}: {exc}", level="ERROR"
+                    )
+                    break
+                except Exception as exc:  # noqa: BLE001 — surfaced to the operator
+                    failed += 1
+                    self.message_user(
+                        request,
+                        f"{wallet.tenant}: {provider_call_id}: {exc}",
+                        level="ERROR",
+                    )
+                    continue
+
+                # None means already charged, or nothing owed while enforcement is off.
+                if entry is None:
+                    skipped += 1
+                else:
+                    charged += 1
+
+        if not (charged or skipped or failed):
+            self.message_user(
+                request, "Nothing to charge — no unrated calls on the selected wallets."
+            )
+            return
+
+        message = f"Charged {charged} call(s)."
+        if skipped:
+            message += f" {skipped} skipped — already charged, or nothing to rate."
+        if failed:
+            message += f" {failed} failed; see the errors above."
+        self.message_user(request, message)
 
     @admin.action(description="Show unrated calls (completed but never charged)")
     def show_unrated_calls(self, request, queryset):
