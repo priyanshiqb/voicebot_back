@@ -62,7 +62,7 @@ def current_or_expired(tenant):
 
 
 @db_transaction.atomic
-def activate(tenant, plan, *, transaction=None, previous=None, notes="",
+def activate(tenant, plan, *, minutes=None, transaction=None, previous=None, notes="",
              bonus_days=None, snapshot_overrides=None, credit_grant=None):
     """Put a tenant on a plan: subscription, rate card, and the cycle's credits.
 
@@ -97,22 +97,50 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
     from wallet.models import CreditLedger
 
     tenant_id = getattr(tenant, "id", tenant)
+
+    # **A quantity is always resolved, never left absent.** A caller that names no
+    # quantity on a plan sold by the minute would otherwise be granted nothing -- a
+    # live subscription with an empty wallet, which is the worst of both outcomes.
+    # The plan's smallest sellable amount is the honest reading of "put them on this
+    # plan", and it is what every purchase path already computes for itself.
+    if minutes is None:
+        minutes = plan.resolve_minutes(None)
+
     existing = current_for(tenant_id)
 
     if existing is not None:
-        if existing.plan_id == plan.id and previous is None:
+        # **The quantity is part of the identity of a sale.** Comparing the plan alone
+        # would treat "same plan, 1,800 minutes instead of 1,200" as a duplicate call
+        # and silently return the old subscription, granting nothing -- for a change
+        # the tenant has just paid for.
+        same_sale = (
+            existing.plan_id == plan.id
+            and existing.selected_minutes == minutes
+        )
+        if same_sale and previous is None:
             logger.info(
-                "activate() called again for tenant %s on %s; returning the existing "
-                "subscription", tenant_id, plan.code,
+                "activate() called again for tenant %s on %s (%s minutes); returning "
+                "the existing subscription", tenant_id, plan.code, minutes,
             )
             _ensure_wallet_funded(existing, plan, transaction, wallet_service, CreditLedger)
             return existing
 
-        # A different plan means this is a change, not a re-entry. Close the old row
-        # before inserting the new one: the unique constraint is checked per
-        # statement, not deferred, so insert-then-close fails.
+        # A different plan or a different quantity means this is a change, not a
+        # re-entry. Close the old row before inserting the new one: the unique
+        # constraint is checked per statement, not deferred, so insert-then-close
+        # fails.
         _close(existing)
         previous = previous or existing
+
+    # **Decided here, before the insert, and used in three places from this one
+    # variable**: the row, the frozen snapshot (generated inside save()) and the
+    # credit ledger. Computing it later would leave the contract and the column
+    # disagreeing about what the cycle was worth.
+    #
+    # `credit_grant is None` rather than `or`, so a negotiated zero means zero.
+    allocation = (
+        plan.credits_for(minutes) if credit_grant is None else credit_grant
+    ) or 0
 
     try:
         # Savepointed: an IntegrityError poisons the surrounding transaction, and
@@ -125,6 +153,8 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
                 plan=plan,
                 status=Status.ACTIVE,
                 start_date=started,
+                selected_minutes=minutes,
+                allocated_credits=allocation,
                 # An upgrade converts the unused value of the old plan into days on
                 # the new one, so this cycle runs long. Computed here rather than
                 # left to `save()`, which only ever fills a blank end_date.
@@ -146,7 +176,11 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
         # transaction row, so this is narrow. It is reachable when two *different*
         # orders complete for one tenant at once.
         existing = current_for(tenant_id)
-        if existing is None or existing.plan_id != plan.id:
+        if (
+            existing is None
+            or existing.plan_id != plan.id
+            or existing.selected_minutes != minutes
+        ):
             raise
         logger.info(
             "activate() lost a race for tenant %s; adopting the subscription the "
@@ -160,8 +194,7 @@ def activate(tenant, plan, *, transaction=None, previous=None, notes="",
         previous.save(update_fields=["superseded_by", "updated_at"])
 
     _ensure_wallet_funded(
-        subscription, plan, transaction, wallet_service, CreditLedger,
-        notes=notes, credit_grant=credit_grant,
+        subscription, plan, transaction, wallet_service, CreditLedger, notes=notes,
     )
     return subscription
 
@@ -200,7 +233,7 @@ def _apply_snapshot_overrides(subscription, overrides):
 
 
 def _ensure_wallet_funded(subscription, plan, transaction, wallet_service,
-                          CreditLedger, notes="", credit_grant=None):
+                          CreditLedger, notes=""):
     """Stamp the rate card, then grant the cycle's credits. In that order.
 
     Both steps are safe to repeat: stamping is a write of the same values, and the
@@ -212,7 +245,10 @@ def _ensure_wallet_funded(subscription, plan, transaction, wallet_service,
     unrated-call jobs are what surface the gap.
     """
     try:
-        wallet_service.set_plan_context(subscription.tenant_id, plan)
+        wallet_service.set_plan_context(
+            subscription.tenant_id, plan,
+            low_balance_threshold=plan.low_balance_for(subscription.allocated_credits),
+        )
     except Exception:
         logger.exception(
             "could not stamp rate card for tenant %s on %s",
@@ -220,11 +256,16 @@ def _ensure_wallet_funded(subscription, plan, transaction, wallet_service,
         )
         return
 
-    # A negotiated contract grants what was sold, not what the plan advertises.
-    # `is None` rather than `or`, so an explicit zero means zero.
-    allocation = (
-        plan.allocated_credits if credit_grant is None else credit_grant
-    ) or 0
+    # **What the subscription says it was granted, not a fresh derivation.** The row
+    # is the record of the sale -- including a negotiated grant the plan knows nothing
+    # about -- so the ledger takes its number from there and the two cannot disagree.
+    #
+    # The fallback covers a subscription written before the column existed, reached
+    # only through the idempotent re-entry paths.
+    allocation = subscription.allocated_credits
+    if allocation is None:
+        allocation = plan.credits_for(subscription.selected_minutes) or 0
+
     if allocation <= 0:
         return
 
@@ -305,11 +346,43 @@ def rollover_amount(subscription, *, reason):
     if not rules.get(ROLLOVER_FLAGS[reason], False):
         return 0, held, "rollover_forfeit"
 
-    cap = rules.get("max_rollover_credits")
+    cap = _rollover_cap(subscription, rules)
     if cap is not None and held > cap:
         return cap, held - cap, "rollover_cap_forfeit"
 
     return held, 0, None
+
+
+def _rollover_cap(subscription, rules):
+    """Most credits this subscription may carry, or ``None`` for uncapped.
+
+    **Ratio first, absolute second.** A fixed cap made sense when every subscriber on
+    a plan got the same grant; across a band it forfeits nothing from the smallest
+    customer and silently burns thousands of credits from the largest one at every
+    renewal. Expressed as a multiple of the cycle's *own* grant, it means the same
+    thing to both.
+
+    Read from the frozen rules, so a cap tightened today does not retroactively burn
+    credits a tenant was granted under the old terms.
+    """
+    from decimal import ROUND_DOWN, Decimal
+
+    ratio = rules.get("max_rollover_ratio")
+    granted = subscription.allocated_credits or rules.get("allocated_credits") or 0
+
+    if ratio is not None and granted:
+        try:
+            return int(
+                (Decimal(str(ratio)) * int(granted))
+                .to_integral_value(rounding=ROUND_DOWN)
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            logger.warning(
+                "subscription %s has an unreadable max_rollover_ratio (%r); falling "
+                "back to the absolute cap", subscription.pk, ratio,
+            )
+
+    return rules.get("max_rollover_credits")
 
 
 def _end_date_with_bonus(draft, bonus_days):
@@ -394,14 +467,34 @@ def renew(subscription, *, transaction=None):
     subscription.end_date = start + subscription.cycle_delta()
     subscription.status = Status.ACTIVE
     subscription.canceled_at = None
+
+    # **The quantity carries; what it is worth is re-derived from the live plan.**
+    # A renewal is a future cycle, and this is the one place a price or rule change
+    # legitimately reaches an existing customer -- for a minutes plan that means
+    # today's basis rate, and for a legacy plan today's `allocated_credits`.
+    #
+    # One expression, no branch: `credits_for` already knows which kind of plan it is
+    # holding. An earlier draft read last cycle's grant for legacy plans on the theory
+    # that it never changes. It does -- an admin can edit it, and SL-27 exists to say
+    # that edit must land at renewal.
+    # Re-derived from the live plan, which is what makes a renewal the one place a
+    # rate change reaches an existing customer. A plan with no basis can no longer
+    # answer -- only a historical row is in that state, and its own record of what it
+    # was granted is the honest answer.
+    allocation = plan.credits_for(subscription.selected_minutes) or 0
+    if not allocation and not plan.is_minutes_based:
+        allocation = subscription.allocated_credits or 0
+    subscription.allocated_credits = allocation
     subscription.generate_plan_snapshot()
     subscription.save()
 
-    wallet_service.set_plan_context(subscription.tenant_id, plan)
+    wallet_service.set_plan_context(
+        subscription.tenant_id, plan,
+        low_balance_threshold=plan.low_balance_for(allocation),
+    )
     if was_expired:
         wallet_service.unfreeze(subscription.tenant_id)
 
-    allocation = plan.allocated_credits or 0
     if allocation > 0:
         reference = (
             transaction.razorpay_order_id
@@ -425,8 +518,8 @@ def renew(subscription, *, transaction=None):
 # --------------------------------------------------------------------------- #
 
 @db_transaction.atomic
-def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgrade",
-                      bonus_days=None):
+def apply_plan_change(subscription, new_plan, *, minutes=None, transaction=None,
+                      reason="upgrade", bonus_days=None):
     """Move a tenant to a different plan, now.
 
     Used for an upgrade once its prorated order is paid, and by the scheduler when a
@@ -441,9 +534,24 @@ def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgra
     _apply_rollover(subscription, reason=reason)
     _close(subscription)
 
+    # **An explicit quantity is honoured verbatim; only a missing one is resolved.**
+    #
+    # Resolving what the caller passed would undo the entire point of freezing it. A
+    # paid upgrade order carries the quantity the tenant was quoted, and the band can
+    # move between the order and the payment -- so re-resolving takes their money for
+    # 2,500 minutes and silently hands them the band's new minimum instead. The same
+    # applies to a scheduled downgrade, which stored its quantity weeks earlier.
+    #
+    # A caller naming only a destination *does* mean "the same usage, over there", and
+    # that is what the fallback is for -- including a pack, which has exactly one legal
+    # quantity whatever the tenant had before.
+    if minutes is None:
+        minutes = new_plan.resolve_minutes(subscription.selected_minutes)
+
     new_subscription = activate(
         subscription.tenant_id,
         new_plan,
+        minutes=minutes,
         transaction=transaction,
         previous=subscription,
         notes=f"{reason} from {subscription.plan.code}",
@@ -456,7 +564,7 @@ def apply_plan_change(subscription, new_plan, *, transaction=None, reason="upgra
 
 
 @db_transaction.atomic
-def schedule_plan_change(subscription, new_plan):
+def schedule_plan_change(subscription, new_plan, *, minutes=None):
     """Record a change to take effect when the current cycle ends.
 
     A downgrade is stored, never applied early: the tenant has paid for the cycle they
@@ -467,8 +575,14 @@ def schedule_plan_change(subscription, new_plan):
     subscription = Subscription.objects.select_for_update().get(pk=subscription.pk)
     subscription.scheduled_plan = new_plan
     subscription.scheduled_change_at = subscription.end_date
+    # Stored even when the plan is unchanged: dropping from 2,000 minutes to 600 is a
+    # downgrade that moves no plan, and without the quantity the change would fire at
+    # cycle end having done nothing.
+    subscription.scheduled_minutes = minutes
     subscription.save(
-        update_fields=["scheduled_plan", "scheduled_change_at", "updated_at"]
+        update_fields=[
+            "scheduled_plan", "scheduled_change_at", "scheduled_minutes", "updated_at",
+        ]
     )
     return subscription
 
@@ -486,8 +600,11 @@ def cancel_scheduled_change(subscription):
         return subscription
     subscription.scheduled_plan = None
     subscription.scheduled_change_at = None
+    subscription.scheduled_minutes = None
     subscription.save(
-        update_fields=["scheduled_plan", "scheduled_change_at", "updated_at"]
+        update_fields=[
+            "scheduled_plan", "scheduled_change_at", "scheduled_minutes", "updated_at",
+        ]
     )
     return subscription
 

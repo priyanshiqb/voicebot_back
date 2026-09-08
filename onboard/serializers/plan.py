@@ -17,7 +17,7 @@ class PlanRefSerializer(serializers.ModelSerializer):
             "id",
             "code",
             "name",
-            "base_price",
+            "net_base_price",
             "currency",
             "tax_amount",
             "total_price",
@@ -35,6 +35,8 @@ class PlanOfferingMixin(serializers.Serializer):
 
     entitlements = serializers.SerializerMethodField()
     rates = serializers.SerializerMethodField()
+    is_minutes_based = serializers.BooleanField(read_only=True)
+    is_fixed_quantity = serializers.BooleanField(read_only=True)
 
     def get_entitlements(self, obj) -> list:
         """What the plan includes of each resource, and what more of it costs."""
@@ -54,17 +56,33 @@ class PlanOfferingMixin(serializers.Serializer):
         ]
 
     def get_rates(self, obj) -> list:
-        """Per-minute credit price of each call tier on this plan."""
+        """What each call tier costs on this plan, in credits and in rupees.
+
+        The rupee price is what a minute of that tier is *sold* at. Only the plan's
+        ``credit_basis`` tier actually prices a purchase, but the other two are what
+        let a pricing page say "and realtime runs ₹3.60/min" rather than leaving the
+        customer to work it out from a credit rate.
+        """
         return [
             {
                 "operation": rate.operation,
                 "unit": rate.unit,
                 "credits_per_unit": rate.credits_per_unit,
+                "price_per_minute_inr": (
+                    str(rate.price_per_minute_inr)
+                    if rate.price_per_minute_inr is not None
+                    else None
+                ),
                 "minimum_units": rate.minimum_units,
+                "is_basis": rate.operation == obj.credit_basis,
             }
-            for rate in obj.credit_rates.filter(
-                is_deleted=False, effective_to__isnull=True
-            ).order_by("operation")
+            for rate in (
+                obj.open_rates
+                if getattr(obj, "open_rates", None) is not None
+                else obj.credit_rates.filter(
+                    is_deleted=False, effective_to__isnull=True
+                ).order_by("operation")
+            )
         ]
 
 
@@ -89,7 +107,7 @@ class PlanSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
             "code",
             "name",
             "description",
-            "base_price",
+            "net_base_price",
             "discount_percentage",
             "discount_amount",
             "net_base_price",
@@ -106,7 +124,11 @@ class PlanSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
             "is_most_popular",
             # What the plan actually gives you. The pricing page needs these to say
             # anything more useful than a price.
-            "allocated_credits",
+            "min_minutes",
+            "max_minutes",
+            "credit_basis",
+            "is_minutes_based",
+            "is_fixed_quantity",
             "cost_per_additional_credit",
             "max_rollover_credits",
             "allow_rollover_on_renewal",
@@ -149,7 +171,7 @@ class PlanListSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
             "id",
             "code",
             "name",
-            "base_price",
+            "net_base_price",
             "discount_percentage",
             "discount_amount",
             "net_base_price",
@@ -158,7 +180,11 @@ class PlanListSerializer(PlanOfferingMixin, BaseModelCoreSerializer):
             "total_price",
             "currency",
             "billing_cycle",
-            "allocated_credits",
+            "min_minutes",
+            "max_minutes",
+            "credit_basis",
+            "is_minutes_based",
+            "is_fixed_quantity",
             "cost_per_additional_credit",
             "max_rollover_credits",
             "allow_rollover_on_renewal",

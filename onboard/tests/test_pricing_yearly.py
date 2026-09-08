@@ -23,6 +23,7 @@ from onboard.services import pricing
 from onboard.services import subscriptions as subscription_service
 from onboard.tests.billing_factories import (
     assert_invariant,
+    add_rates,
     make_plan,
     make_tenant,
 )
@@ -339,7 +340,8 @@ class YearlyCreditRuleTests(YearlyPricingTestCase):
         was configured to grant — and a renewal must not quietly allocate a
         month's worth."""
         self.assertEqual(
-            self.yearly.allocated_credits, self.monthly.allocated_credits * 12
+            self.yearly.credits_for(self.yearly.min_minutes),
+            self.monthly.credits_for(self.monthly.min_minutes) * 12,
         )
 
         subscription_service.renew(self.subscription)

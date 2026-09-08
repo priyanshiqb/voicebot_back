@@ -240,8 +240,13 @@ class ApiBudgets(QueryBudgetTestCase):
         )
 
     def test_qb11_the_plan_list_does_not_query_per_plan_for_rates(self):
-        """QB-11: pricing a plan change reads the subscription's snapshot, so the
-        catalogue is not consulted once per plan on the pricing page."""
+        """QB-11: **bounded, not zero.**
+
+        Pricing a plan now reads its basis rate row -- that is where the rupees per
+        minute live -- so the catalogue is consulted. What must not happen is one
+        query per plan, which is what a prefetch turns into a single fetch however
+        many plans there are.
+        """
         for index in range(4):
             make_plan(f"budget-extra-plan-{index}")
 
@@ -249,8 +254,8 @@ class ApiBudgets(QueryBudgetTestCase):
             response = self.client.get(PLANS_URL)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            touched_tables(queries, "wallet_credit_rate"), [],
+        self.assertLessEqual(
+            len(touched_tables(queries, "wallet_credit_rate")), 1,
             "eligible-plans is reading the rate catalogue per plan",
         )
 

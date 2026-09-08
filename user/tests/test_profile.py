@@ -7,6 +7,8 @@ from tenant.models.Tenant import Tenant
 from tenant.models.TenantUserMapping import TenantUserMapping
 from onboard.models.plan import Plan
 from onboard.models.subscription import Subscription
+from decimal import Decimal
+from onboard.tests.billing_factories import make_plan
 
 User = get_user_model()
 
@@ -64,14 +66,14 @@ class UserProfileEndpointTests(TestCase):
             tenant=self.tenant_sub
         )
 
-        self.plan = Plan.objects.create(
-            code="premium-yearly",
+        # Through the factory: a plan needs a rate card before it has any price, and
+        # `base_price` is translated into a band and a per-minute figure.
+        self.plan = make_plan(
+            "premium-yearly",
             name="Premium Plan",
-            description="Premium annual plan",
-            base_price=100.00,
-            currency="USD",
+            base_price=Decimal("100.00"),
+            discount_percentage=Decimal("0.00"),
             billing_cycle="yearly",
-            plan_type="paid"
         )
 
         self.subscription = Subscription.objects.create(
@@ -137,5 +139,5 @@ class UserProfileEndpointTests(TestCase):
         plan_data = sub_data["plan"]
         self.assertIsNotNone(plan_data)
         self.assertEqual(plan_data["code"], "premium-yearly")
-        self.assertEqual(plan_data["name"], "Premium Plan")
-        self.assertEqual(float(plan_data["base_price"]), 100.00)
+        self.assertEqual(plan_data["name"], self.plan.name)
+        self.assertEqual(float(plan_data["net_base_price"]), 100.00)

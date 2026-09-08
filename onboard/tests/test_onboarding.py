@@ -4,6 +4,7 @@ from rest_framework.test import APITestCase
 from onboard.models.plan import Plan
 from user.models import CustomUser
 from decimal import Decimal
+from onboard.tests.billing_factories import make_plan
 
 
 class OnboardingTests(APITestCase):
@@ -13,37 +14,27 @@ class OnboardingTests(APITestCase):
     """
 
     def setUp(self):
-        self.plan = Plan.objects.create(
-            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
-            status=Plan.Status.ACTIVE,
-            code="starter_inr",
+        # Through the factory: a plan is three models now, and one without a rate
+        # card has no price and no grant. `base_price` is translated into a band and
+        # a per-minute price, so the totals these tests assert are unchanged.
+        self.plan = make_plan(
+            "starter_inr",
             name="Starter Plan",
-            description="Perfect for startups",
             base_price=Decimal("2000.00"),
             discount_percentage=Decimal("10.00"),
             tax_percentage=Decimal("18.00"),
-            currency=Plan.CurrencyChoices.INR,
-            billing_cycle=Plan.BillingCycleChoices.MONTHLY,
-            plan_type=Plan.PlanTypeChoices.PAID,
             sort_order=1,
-            is_active=True
         )
-
-        self.pro_plan = Plan.objects.create(
-            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
-            status=Plan.Status.ACTIVE,
-            code="pro_inr",
+        self.pro_plan = make_plan(
+            "pro_inr",
             name="Pro Plan",
-            description="Perfect for enterprises",
             base_price=Decimal("4000.00"),
             discount_percentage=Decimal("0.00"),
             tax_percentage=Decimal("18.00"),
-            currency=Plan.CurrencyChoices.INR,
-            billing_cycle=Plan.BillingCycleChoices.MONTHLY,
-            plan_type=Plan.PlanTypeChoices.PAID,
             sort_order=2,
-            is_active=True
         )
+        self.plan_minutes = self.plan.min_minutes
+        self.pro_minutes = self.pro_plan.min_minutes
 
         self.register_url = reverse("api-v1:register-pending")
         self.verify_otp_url = reverse("api-v1:verify-otp")
@@ -61,6 +52,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Jane",
             "last_name": "Doe",
             "business_name": "Doe Enterprises",
@@ -158,6 +150,7 @@ class OnboardingTests(APITestCase):
         """
         payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "John",
             "last_name": "Smith",
             "business_name": "Smith Corp",
@@ -176,6 +169,7 @@ class OnboardingTests(APITestCase):
         """
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "John",
             "last_name": "Baker",
             "business_name": "Baker Hub",
@@ -202,6 +196,7 @@ class OnboardingTests(APITestCase):
         # 1. Register first pending user (temp_user_1)
         signup_payload_1 = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "First",
             "last_name": "User",
             "business_name": "First Inc",
@@ -215,6 +210,7 @@ class OnboardingTests(APITestCase):
         # 2. Register second pending user (temp_user_2)
         signup_payload_2 = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Second",
             "last_name": "User",
             "business_name": "Second Inc",
@@ -261,6 +257,7 @@ class OnboardingTests(APITestCase):
         """
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Resend",
             "last_name": "User",
             "business_name": "Resend Inc",
@@ -298,6 +295,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Resume",
             "last_name": "User",
             "business_name": "Resume Inc",
@@ -423,6 +421,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending with no phone_number and a referral_code
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "John",
             "last_name": "Smith",
             "business_name": "Smith Corp",
@@ -504,6 +503,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Alice",
             "last_name": "Wonder",
             "business_name": "Wonderland",
@@ -553,6 +553,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "Bob",
             "last_name": "Builder",
             "business_name": "Bob Builds",
@@ -742,6 +743,7 @@ class OnboardingTests(APITestCase):
         # Step 1: POST register-pending
         signup_payload = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "ResumeToken",
             "last_name": "User",
             "business_name": "ResumeToken Inc",
@@ -803,6 +805,7 @@ class OnboardingTests(APITestCase):
         # Register user A
         signup_a = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "UserA",
             "last_name": "Test",
             "business_name": "Business A",
@@ -815,6 +818,7 @@ class OnboardingTests(APITestCase):
         # Register user B and get their token
         signup_b = {
             "plan_id": str(self.plan.id),
+            "minutes": self.plan.min_minutes,
             "first_name": "UserB",
             "last_name": "Test",
             "business_name": "Business B",

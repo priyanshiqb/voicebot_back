@@ -146,7 +146,14 @@ def replace_rates(plan, rows, *, supersede):
     keeps every historical charge reproducible. Existing subscribers are unaffected
     either way: their card was frozen onto their wallet when they subscribed, so a
     rate change never re-prices a call already made.
+
+    **Refused if it would strand an active plan's basis tier.** Activation checks that
+    the basis row can price a minute and grant a credit, but rates are edited long
+    afterwards — so without this guard a rate write is a second door to exactly the
+    state the activation gate exists to prevent, on a plan that is already being sold.
     """
+    _refuse_if_it_strands_the_basis(plan, rows)
+
     now = timezone.now()
     open_rows = {row.operation: row for row in live_rates(plan)}
 
@@ -176,6 +183,40 @@ def replace_rates(plan, rows, *, supersede):
         CreditRate.objects.create(plan=plan, effective_from=now, **row)
 
     return live_rates(plan)
+
+
+class RateWouldStrandBasis(Exception):
+    """A rate write would leave a live plan unable to price what it sells."""
+
+
+def _refuse_if_it_strands_the_basis(plan, rows):
+    """The basis tier must survive a rate write on a plan that is being sold.
+
+    Only enforced on an ACTIVE plan. A draft can be left in any state on the way to
+    being finished — that is what a draft is for — and activation will refuse it.
+    """
+    from wallet.models import CreditRate
+
+    if plan.status != Plan.Status.ACTIVE or not plan.credit_basis:
+        return
+
+    incoming = {row["operation"]: row for row in rows}
+    basis = incoming.get(plan.credit_basis)
+    if basis is None:
+        # Not being touched by this write, so whatever is there survives it.
+        return
+
+    noun = plan.credit_basis.replace("_", " ")
+    if basis.get("unit") == CreditRate.Unit.PER_EVENT:
+        raise RateWouldStrandBasis(
+            f"{plan.name} is sold by the minute at the {noun} tier, so that tier "
+            f"cannot be priced per call. Change the plan's basis first, or retire it."
+        )
+    if basis.get("price_per_minute_inr") is None:
+        raise RateWouldStrandBasis(
+            f"{plan.name} is sold at the {noun} tier, so that tier needs a "
+            f"rupees-per-minute price. Without one the plan cannot price a sale."
+        )
 
 
 def _rate_changed(current, row):

@@ -78,6 +78,14 @@ def clone(source, *, code, name, billing_cycle=None, sort_order=None):
     return plan, _review_notes(source, plan)
 
 
+def _band_label(plan):
+    if plan.is_fixed_quantity:
+        return f"exactly {plan.min_minutes:,} minutes"
+    low = f"{plan.min_minutes:,}" if plan.min_minutes is not None else "any"
+    high = f"{plan.max_minutes:,}" if plan.max_minutes is not None else "any"
+    return f"{low}-{high} minutes"
+
+
 def _review_notes(source, plan):
     """What a human has to decide before this copy is worth activating.
 
@@ -112,6 +120,29 @@ def _review_notes(source, plan):
                     "These add-ons carry the original plan's block prices. On a "
                     "different cycle that is the same capacity for a different amount "
                     "of money — usually by a factor of twelve."
+                ),
+            })
+
+    if plan.credit_basis and plan.min_minutes == source.min_minutes             and plan.max_minutes == source.max_minutes:
+        if plan.billing_cycle == source.billing_cycle:
+            notes.append({
+                "code": "BAND_COLLIDES",
+                "message": (
+                    f"Both plans sell the same minutes "
+                    f"({_band_label(plan)}). Harmless while this is a draft, and "
+                    f"refused at activation — two plans claiming one quantity give "
+                    f"the pricing page a coin-flip between two prices."
+                ),
+            })
+        else:
+            notes.append({
+                "code": "BAND_NEEDS_CONVERSION",
+                "message": (
+                    f"The band ({_band_label(plan)}) was copied unchanged onto a "
+                    f"different billing cycle. {plan.get_billing_cycle_display()} "
+                    f"minutes are not {source.get_billing_cycle_display()} minutes, "
+                    f"and the rupees-per-minute prices came across verbatim too — so "
+                    f"the same figure now buys a very different amount of time."
                 ),
             })
 

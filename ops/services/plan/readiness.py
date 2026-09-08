@@ -24,6 +24,7 @@ from decimal import Decimal
 from onboard.constants.entitlement_resource import EntitlementResource
 from onboard.constants.reset_period import ResetPeriod
 from onboard.models import Plan
+from onboard.services import plan_selection
 from wallet.models import CreditRate
 
 #: Every resource a plan must price. A plan missing one grants it without limit.
@@ -44,7 +45,7 @@ def _rates(plan):
     }
 
 
-def blocking_problems(plan, entitlements=None, rates=None):
+def blocking_problems(plan, entitlements=None, rates=None, ladder=None):
     """What stops this plan being activated. Empty means it may go live.
 
     Rows are passed in by callers that already loaded them — the plan list checks
@@ -81,6 +82,101 @@ def blocking_problems(plan, entitlements=None, rates=None):
             ),
         })
 
+    problems.extend(_minutes_problems(plan, rates, ladder=ladder))
+    return problems
+
+
+def _minutes_problems(plan, rates, *, ladder=None):
+    """What stops a plan being sold by the minute -- which is now every plan."""
+    # **Every plan needs a basis, not only one that is trying to be minutes-based.**
+    #
+    # This used to return early for a plan with no band and no basis, so both
+    # generations could be activated side by side while the migration ran. With
+    # `Plan.base_price` and `Plan.allocated_credits` gone there is nothing left for
+    # such a plan to be priced or granted from -- it would activate, appear on the
+    # pricing page and sell for nothing. The legacy model is retired, so the gate says
+    # so.
+    problems = []
+
+    if not plan.credit_basis:
+        problems.append({
+            "code": "CREDIT_BASIS_UNSET",
+            "message": (
+                "This plan has no tier to sell it at. Both the price and the credit "
+                "grant come from the basis tier's rate row, so without one the plan "
+                "can neither be priced nor grant anything."
+            ),
+        })
+        return problems
+
+    basis = rates.get(plan.credit_basis)
+    if basis is None:
+        problems.append({
+            "code": "CREDIT_BASIS_RATE_MISSING",
+            "operation": plan.credit_basis,
+            "message": (
+                f"The plan is sold at {plan.credit_basis.replace('_', ' ')}, but has "
+                f"no open rate for it. Nothing can price a minute or grant a credit."
+            ),
+        })
+        return problems
+
+    if basis.unit == CreditRate.Unit.PER_EVENT:
+        problems.append({
+            "code": "CREDIT_BASIS_PER_EVENT",
+            "operation": plan.credit_basis,
+            "message": (
+                "The basis tier is priced per call, which has no per-minute meaning. "
+                "A plan sold by the minute needs a per-minute or per-second basis."
+            ),
+        })
+
+    if basis.price_per_minute_inr is None:
+        problems.append({
+            "code": "CREDIT_BASIS_NO_INR_PRICE",
+            "operation": plan.credit_basis,
+            "message": (
+                "The basis tier has no rupees-per-minute price, so a sale cannot be "
+                "priced at all. Credits alone do not make a plan sellable."
+            ),
+        })
+    elif basis.price_per_minute_inr > 0 and plan.renews_without_payment:
+        # **This used to be a database constraint on `base_price`.** With the price on
+        # the rate row it is a cross-table question, so no column can answer it and the
+        # gate has to. A priced plan that renews itself for free would silently stop
+        # billing -- the tenant keeps the service and no order is ever raised again.
+        problems.append({
+            "code": "RENEWS_FREE_BUT_PRICED",
+            "message": (
+                f"This plan renews without payment but is sold at "
+                f"₹{basis.price_per_minute_inr}/min. It would give the product away "
+                f"after the first cycle. Only a plan that costs nothing may renew "
+                f"itself."
+            ),
+        })
+    elif basis.price_per_minute_inr <= 0 and plan.max_minutes is None:
+        # A free plan open at the top would grant unbounded credits for nothing.
+        problems.append({
+            "code": "FREE_MINUTES_PLAN_UNCAPPED",
+            "message": (
+                "This plan is free per minute and has no maximum, so a customer "
+                "could ask for any number of minutes and be granted the credits for "
+                "them at no charge. Set a maximum."
+            ),
+        })
+
+    # --- the rest of the ladder ------------------------------------------
+    # Cross-row, so it cannot be a database constraint. Loaded once and passed in by
+    # callers checking several plans at a time.
+    if ladder is None:
+        ladder = plan_selection.ladder(
+            billing_cycle=plan.billing_cycle, currency=plan.currency
+        )
+    # The plan being checked stands in for its saved self: it may be a draft that is
+    # not in the ladder yet, or an edited copy of one that is.
+    others = [p for p in ladder if p.pk != plan.pk]
+    problems.extend(plan_selection.ladder_problems(others + [plan]))
+
     return problems
 
 
@@ -108,13 +204,8 @@ def warnings(plan, entitlements=None, rates=None):
             "The column accepts up to 999.99; 100 is the real ceiling.",
         )
 
-    is_paid = (plan.base_price or 0) > 0
-    if is_paid and not (plan.allocated_credits or 0):
-        warn(
-            "PAID_PLAN_NO_CREDITS",
-            "This plan is charged for but grants no credits, so a subscriber cannot "
-            "make a call until they buy some.",
-        )
+    basis = rates.get(plan.credit_basis) if plan.credit_basis else None
+    is_paid = bool(basis and (basis.price_per_minute_inr or 0) > 0)
 
     if is_paid and not (plan.cost_per_additional_credit or 0):
         warn(
@@ -183,6 +274,34 @@ def warnings(plan, entitlements=None, rates=None):
                 operations=free_tiers,
             )
 
+    # --- minutes ----------------------------------------------------------
+    if plan.credit_basis:
+        ratios = plan_selection.rupees_per_credit(plan)
+        if len(set(ratios.values())) > 1:
+            warn(
+                "RUPEES_PER_CREDIT_INCONSISTENT",
+                "This plan sells credits at "
+                + ", ".join(f"₹{v} on {k.replace('_', ' ')}" for k, v in sorted(ratios.items()))
+                + ". Which price a customer gets depends on the basis tier, which "
+                "they never chose. Deliberate subsidy is fine; an accident here is "
+                "invisible.",
+                ratios={k: str(v) for k, v in ratios.items()},
+            )
+
+        unpriced = sorted(
+            operation for operation, row in rates.items()
+            if row.price_per_minute_inr is None
+        )
+        if unpriced and len(unpriced) < len(rates):
+            warn(
+                "RATE_MISSING_INR_PRICE",
+                "No rupees-per-minute price on "
+                + ", ".join(o.replace("_", " ") for o in unpriced)
+                + ". The pricing page cannot tell a customer what a minute of those "
+                "tiers costs them.",
+                operations=unpriced,
+            )
+
     # --- the yearly mispricing --------------------------------------------
     if plan.billing_cycle == Plan.BillingCycleChoices.YEARLY:
         priced = {
@@ -240,9 +359,35 @@ def report(plan):
     rates = _rates(plan)
     problems = blocking_problems(plan, entitlements, rates)
 
+    ladder = plan_selection.ladder(
+        billing_cycle=plan.billing_cycle, currency=plan.currency
+    )
+    others = [p for p in ladder if p.pk != plan.pk]
+
     return {
         "status": plan.status,
         "can_activate": not problems,
+        # The ladder this plan is joining, not the plan alone. A band is only correct
+        # relative to its neighbours, and a review screen that shows one without the
+        # others is asking somebody to hold the catalogue in their head.
+        "ladder": {
+            "bands": [
+                {
+                    "code": p.code,
+                    "name": p.name,
+                    "min_minutes": p.min_minutes,
+                    "max_minutes": p.max_minutes,
+                    "is_fixed_quantity": p.is_fixed_quantity,
+                    "is_this_plan": p.pk == plan.pk,
+                }
+                for p in sorted(
+                    others + ([plan] if plan.credit_basis else []),
+                    key=lambda p: (p.min_minutes is not None, p.min_minutes or 0),
+                )
+            ],
+            "boundaries": plan_selection.boundary_prices(others + [plan]),
+            "warnings": plan_selection.ladder_warnings(others + [plan]),
+        },
         "entitlements_configured": len(entitlements),
         "entitlements_required": len(REQUIRED_RESOURCES),
         "rates_configured": len(rates),

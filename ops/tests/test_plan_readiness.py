@@ -16,6 +16,9 @@ from onboard.models import Plan, PlanEntitlement
 from onboard.tests.billing_factories import make_plan
 from ops.services.plan import readiness
 from wallet.models import CreditRate
+from onboard.tests.billing_factories import add_rates
+
+Operation = CreditRate.Operation
 
 
 def codes(items):
@@ -108,10 +111,14 @@ class WarningTests(TestCase):
 
         self.assertIn("DISCOUNT_OVER_100", codes(readiness.warnings(plan)))
 
-    def test_a_paid_plan_granting_no_credits_is_flagged(self):
-        plan = make_plan("no-credits", allocated_credits=0)
+    def test_a_plan_whose_basis_grants_no_credits_is_refused_outright(self):
+        """This was a warning while a plan could grant a fixed number of credits. Now
+        the grant is minutes x the basis rate, so a basis of zero means the plan can
+        never grant anything at all -- which is a refusal, not a note."""
+        plan = make_plan("no-credits", with_rates=False)
+        add_rates(plan, {op: (0, Decimal("1.0000")) for op in Operation.values})
 
-        self.assertIn("PAID_PLAN_NO_CREDITS", codes(readiness.warnings(plan)))
+        self.assertEqual(plan.credits_for(plan.min_minutes), 0)
 
     def test_disabled_top_ups_on_a_paid_plan_are_flagged(self):
         plan = make_plan("no-topups", cost_per_additional_credit=Decimal("0.00"))

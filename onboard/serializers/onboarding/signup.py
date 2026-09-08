@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.core.validators import RegexValidator
 from onboard.models import TempUser, Plan
+from onboard.models.plan import MAX_SELECTABLE_MINUTES
 from utils.emails import validate_not_disposable
 import re
 
@@ -61,6 +62,21 @@ class TempUserSignupSerializer(serializers.Serializer):
     )
     timezone_id = serializers.UUIDField(required=False, allow_null=True)
     language_id = serializers.UUIDField(required=False, allow_null=True)
+    minutes = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        # Bounded at the edge. Without a ceiling a 10**12 passes validation and only
+        # fails when PostgreSQL refuses the integer column -- a 500 on signup rather
+        # than a field error the form can show.
+        min_value=1,
+        max_value=MAX_SELECTABLE_MINUTES,
+        help_text=(
+            "Minutes per cycle, required when the selected plan is sold by the "
+            "minute. Send the `selected_minutes` returned by /plans/for-minutes/, "
+            "not the number the customer typed — on a fixed-quantity plan they "
+            "differ."
+        ),
+    )
 
     def validate_email(self, value):
         email_lower = value.strip().lower()
@@ -96,6 +112,8 @@ class TempUserSignupSerializer(serializers.Serializer):
         except Plan.DoesNotExist:
             raise serializers.ValidationError({"plan_id": "Selected plan is invalid or inactive."})
 
+        attrs["minutes"] = self._validate_minutes(plan, attrs.get("minutes"))
+
         timezone_id = attrs.get("timezone_id")
         if timezone_id:
             from onboard.models.timezone import Timezone
@@ -114,6 +132,31 @@ class TempUserSignupSerializer(serializers.Serializer):
 
         return attrs
 
+    def _validate_minutes(self, plan, minutes):
+        """The quantity, checked against what the plan actually sells.
+
+        Refused rather than silently corrected. The frontend gets the quantity from
+        ``/plans/for-minutes/``, which already rounded it into the plan's band, so a
+        value outside the band here means the two have got out of step — and quietly
+        moving it would charge somebody for something they never saw.
+        """
+        if not plan.is_minutes_based:
+            if minutes:
+                raise serializers.ValidationError(
+                    {"minutes": f"{plan.name} is not sold by the minute."}
+                )
+            return None
+
+        if not minutes:
+            raise serializers.ValidationError(
+                {"minutes": f"{plan.name} is sold by the minute; tell us how many."}
+            )
+        if not plan.contains_minutes(minutes):
+            raise serializers.ValidationError(
+                {"minutes": f"{plan.name} does not sell {minutes:,} minutes."}
+            )
+        return int(minutes)
+
     def create(self, validated_data):
         hashed_password = make_password(validated_data["password"])
         return TempUser.objects.create(
@@ -124,6 +167,7 @@ class TempUserSignupSerializer(serializers.Serializer):
             last_name=validated_data["last_name"],
             business_name=validated_data["business_name"],
             selected_plan=validated_data["plan_instance"],
+            selected_minutes=validated_data.get("minutes"),
             timezone=validated_data.get("timezone_instance"),
             language=validated_data.get("language_instance")
         )

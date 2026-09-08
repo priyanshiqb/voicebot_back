@@ -269,6 +269,15 @@ class PlanConfigurationViewSet(ResponseMixin, GenericViewSet):
             config.replace_rates(
                 plan, payload.validated_data["rates"], supersede=supersede
             )
+        except config.RateWouldStrandBasis as exc:
+            # A live plan sold by the minute reads its price and its grant from one
+            # rate row. Blanking that row here would break a plan already on sale,
+            # which is the door activation cannot watch.
+            return self.error(
+                message=str(exc),
+                errors=["RATE_WOULD_STRAND_BASIS"],
+                status_code=status.HTTP_409_CONFLICT,
+            )
         except IntegrityError as exc:
             return self._integrity_error(exc, Action.PLAN_CHANGE, plan)
 

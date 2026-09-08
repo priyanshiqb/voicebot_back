@@ -37,6 +37,15 @@ class CreditRateSerializer(serializers.ModelSerializer):
         required=True, min_value=0,
         help_text="Smallest billable quantity. With 1, a 4-second call bills a minute.",
     )
+    price_per_minute_inr = serializers.DecimalField(
+        max_digits=10, decimal_places=4, required=False, allow_null=True,
+        help_text=(
+            "Pre-tax rupees per minute of this tier. Required on the tier the plan "
+            "is sold at (its credit_basis) — that row supplies both the price and "
+            "the credit grant. Worth setting on the others too: the pricing page "
+            "uses them to quote what a minute of each tier costs."
+        ),
+    )
     notes = serializers.CharField(
         required=False, allow_blank=True, default="",
         help_text=(
@@ -50,6 +59,7 @@ class CreditRateSerializer(serializers.ModelSerializer):
         fields = (
             "operation",
             "credits_per_unit",
+            "price_per_minute_inr",
             "unit",
             "rounding",
             "minimum_units",

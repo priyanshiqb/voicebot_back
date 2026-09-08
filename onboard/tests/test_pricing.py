@@ -25,6 +25,7 @@ from onboard.services import subscriptions as subscription_service
 from onboard.tests.billing_factories import (
     add_entitlements,
     make_free_plan,
+    add_rates,
     make_plan,
     make_tenant,
 )
@@ -477,8 +478,18 @@ class PlanChangeQuoteTests(PricingTestCase):
         Raising the Starter price must not retroactively increase the credit owed
         to somebody who bought it cheaper.
         """
-        self.starter.base_price = Decimal("4999.00")
-        self.starter.save(update_fields=["base_price"])
+        # Re-pricing is a supersede now, not a column edit. Same intent: the plan
+        # gets dearer after the tenant bought it.
+        current = self.starter.basis_rate()
+        current.effective_to = timezone.now()
+        current.save(update_fields=["effective_to"])
+        add_rates(
+            self.starter,
+            {self.starter.credit_basis: (
+                current.credits_per_unit,
+                current.price_per_minute_inr * 5,
+            )},
+        )
 
         quote = self.quote(self.professional)
 

@@ -16,6 +16,8 @@ from onboard.constants.entitlement_resource import EntitlementResource
 from onboard.constants.reset_period import ResetPeriod
 from onboard.models import Plan, Subscription
 from onboard.tests.billing_factories import make_plan, make_tenant
+from onboard.tests.billing_factories import add_rates
+from decimal import Decimal
 
 Status = Subscription.SubscriptionStatusChoices
 
@@ -235,9 +237,14 @@ class PlanSnapshotTests(TestCase):
 
     def test_sm12_rules_ignore_later_edits_to_the_live_plan(self):
         """SM-12: **the freeze guarantee, stated as a test.**"""
-        self.plan.allocated_credits = 99999
+        # The grant lives on the basis rate row now, so moving it means superseding.
+        current = self.plan.basis_rate()
+        current.effective_to = timezone.now()
+        current.save(update_fields=["effective_to"])
+        add_rates(self.plan, {self.plan.credit_basis: (99999, Decimal("1.0000"))})
+
         self.plan.allow_rollover_on_renewal = False
-        self.plan.save(update_fields=["allocated_credits", "allow_rollover_on_renewal"])
+        self.plan.save(update_fields=["allow_rollover_on_renewal"])
 
         rules = self.subscription.rules
 

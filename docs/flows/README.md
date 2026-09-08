@@ -101,3 +101,7 @@ All authenticated endpoints are under `/api/v1/core/` and return the wrapped env
 | GET/POST | `public/reschedule/{token}/` | No³ | Customer self-reschedule |
 
 ¹ trusted via signed `state`. ² validated via channel token. ³ single-use token, throttled.
+
+## Billing
+
+- [Minutes-Driven Plans — What Changed, End to End](plan-v2-minutes.md) — how a plan is configured, sold and changed now that the customer picks a quantity of minutes. Before-and-after for every affected endpoint.

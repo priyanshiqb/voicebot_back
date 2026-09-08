@@ -219,16 +219,24 @@ class CreateTests(TestCase):
         )
         self.assertIsNone(contact["included_quantity"])
 
-    def test_a_paid_plan_that_renews_free_is_refused_with_a_sentence(self):
-        """The database refuses this too, as an opaque 500."""
+    def test_a_paid_plan_that_renews_free_is_refused_at_activation(self):
+        """**The check moved, and had to.**
+
+        It used to be a database constraint on `base_price`. The price now lives on
+        the basis rate row, so "is this plan free?" is a cross-table question and no
+        column can answer it. The activation gate can, and it is the door every plan
+        goes through before it reaches a customer.
+        """
+        from ops.services.plan import readiness
+
         body = create_payload(plan={"renews_without_payment": True})
 
         response = self.client.post(PLANS, body, format="json")
+        self.assertEqual(response.status_code, 201)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(
-            "₹0 plan", str(response.data["errors"]["plan"]["renews_without_payment"])
-        )
+        plan = Plan.objects.get(code=body["plan"]["code"])
+        codes = [p["code"] for p in readiness.blocking_problems(plan)]
+        self.assertIn("RENEWS_FREE_BUT_PRICED", codes)
 
     def test_a_write_without_a_reason_is_refused(self):
         body = create_payload()
@@ -329,6 +337,10 @@ class RateSupersedeApiTests(TestCase):
             {
                 "operation": r.operation,
                 "credits_per_unit": r.credits_per_unit,
+                # Sent back too: a rate row carries both numbers now, and dropping
+                # this one would strand the basis tier of a live plan -- which the
+                # write guard refuses, correctly.
+                "price_per_minute_inr": r.price_per_minute_inr,
                 "unit": r.unit,
                 "rounding": r.rounding,
                 "minimum_units": r.minimum_units,

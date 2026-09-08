@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from onboard.models.plan import MAX_SELECTABLE_MINUTES
+
 from onboard.constants.entitlement_resource import EntitlementResource
 
 
@@ -50,9 +52,20 @@ class OrderCreatedSerializer(serializers.Serializer):
 
 
 class PlanChangeSerializer(serializers.Serializer):
-    """Which plan to move to."""
+    """Which plan to move to, and how much of it."""
 
     plan_id = serializers.UUIDField(help_text="The plan being moved to.")
+    minutes = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=MAX_SELECTABLE_MINUTES,
+        help_text=(
+            "Minutes per cycle on the new plan. Omit to keep the quantity you have "
+            "now, resolved into the new plan's band — a fixed-quantity plan always "
+            "resolves to its single value. Ignored for a plan not sold by the minute."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------- #

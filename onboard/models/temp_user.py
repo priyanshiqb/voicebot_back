@@ -66,6 +66,19 @@ class TempUser(BaseModelCore):
         related_name="pending_registrations",
         help_text="The subscription plan selected during signup."
     )
+    selected_minutes = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text=(
+            "Minutes chosen during signup, on a minutes-based plan. Held here because "
+            "the quantity is picked before a tenant exists, and has to survive OTP "
+            "verification, a browser refresh and a resumed session before it can be "
+            "carried onto the Subscription.\n\n"
+            "This is the quantity the plan *sells*, which on a fixed-quantity pack is "
+            "not necessarily the number the customer typed -- what they asked for is "
+            "kept on the order's amount_breakdown."
+        ),
+    )
     timezone = models.ForeignKey(
         "onboard.Timezone",
         on_delete=models.SET_NULL,

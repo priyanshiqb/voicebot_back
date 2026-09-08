@@ -20,6 +20,12 @@ Five things govern this flow:
 - **Nothing is guaranteed to be cleaned up.** An abandoned `TempUser` holds its email and phone
   number indefinitely — see [Known gaps](#known-gaps).
 
+> ⚠️ **Changed in 1.0.2 — the quantity of minutes now travels with the plan.**
+> `register-pending/` takes a required `minutes`, `update-plan/` takes an optional one and
+> re-validates it, and every `billing_breakdown` gains `selected_minutes`,
+> `price_per_minute_inr` and `allocated_credits`. Full walkthrough:
+> [Minutes-Driven Plans](../../flows/plan-v2-minutes.md).
+
 ## The flow
 
 ```
@@ -182,6 +188,7 @@ Creates the `TempUser` and emails a 6-digit OTP.
   ```json
   {
     "plan_id": "1a2b3c4d-…",
+    "minutes": 1200,
     "first_name": "Jane",
     "last_name": "Doe",
     "business_name": "Acme Robotics",
@@ -201,6 +208,7 @@ Creates the `TempUser` and emails a 6-digit OTP.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `plan_id` * | UUID | The subscription plan chosen on the pricing page. | Required. Must be an existing **active** [plan](./plans.md). |
+| `minutes` * | integer | Minutes per cycle. **Required whenever the chosen plan is sold by the minute**, which is every plan in the current catalogue. | Must fall inside the plan's band. Send the `selected_minutes` returned by [`for-minutes/`](./plans.md#0-match-a-quantity-of-minutes-to-a-plan-), **not** the number the customer typed — on a fixed-quantity pack they differ. |
 | `first_name` * | string | Given name. | Required. **2–30** characters, **letters only** — no spaces, digits, hyphens, or apostrophes. `O'Brien` and `Mary Jane` are rejected. |
 | `last_name` * | string | Family name. | Required. Same rules as `first_name`. |
 | `business_name` * | string | The organisation's name. Becomes the tenant name, and seeds its subdomain. | Required. **2–255** characters. Any characters allowed. |
@@ -236,6 +244,9 @@ if the user tries to sign in before finishing.
 | **400** | Password fails a complexity rule. | `Validation failed` | `{"password": [...]}` |
 | **400** | Passwords do not match. | `Validation failed` | `{"confirm_password": "Passwords do not match."}` |
 | **400** | `plan_id` unknown or inactive. | `Validation failed` | `{"plan_id": ["Selected plan is invalid or inactive."]}` |
+| **400** | `minutes` missing on a plan sold by the minute. | `Validation failed` | `{"minutes": ["<Plan> is sold by the minute; tell us how many."]}` |
+| **400** | `minutes` outside the plan's band. | `Validation failed` | `{"minutes": ["<Plan> does not sell 5,000 minutes."]}` |
+| **400** | `minutes` sent for a plan with no band. | `Validation failed` | `{"minutes": ["<Plan> is not sold by the minute."]}` |
 | **400** | `timezone_id` / `language_id` unknown. | `Validation failed` | `{"<field>": ["Selected timezone is invalid."]}` |
 
 > **`errors` is a field map here, and `message` is always the literal string `Validation failed`.**
@@ -271,13 +282,16 @@ Confirms the email and issues the temporary token.
       "email": "jane@example.com",
       "plan": { "id": "1a2b…", "name": "Pro", "code": "PRO" },
       "billing_breakdown": {
-        "base_price": "4000.00",
+        "base_price": "2160.00",
         "discount_amount": "0.00",
-        "net_base_price": "4000.00",
+        "net_base_price": "2160.00",
         "tax_percentage": "18.00",
-        "tax_amount": "720.00",
-        "total_price": "4720.00",
-        "currency": "INR"
+        "tax_amount": "388.80",
+        "total_price": "2548.80",
+        "currency": "INR",
+        "selected_minutes": 1200,
+        "price_per_minute_inr": "1.8000",
+        "allocated_credits": 4800
       }
     },
     "errors": null
@@ -395,7 +409,9 @@ Use this when you still hold a valid token; it skips the password check.
       "email": "jane@example.com",
       "step": "BILLING_ADDRESS_REQUIRED",
       "plan": { "id": "1a2b…", "name": "Pro", "code": "PRO" },
-      "billing_breakdown": { "total_price": "4720.00", "currency": "INR" },
+      "selected_minutes": 1200,
+      "billing_breakdown": { "total_price": "2548.80", "currency": "INR",
+                             "selected_minutes": 1200, "allocated_credits": 4800 },
       "billing_address": null,
       "razorpay_order_id": null
     },
@@ -438,11 +454,14 @@ Switch plans before paying.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `plan_id` * | UUID | The new plan. | Required. Must be an existing **active** plan. |
+| `minutes` | integer | Minutes per cycle on the new plan. | Optional. Omitted, the registrant's current quantity is kept **and re-validated against the new plan**. Switching to a plan with no band clears it to `null`. |
 
 | Status | When | `message` | `errors` |
 |---|---|---|---|
 | **200** | Plan changed. The response carries the recalculated `billing_breakdown`. | plan updated | `null` |
 | **404** | `plan_id` unknown, inactive, or malformed. | `Plan not found or inactive` | `["PLAN_NOT_FOUND"]` |
+| **400** | The new plan is sold by the minute and no quantity is known. | `<Plan> is sold by the minute; tell us how many.` | `["MINUTES_REQUIRED"]` |
+| **400** | The quantity does not fit the new plan's band. `data` carries `min_minutes` and `max_minutes`. | `<Plan> does not sell 1,200 minutes.` | `["MINUTES_OUT_OF_BAND"]` |
 | **401** / **403** | Missing, expired, or non-temp token. | see [The temporary token](#the-temporary-token) | — |
 
 > **Changing plans does not cancel an existing order.** If an order was already created for the old
@@ -517,6 +536,7 @@ Saves the billing address and phone number, then creates the payment-gateway ord
 |---|---|---|---|
 | **200** | Order created — or, for a zero-total plan, the whole signup completed. **Check `data.is_free`.** | `Order created successfully` / `Free onboarding completed successfully!` | `null` |
 | **400** | No plan on the registration. | `No plan selected` | `["PLAN_SELECTION_REQUIRED"]` |
+| **400** | The stored quantity no longer fits the plan's band. | the pricing error verbatim | `["MINUTES_NOT_SELLABLE"]` |
 | **400** | Phone belongs to an active user or another pending signup. | `Validation failed` | `{"phone_number": [...]}` |
 | **400** | Phone fails the format rule. | `Validation failed` | `{"phone_number": [...]}` |
 | **400** | GSTIN is the wrong length, format, or state prefix. | `Validation failed` | `{"billing_address": {"gstin": [...]}}` |
@@ -527,8 +547,14 @@ Saves the billing address and phone number, then creates the payment-gateway ord
 > over, no `/verify/` call is needed. A paid plan returns gateway details and requires
 > [§11](#11-verify-the-payment).
 
-> **`amount` is in the minor unit (paisa)**, so `472000` means ₹4,720.00. It is an integer, unlike
+> **`amount` is in the minor unit (paisa)**, so `254880` means ₹2,548.80. It is an integer, unlike
 > the string prices in `billing_breakdown`.
+
+> **The amount is the registrant's chosen quantity, priced.** It is
+> `selected_minutes × price_per_minute_inr`, worked through discount and tax — not a
+> catalogue figure. The order also **freezes** `selected_minutes`, `price_per_minute_inr`
+> and `credits_per_minute` into its breakdown, so a rate change between creating the order
+> and the payment clearing cannot alter what the customer is charged or granted.
 
 > **Safe to call more than once.** Re-submitting replaces the stored billing address and creates a
 > new order, which is how "edit my address" and "retry after a failed payment" work. Cancel the

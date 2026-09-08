@@ -5,55 +5,76 @@ that flows through to the payment gateway.
 
 **Base path:** `/api/v1/onboard/plans/`
 
-Three things govern this API:
+Four things govern this API:
 
-- **Reads are public; writes are superuser-only.** `list`, `retrieve`, and `dropdown` require no
-  authentication at all — the pricing page needs them before anyone has an account. Everything else
-  demands a Django superuser.
-- **You set percentages; the server computes money.** `base_price`, `discount_percentage`, and
-  `tax_percentage` are yours to write. `discount_amount`, `net_base_price`, `tax_amount`, and
-  `total_price` are derived and read-only.
-- **`total_price` is what gets charged.** [create-order](./signup_flow.md#10-create-the-order)
-  multiplies it by 100 and hands that to the gateway, so a plan whose `total_price` is `0.00`
-  bypasses payment entirely and completes onboarding on the spot.
-- **A plan is more than a price.** It also carries what it grants — credits, per-minute
-  rates, and an allowance of every countable resource. All of it is on the list
-  response, because a plan you cannot compare on those is just a number with a name.
+- **It is read-only, for everybody.** `list`, `retrieve`, `dropdown` and `for-minutes`
+  require no authentication at all — the pricing page needs them before anyone has an
+  account. There is **no write path here for anyone, superuser included**; catalogue
+  writes live at [`/api/v1/ops/plans/`](../ops/plans.md), where they are permissioned,
+  gated on completeness and audited.
+- **A plan sells a band of minutes, not a fixed bundle.** `min_minutes` to `max_minutes`
+  is what it sells; `credit_basis` names the call tier it is sold at. The customer's
+  quantity decides both the price and the credit grant.
+- **Price and grant come from one row.** The `CreditRate` for the plan's `credit_basis`
+  carries `price_per_minute_inr` **and** `credits_per_unit`. Money and credits are two
+  views of one decision, so they live together and cannot drift.
+- **A plan is more than a price.** It also carries what it grants — per-minute rates and
+  an allowance of every countable resource. All of it is on the list response, because a
+  plan you cannot compare on those is just a number with a name.
+
+> ⚠️ **Changed in 1.0.2.** `base_price` and `allocated_credits` are **gone**, and the four
+> derived price fields now mean the plan's *entry price*. See
+> [the migration guide](../../flows/plan-v2-minutes.md).
 
 ## Endpoints Summary
 
 | Method | Path | Purpose | Auth |
 |---|---|---|---|
+| `GET` | `/onboard/plans/for-minutes/` | 🆕 Match a quantity of minutes to a plan, priced | **None** |
 | `GET` | `/onboard/plans/` | List plans (paginated) | **None** |
 | `GET` | `/onboard/plans/{id}/` | Retrieve one plan | **None** |
 | `GET` | `/onboard/plans/dropdown/` | Label/value picker options | **None** |
-| `POST` | `/onboard/plans/` | Create a plan | Superuser |
-| `PUT` / `PATCH` | `/onboard/plans/{id}/` | Update a plan | Superuser |
-| `DELETE` | `/onboard/plans/{id}/` | Soft-delete a plan | Superuser |
-| `POST` | `/onboard/plans/bulk_delete/` | Bulk soft-delete | Superuser |
+
+**There are no write endpoints.** `POST`, `PUT`, `PATCH` and `DELETE` return `405`.
+Creating and editing plans is [an ops-console operation](../ops/plans.md).
 
 ---
 
 ## How pricing is calculated
 
-Given `base_price`, `discount_percentage`, and `tax_percentage`, every other figure is derived —
-each step rounded to 2 decimal places, half-up:
+The gross comes from the **quantity of minutes** and the rupee price on the plan's basis
+tier. Everything after that is unchanged — each step rounded to 2 decimal places, half-up:
 
 ```
-discount_amount  = base_price × discount_percentage / 100
-net_base_price   = base_price − discount_amount
+gross            = selected_minutes × price_per_minute_inr    (of the credit_basis tier)
+discount_amount  = gross × discount_percentage / 100
+net_base_price   = gross − discount_amount
 tax_amount       = net_base_price × tax_percentage / 100
 total_price      = net_base_price + tax_amount
 ```
 
-Worked example — `base_price: 4000.00`, `discount_percentage: 0.00`, `tax_percentage: 18.00`:
+Worked example — 1,200 minutes at `1.8000`/min, `discount 0%`, `tax 18%`:
 
 | Field | Value |
 |---|---|
+| gross | `2160.00` |
 | `discount_amount` | `0.00` |
-| `net_base_price` | `4000.00` |
-| `tax_amount` | `720.00` |
-| `total_price` | `4720.00` |
+| `net_base_price` | `2160.00` |
+| `tax_amount` | `388.80` |
+| `total_price` | `2548.80` |
+
+And the credit grant, from the same row:
+
+```
+allocated_credits = selected_minutes × credits_per_unit       (of the credit_basis tier)
+                  = 1200 × 4  =  4,800 credits
+```
+
+> **The four price fields on a plan are its *entry price*.** With the price depending on a
+> quantity there is no single figure for a plan, so `net_base_price`, `discount_amount`,
+> `tax_amount` and `total_price` answer for the plan's **smallest sellable quantity** —
+> the "from ₹X" a pricing page shows. **Never charge from them.** To charge, quote the
+> real quantity through [`for-minutes/`](#get-onboardplansfor-minutes).
 
 > **Tax is charged on the discounted price, not the list price.** Discount is applied first, then
 > tax on what remains.
@@ -61,9 +82,9 @@ Worked example — `base_price: 4000.00`, `discount_percentage: 0.00`, `tax_perc
 > **All money is returned as a string**, e.g. `"4720.00"`, so no float rounding can occur in
 > transit. Parse as a decimal, never as a float.
 
-> **`plan_type` does not determine price.** A plan typed `free` with a non-zero `base_price` will
-> still be charged, and a `paid` plan priced at zero will skip the gateway. What matters is
-> `total_price`.
+> **`plan_type` does not determine price.** A plan typed `free` whose basis tier has a
+> non-zero `price_per_minute_inr` will still be charged, and a `paid` plan priced at zero
+> per minute will skip the gateway. What matters is the rupee price on the basis row.
 
 ---
 
@@ -72,18 +93,24 @@ Worked example — `base_price: 4000.00`, `discount_percentage: 0.00`, `tax_perc
 Beyond price, every plan carries three groups of fields. **All of them are on the list
 response**, so a pricing page needs one call.
 
-### Credits — writable
+### Minutes and credits — read-only
 
 | Field | Type | What it means |
 |---|---|---|
-| `allocated_credits` | integer | Credits granted at the start of **every** billing cycle |
+| `min_minutes` | integer \| null | 🆕 Fewest minutes this plan sells, inclusive. `null` = no floor |
+| `max_minutes` | integer \| null | 🆕 Most minutes it sells, inclusive. `null` = no ceiling. Equal to `min_minutes` makes it a **pack** — one fixed quantity |
+| `credit_basis` | string \| null | 🆕 The call tier the plan is *sold* at. Both the price and the grant come from that tier's rate row |
+| `is_minutes_based` | boolean | 🆕 Derived |
+| `is_fixed_quantity` | boolean | 🆕 Derived — `min_minutes == max_minutes` |
 | `cost_per_additional_credit` | decimal string | Pre-tax price of one credit on a mid-cycle top-up. **`0.00` disables top-ups** on this plan — the answer to "I need more" becomes "upgrade" |
-| `max_rollover_credits` | integer \| null | Ceiling on credits carried into the next cycle. `null` is uncapped — without a cap a light user on an annual plan can bank a year's worth |
+| `max_rollover_credits` | integer \| null | Ceiling on credits carried into the next cycle. `null` is uncapped. **Superseded by `max_rollover_ratio`** when that is set |
+| `max_rollover_ratio` | decimal string \| null | 🆕 The cap as a multiple of the cycle's own grant. `"1.00"` = one cycle's worth. Read in preference to the absolute figure, because one fixed number cannot serve a band whose grant varies several-fold |
+| `low_balance_percent` | integer \| null | 🆕 Warn at this percentage of the cycle's grant. Read in preference to `low_balance_threshold` |
 | `allow_rollover_on_renewal` | boolean | Whether unspent plan credits survive a renewal |
 | `allow_rollover_on_upgrade` | boolean | …an upgrade |
 | `allow_rollover_on_downgrade` | boolean | …a downgrade |
 | `allow_use_after_expiry` | boolean | Whether credits stay spendable once the cycle lapses. This is what separates pay-as-you-go from a trial that is meant to end |
-| `low_balance_threshold` | integer | Warn the tenant at or below this balance. `0` disables the alert *(detail response only)* |
+| `low_balance_threshold` | integer | Warn at or below this absolute balance. `0` disables it. **Superseded by `low_balance_percent`** *(detail response only)* |
 
 These govern only the **allocated** bucket. Credits bought with cash always survive —
 see [Wallet → two buckets](../billing/wallet.md#two-buckets-one-balance).
@@ -128,17 +155,26 @@ against the plan you are actually pricing.
 
 ### `rates` — read-only
 
-The per-minute credit price of each call tier on this plan. Only the **currently
-effective** rate appears; superseded ones stay in the catalogue and out of here.
+What each call tier costs on this plan — **in credits and in rupees**. Only the
+**currently effective** rate appears; superseded ones stay in the catalogue and out of
+here.
+
+`is_basis` marks the one row that prices a sale. The other two are what let a page say
+"and realtime runs ₹3.60/min" rather than leaving the customer to work it out from a
+credit rate. Every tier on a well-formed plan works out to the same rupees per credit —
+`price_per_minute_inr ÷ credits_per_unit` — and the ops console warns when they differ.
 
 ```json
 "rates": [
   { "operation": "conversation_high_latency", "unit": "per_minute",
-    "credits_per_unit": 5, "minimum_units": 1 },
+    "credits_per_unit": 4, "price_per_minute_inr": "1.8000",
+    "minimum_units": 1, "is_basis": true },
   { "operation": "conversation_low_latency",  "unit": "per_minute",
-    "credits_per_unit": 10, "minimum_units": 1 },
+    "credits_per_unit": 8, "price_per_minute_inr": "3.6000",
+    "minimum_units": 1, "is_basis": false },
   { "operation": "static_reel", "unit": "per_minute",
-    "credits_per_unit": 2, "minimum_units": 1 }
+    "credits_per_unit": 2, "price_per_minute_inr": "0.9000",
+    "minimum_units": 1, "is_basis": false }
 ]
 ```
 
@@ -156,6 +192,101 @@ which plans have holes.
 
 ## Endpoint Details
 
+### 0. Match a quantity of minutes to a plan 🆕
+
+**The entry point for the pricing page.** The customer types how many minutes they need;
+this returns the one plan that sells that quantity, priced, with the credit grant worked
+out. **Public** — no token required.
+
+- **Path**: `GET /api/v1/onboard/plans/for-minutes/`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `minutes` | integer | **yes** | 1 to 1,000,000 |
+| `billing_cycle` | string | no | `monthly` (default) or `yearly` — the two ladders are separate |
+| `currency` | string | no | `INR` by default |
+
+**`200` response**
+
+```json
+{
+  "status": true,
+  "message": "Plan matched",
+  "data": {
+    "plan": {
+      "id": "0f1c…", "code": "growth", "name": "Growth",
+      "description": "For teams running regular campaigns",
+      "billing_cycle": "monthly", "currency": "INR",
+      "min_minutes": 501, "max_minutes": 2000,
+      "is_fixed_quantity": false, "is_most_popular": true
+    },
+    "requested_minutes": 1200,
+    "selected_minutes": 1200,
+    "rounded_up": false,
+    "money": {
+      "basis": "conversation_high_latency",
+      "price_per_minute_inr": "1.8000",
+      "gross": "2160.00", "discount": "0.00", "net": "2160.00",
+      "tax": "388.80", "total": "2548.80",
+      "tax_percentage": "18.00", "currency": "INR"
+    },
+    "credits": {
+      "per_minute": 4,
+      "granted": 4800,
+      "equivalent_minutes": {
+        "static_reel": 2400,
+        "conversation_high_latency": 1200,
+        "conversation_low_latency": 600
+      }
+    },
+    "entitlements": [ … ],
+    "rates": [ … ]
+  }
+}
+```
+
+**Three fields that are easy to confuse**
+
+| Field | Meaning |
+|---|---|
+| `requested_minutes` | What the customer typed |
+| `selected_minutes` | **What is actually sold.** Send *this* to signup and to change-plan |
+| `rounded_up` | `true` when a fixed-quantity pack covers a smaller request |
+
+> **`selected_minutes` differs from `requested_minutes` only on a pack.** A catalogue of
+> packs — 1,000 / 5,000 / 10,000 — has gaps by construction, so a request for 1,200 is
+> rounded **up** to the smallest pack that covers it. Show that plainly: *"the
+> 5,000-minute pack covers your 1,200"*. Sending `requested_minutes` onward would charge
+> for the pack and grant the smaller amount.
+
+> **`equivalent_minutes` is what makes the offer honest.** The grant is exact on the
+> basis tier only — 4,800 credits is 1,200 standard minutes *or* 600 realtime ones.
+> A page that prints "1,200 minutes" without saying on which tier is printing half a fact.
+
+**Failure responses**
+
+| Status | `errors` | When | What to show |
+|---|---|---|---|
+| `400` | `INVALID_MINUTES` | Missing, non-numeric, ≤ 0, or above 1,000,000 | A field error |
+| `404` | `NO_PLAN_FOR_MINUTES` | Nothing covers that quantity | `data.below` and `data.above` carry the nearest bands — *"our largest pack is 10,000 minutes"* |
+| `409` | `PLAN_NOT_SELLABLE` | A plan matched but the catalogue cannot price it | A configuration fault, not the customer's. Contact-support copy |
+
+```json
+// 404
+{
+  "status": false,
+  "message": "We do not have a plan for that many minutes yet.",
+  "errors": ["NO_PLAN_FOR_MINUTES"],
+  "data": {
+    "below": {"id": "…", "code": "scale", "name": "Scale",
+              "min_minutes": 2001, "max_minutes": 10000},
+    "above": null
+  }
+}
+```
+
+---
+
 ### 1. List Plans
 
 The pricing page. **Public** — no token required.
@@ -167,13 +298,12 @@ The pricing page. **Public** — no token required.
 | `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
 | `search` | string | Partial, case-insensitive match on `code`, `name`, `description`. | Words split on spaces and **AND**ed. |
-| `ordering` | string | Sort. Default `sort_order`, then newest first. | Only `name`, `base_price`, `sort_order`, `created_at`, optionally `-` prefixed. |
+| `ordering` | string | Sort. Default `sort_order`, then newest first. | Only `name`, `sort_order`, `created_at`, optionally `-` prefixed. **`base_price` was removed** — a plan has no single price to sort by. |
 | `is_active` | boolean | **Use `?is_active=true` on a public pricing page** — inactive plans are otherwise included. | `true` / `false`. |
 | `code` | string | Exact match on the machine code. | — |
 | `plan_type` | enum | Exact match. | `paid`, `free`, `pay_as_you_go`. |
 | `currency` | enum | Exact match. | `INR` is the only supported value. |
 | `billing_cycle` | enum | Exact match. | `monthly`, `yearly`. |
-| `base_price__gte` / `base_price__lte` | decimal | Price range. | — |
 | `tax_percentage__gte` / `__lte` | decimal | Tax range. | — |
 | `discount_percentage__gte` / `__lte` | decimal | Discount range. | — |
 | `created_at__date` / `__gte` / `__lte` | date / datetime | Creation window. | — |
@@ -186,15 +316,21 @@ The pricing page. **Public** — no token required.
     "data": [
       {
         "id": "1a2b3c4d-…",
-        "code": "PRO",
-        "name": "Pro",
-        "base_price": "4000.00",
+        "code": "growth",
+        "name": "Growth",
+
+        "min_minutes": 501,
+        "max_minutes": 2000,
+        "credit_basis": "conversation_high_latency",
+        "is_minutes_based": true,
+        "is_fixed_quantity": false,
+
         "discount_percentage": "0.00",
         "discount_amount": "0.00",
-        "net_base_price": "4000.00",
+        "net_base_price": "901.80",
         "tax_percentage": "18.00",
-        "tax_amount": "720.00",
-        "total_price": "4720.00",
+        "tax_amount": "162.32",
+        "total_price": "1064.12",
         "currency": "INR",
         "billing_cycle": "monthly",
         "billing_cycle_display": "Monthly",
@@ -205,9 +341,10 @@ The pricing page. **Public** — no token required.
         "is_active": true,
         "created_at": "2026-06-03T18:00:00Z",
 
-        "allocated_credits": 4000,
-        "cost_per_additional_credit": "1.00",
-        "max_rollover_credits": 2000,
+        "cost_per_additional_credit": "0.54",
+        "max_rollover_credits": null,
+        "max_rollover_ratio": "1.00",
+        "low_balance_percent": 10,
         "allow_rollover_on_renewal": true,
         "allow_rollover_on_upgrade": true,
         "allow_rollover_on_downgrade": false,
@@ -259,138 +396,24 @@ The pricing page. **Public** — no token required.
 
 ---
 
-### 3. Create a Plan
+### 3. Writing a plan — not here
 
-**Superuser only.**
+`POST`, `PUT`, `PATCH` and `DELETE` on this path return **`405 Method Not Allowed`**, for
+everybody including a superuser.
 
-- **Path**: `POST /api/v1/onboard/plans/`
-- **Request Payload**:
-  ```json
-  {
-    "code": "PRO",
-    "name": "Pro",
-    "description": "For growing teams.",
-    "base_price": "4000.00",
-    "discount_percentage": "0.00",
-    "tax_percentage": "18.00",
-    "currency": "INR",
-    "billing_cycle": "monthly",
-    "plan_type": "paid",
-    "sort_order": 2,
-    "is_most_popular": true,
+They used to work, and that was the problem: a plan created through them was instantly
+sellable with **zero entitlements and zero rates**. A missing allowance is not a limit of
+zero but no limit at all, and a missing rate cannot price a call — so such a plan was
+simultaneously unlimited and unbillable, silently, because neither failure raises anything.
 
-    "allocated_credits": 4000,
-    "cost_per_additional_credit": "1.00",
-    "max_rollover_credits": 2000,
-    "allow_rollover_on_renewal": true,
-    "allow_rollover_on_upgrade": true,
-    "allow_rollover_on_downgrade": false,
-    "allow_use_after_expiry": false,
-    "low_balance_threshold": 200
-  }
-  ```
-
-> **Creating a plan does not give it a rate card or allowances.** `entitlements` and
-> `rates` are read-only here and start empty — a plan created through this endpoint
-> **cannot price a call** until its rates are added in the admin. Configure both before
-> anyone subscribes.
-
-### Request fields
-
-`*` marks required.
-
-| Field | Type | Description | Validation |
-|---|---|---|---|
-| `code` * | string | Machine-readable identifier, e.g. `PRO`. Used by integrations and reporting. | Required. Max **50**. **Unique across all plans**, including soft-deleted ones. |
-| `name` * | string | Display name on the pricing page. | Required. Max **100**. **Unique**, including soft-deleted ones. |
-| `description` | string | Feature blurb. No length limit. | Optional, nullable. |
-| `base_price` | decimal | List price before discount and tax. | Optional, default `0.00`. Max 10 digits, 2 decimal places. **Negatives are not rejected.** |
-| `discount_percentage` | decimal | Percentage off, e.g. `10.00` for 10%. | Optional, default `0.00`. Max 5 digits, 2 decimals — so up to `999.99`. **Not capped at 100**, which would make `net_base_price` negative. |
-| `tax_percentage` | decimal | Tax rate, e.g. `18.00` for 18%. | Optional, default `0.00`. Same limits as above. |
-| `currency` | enum | ISO currency code. | Optional, default `INR`. **`INR` is the only permitted value.** |
-| `billing_cycle` | enum | How often it renews. | Optional, default `monthly`. `monthly` or `yearly`. |
-| `plan_type` | enum | Classification, for display and reporting. | Optional, default `free`. `paid`, `free`, or `pay_as_you_go`. Does **not** affect what is charged. |
-| `sort_order` | integer | Display position. Lower comes first. | Optional, default `0`. Must be ≥ 0. |
-| `is_most_popular` | boolean | Renders the "most popular" badge. | Optional, default `false`. **Not exclusive** — you can flag several plans at once. |
-| `is_active` | boolean | Whether the plan may be listed and selected. | Optional, default `true`. |
-| `allocated_credits` | integer | Credits granted every cycle. | Optional, default `0`. Must be ≥ 0. |
-| `cost_per_additional_credit` | decimal | Pre-tax price of one top-up credit. | Optional, default `0.00`. **`0.00` disables top-ups.** |
-| `max_rollover_credits` | integer \| null | Cap on credits carried forward. | Optional, nullable. `null` is uncapped. |
-| `allow_rollover_on_renewal` | boolean | Unspent plan credits survive a renewal. | Optional, default `false`. |
-| `allow_rollover_on_upgrade` | boolean | …an upgrade. | Optional, default `false`. |
-| `allow_rollover_on_downgrade` | boolean | …a downgrade. | Optional, default `false`. |
-| `allow_use_after_expiry` | boolean | Credits stay spendable after the cycle lapses. | Optional, default `false`. |
-| `low_balance_threshold` | integer | Alert at or below this balance. | Optional, default `0` — which disables the alert. |
-
-**Read-only — computed:** `discount_amount`, `net_base_price`, `tax_amount`, `total_price`, plus
-`id`, `created_at`, `updated_at`, the three `*_display` fields, and **`entitlements` and
-`rates`**.
-
-> **`renews_without_payment` is not exposed on this API.** It makes a zero-cost cycle
-> roll over instead of expiring — the pay-as-you-go and free-tier shape — and a database
-> constraint refuses it on any plan with a non-zero `base_price`. Set it in the admin.
-
-| Status | When | `message` | `errors` |
-|---|---|---|---|
-| **201** | Created. | `Created successfully` | `null` |
-| **400** | `code` or `name` already used. | `plan with this code already exists.` | `{"code": [...]}` |
-| **400** | `code` or `name` missing. | `This field is required.` | `{"<field>": [...]}` |
-| **400** | A price or percentage exceeds its digit limits. | `Ensure that there are no more than 10 digits in total.` | `{"<field>": [...]}` |
-| **400** | Unknown `currency`, `billing_cycle`, or `plan_type`. | `"x" is not a valid choice.` | `{"<field>": [...]}` |
-| **401** | Not authenticated. | `Authentication credentials were not provided.` | `{"detail": …}` |
-| **403** | Authenticated but not a superuser. | permission denied | `{"detail": …}` |
-
-> **Uniqueness ignores soft deletion.** A deleted plan keeps its `code` and `name` reserved
-> forever, so retiring `PRO` means you can never create another `PRO`. Rename before deleting if
-> you may want the code back.
+Catalogue writes live at [`/api/v1/ops/plans/`](../ops/plans.md), where they require the
+`plan.change` permission, demand a `reason`, leave an audit row, and — the point — are
+**refused unless the plan is complete**.
 
 ---
 
-### 4. Update a Plan
 
-- **Path**: `PUT` / `PATCH /api/v1/onboard/plans/{id}/` — **superuser only**.
-- **Request Payload**: any subset of the writable fields from §3.
-
-| Status | When | `message` | `errors` |
-|---|---|---|---|
-| **200** | Updated. | `Updated successfully` | `null` |
-| **400** | Any validation error from §3. | as §3 | `{"<field>": [...]}` |
-| **401** / **403** | As in §3. | — | — |
-| **404** | No such plan, or soft-deleted. | `Not found.` | `{"detail": …}` |
-
-> **Changing a price does not change what existing subscribers pay.** A `Subscription` created at
-> signup points at the plan, so an edit here affects **new** orders — and, dangerously, any
-> in-flight signup that has an order created but unpaid. Prefer creating a new plan and
-> deactivating the old one over editing a live plan's price.
-
-> **Deactivating a plan mid-signup strands anyone who selected it.**
-> [update-plan](./signup_flow.md#8-update-the-plan) and
-> [register-pending](./signup_flow.md#3-start-the-signup) both reject inactive plans, so a user who
-> resumes will be unable to proceed until they choose another.
-
----
-
-### 5. Delete a Plan
-
-- **Path**: `DELETE /api/v1/onboard/plans/{id}/` — **superuser only**.
-- **Success Response (200 OK)**: `{ "status": true, "message": "Deleted successfully", "data": null, "errors": null }`
-
-| Status | When | `message` |
-|---|---|---|
-| **200** | Soft-deleted; it disappears from every list. | `Deleted successfully` |
-| **401** / **403** | As in §3. | — |
-| **404** | No such plan, or already deleted. | `Not found.` |
-
-> **There is no in-use guard.** Deleting a plan that pending registrations or active subscriptions
-> point at is allowed. `TempUser.selected_plan` and `Subscription.plan` both survive as references
-> to the deleted row, so existing subscribers are not broken — but a resuming signup will show a
-> plan nobody can select. Deactivate rather than delete for anything that has been sold.
-
-> **`code` and `name` stay reserved.** See §3.
-
----
-
-### 6. Dropdown
+### 4. Dropdown
 
 - **Path**: `GET /api/v1/onboard/plans/dropdown/` — **public**.
 - **Query Parameters**: `limit` (≤ **1000**; over that → **400 `Limit cannot exceed 1000`**), plus all List filters and `search`.
@@ -401,7 +424,7 @@ The pricing page. **Public** — no token required.
     "message": "Dropdown options retrieved successfully",
     "data": [
       {
-        "label": "Pro (Paid - 4720.00 INR/Monthly)",
+        "label": "Growth (Paid - 1064.12 INR/Monthly)",
         "value": "1a2b3c4d-…",
         "is_most_popular": true
       }
@@ -411,31 +434,12 @@ The pricing page. **Public** — no token required.
   }
   ```
 
-`label` is built as `"<name> (<Type> - <total_price> <currency>/<Cycle>)"`, so it is already
-human-readable. This dropdown uniquely also returns **`is_most_popular`**, letting you badge an
+`label` is built as `"<name> (<Type> - <total_price> <currency>/<Cycle>)"`, so it is
+already human-readable. **`total_price` here is the plan's entry price** — what its
+smallest sellable quantity costs — so the label reads as a "from" figure. This dropdown uniquely also returns **`is_most_popular`**, letting you badge an
 option without a second call.
 
 > **Filter with `?is_active=true`.** The dropdown does not exclude inactive plans on your behalf.
-
----
-
-### 7. Bulk Delete
-
-- **Path**: `POST /api/v1/onboard/plans/bulk_delete/` — **superuser only**.
-- **Request Payload**: `{ "ids": ["1a2b…", "…"] }`
-
-| Field | Type | Description | Validation |
-|---|---|---|---|
-| `ids` * | UUID array | Plans to soft-delete. | Non-empty list. Every id must exist and be undeleted. All-or-nothing. |
-
-| Status | When | `message` |
-|---|---|---|
-| **200** | All soft-deleted. | `Bulk deleted successfully` |
-| **400** | `ids` missing, not a list, or empty. | `ids must be a non-empty list` |
-| **400** | Any id unknown or already deleted — **nothing is deleted**. | `Some ids are invalid` |
-| **401** / **403** | As in §3. | — |
-
-> **Duplicate ids fail the whole request.** De-duplicate client-side.
 
 ---
 
@@ -443,13 +447,13 @@ option without a second call.
 
 | # | Gap | Impact |
 |---|---|---|
-| 1 | **`discount_percentage` is not capped at 100**, and `base_price` may be negative. | A misconfigured plan can compute a negative `total_price`, which becomes a negative gateway amount. |
-| 2 | **`plan_type` is decorative.** What gets charged is `total_price`, not the type. | A plan labelled `free` with a price still charges; one labelled `paid` at zero skips payment silently. |
-| 3 | **Deleting a plan has no in-use guard**, and its `code` and `name` stay reserved permanently. | Retired codes cannot be reused, and in-flight signups can be left pointing at an unselectable plan. |
-| 4 | **`is_most_popular` is not exclusive.** | Several plans can carry the badge at once. |
-| 5 | **Editing a live plan's price affects unpaid in-flight orders.** | A user who created an order and then paid could be charged an amount that differs from what they were shown. Existing *subscribers* are unaffected — their terms are frozen on the subscription. |
-| 6 | **A plan can be created with no rates and no allowances**, and nothing refuses it. | Every call by a tenant on that plan raises `RateNotConfigured`, and `entitlements` comes back empty so no limit applies. Run `audit_billing_readiness` after adding a plan. |
-| 7 | **`allocated_credits` and the rollover flags are writable but their effect is frozen at subscribe time.** | Changing them alters what *new and renewing* subscribers get, never a live cycle. That is deliberate — but it means the pricing page and an existing tenant's terms can legitimately disagree. |
+| 1 | **`discount_percentage` is not capped at 100.** | A misconfigured plan can compute a negative `total_price`. The ops console warns (`DISCOUNT_OVER_100`); nothing refuses it |
+| 2 | **`plan_type` is decorative.** What gets charged is the basis tier's rupee price, not the type. | A plan labelled `free` whose basis is priced still charges; one labelled `paid` at ₹0/min skips payment |
+| 3 | **A retired plan's `code` and `name` stay reserved permanently.** | Codes cannot be reused. Nothing is ever deleted, deliberately — subscriptions and audit rows point at these |
+| 4 | **`is_most_popular` is not exclusive.** | Several plans can carry the badge at once |
+| 5 | **Editing a live plan's rate affects unpaid in-flight orders.** | Mostly closed: an order freezes its per-minute figures, so a customer is charged and granted what they were quoted. What *can* still change is a **new** quote between page load and submission |
+| 6 | **The four price fields are an entry price, and look like a plan price.** | A client that charges from `total_price` will charge for the plan's smallest quantity regardless of what the customer chose. Quote through `for-minutes/` |
+| 7 | **The rollover flags are read-only here but their effect is frozen at subscribe time.** | Changing them in the console alters what *new and renewing* subscribers get, never a live cycle. Deliberate — but the pricing page and an existing tenant's terms can legitimately disagree |
 
 ## Related
 

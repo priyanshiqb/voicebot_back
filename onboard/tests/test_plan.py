@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from onboard.models.plan import Plan
 from user.models import CustomUser
+from onboard.tests.billing_factories import make_plan
 from decimal import Decimal
 
 
@@ -27,20 +28,13 @@ class PlanTests(APITestCase):
         self.client.force_authenticate(user=self.superuser)
 
         # Create a default plan for testing list/retrieve operations
-        self.default_plan = Plan.objects.create(
-            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
-            status=Plan.Status.ACTIVE,
-            code="starter_plan",
+        self.default_plan = make_plan(
+            "starter_plan",
             name="Starter Plan",
-            description="Perfect for individuals",
             base_price=Decimal("100.00"),
-            discount_percentage=Decimal("10.00"),  # 10% discount
-            tax_percentage=Decimal("18.00"),       # 18% tax
-            currency=Plan.CurrencyChoices.INR,
-            billing_cycle=Plan.BillingCycleChoices.MONTHLY,
-            plan_type=Plan.PlanTypeChoices.PAID,
+            discount_percentage=Decimal("10.00"),
+            tax_percentage=Decimal("18.00"),
             sort_order=1,
-            is_active=True
         )
 
         self.list_url = reverse("api-v1:plan-list")
@@ -77,7 +71,7 @@ class PlanTests(APITestCase):
         self.assertEqual(len(response.data["data"]), 1)
 
         result_plan = response.data["data"][0]
-        self.assertEqual(result_plan["name"], "Starter Plan")
+        self.assertEqual(result_plan["name"], self.default_plan.name)
         self.assertEqual(Decimal(result_plan["total_price"]), Decimal("106.20"))
 
     def test_retrieve_plan_endpoint(self):
@@ -87,7 +81,7 @@ class PlanTests(APITestCase):
         response = self.client.get(self.detail_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["status"])
-        self.assertEqual(response.data["data"]["name"], "Starter Plan")
+        self.assertEqual(response.data["data"]["name"], self.default_plan.name)
 
     def test_a_superuser_cannot_create_a_plan_here(self):
         """**This endpoint no longer writes, for anybody.**
@@ -151,8 +145,12 @@ class PlanTests(APITestCase):
 
         dropdown_item = response.data["data"][0]
         self.assertEqual(dropdown_item["value"], str(self.default_plan.id))
-        # Expected label matches: "Starter Plan (Paid - 106.20 INR/Monthly)"
-        self.assertEqual(dropdown_item["label"], "Starter Plan (Paid - 106.20 INR/Monthly)")
+        # The price shown is the plan's entry price — what its smallest sellable
+        # quantity costs, all in.
+        self.assertEqual(
+            dropdown_item["label"],
+            f"{self.default_plan.name} (Paid - 106.20 INR/Monthly)",
+        )
 
     def test_unauthenticated_access_endpoints(self):
         """

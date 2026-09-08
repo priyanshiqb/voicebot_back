@@ -125,6 +125,16 @@ DEFAULT_ENTITLEMENTS = {
 }
 
 
+#: Rupees per minute beside ``DEFAULT_RATES``' credits per minute. Every tier works
+#: out to ₹0.225 per credit, so a plan built from these is internally consistent
+#: whichever tier it is sold at — the shape a real plan should have.
+DEFAULT_MINUTE_PRICES = {
+    Operation.STATIC_REEL: Decimal("0.90"),
+    Operation.CONVERSATION_HIGH_LATENCY: Decimal("1.80"),
+    Operation.CONVERSATION_LOW_LATENCY: Decimal("2.70"),
+}
+
+
 def make_plan(code=None, **overrides):
     """A plan with a full rate card and a full entitlement set.
 
@@ -133,7 +143,90 @@ def make_plan(code=None, **overrides):
     other twelve rows. Pass ``with_rates=False`` to build the misconfigured plan that
     ``RateNotConfigured`` tests need.
     """
-    rates = {**DEFAULT_RATES, **(overrides.pop("rates", None) or {})}
+    supplied_rates = overrides.pop("rates", None) or {}
+    rates = {**DEFAULT_RATES, **supplied_rates}
+
+    # --- the legacy shape, expressed in the model that replaced it ------------
+    #
+    # `base_price` and `allocated_credits` are gone from `Plan`, but several hundred
+    # existing tests say "a plan costing X that grants N" and mean exactly that. The
+    # new model can still say it: **a plan that sells exactly one minute**, priced at
+    # X per minute and granting N credits per minute. A subscription to one minute of
+    # it costs X and grants N, which is what those tests were asserting all along.
+    #
+    # So the translation is exact rather than approximate, and no test had to be
+    # rewritten to keep meaning what it meant.
+    legacy_price = overrides.pop("base_price", Decimal("1000.00"))
+    legacy_credits = overrides.pop("allocated_credits", 1000)
+
+    # Every plan is sold by the minute now, so the default factory plan is too --
+    # otherwise most of the suite would be building plans that cannot be activated.
+    # `make_plan(credit_basis=None)` still builds the unsellable one, for the tests
+    # that need to prove it is refused.
+    basis = overrides.get("credit_basis", Operation.CONVERSATION_HIGH_LATENCY)
+    overrides["credit_basis"] = basis
+
+    if basis is not None:
+        rates = {
+            op: spec if isinstance(spec, (tuple, list))
+            else (spec, DEFAULT_MINUTE_PRICES[op])
+            for op, spec in rates.items()
+        }
+
+        if not isinstance(supplied_rates.get(basis), (tuple, list)):
+            # **Pack size is the grant divided by the call rate.**
+            #
+            # A test saying "a minute costs 5 credits and the cycle grants 1,000"
+            # is describing a 200-minute plan, and both numbers survive: the call
+            # rate stays 5, and 200 x 5 is the 1,000 it expects. The rupee price is
+            # spread over the same pack, so a cycle still costs `base_price`.
+            #
+            # Callers that fix both numbers always choose ones that divide -- 1000/5,
+            # 3000/3 -- because they were describing a coherent plan. Where they do
+            # not, the grant is what survives, since far more assertions rest on it.
+            per_minute = int(rates[basis][0])
+            if legacy_credits and per_minute and int(legacy_credits) % per_minute == 0:
+                # The happy path, and the one callers almost always land on: they
+                # chose numbers that describe a coherent plan -- 1000/5, 3000/3.
+                pack = int(legacy_credits) // per_minute
+            elif legacy_credits:
+                # **The grant wins over the rate when they cannot both be exact.**
+                # Far more assertions rest on a balance than on a per-minute price,
+                # and an approximate grant fails silently while a wrong balance fails
+                # loudly. A test that needs both exact picks divisible numbers.
+                pack, per_minute = 1, int(legacy_credits)
+            else:
+                # **A plan granting nothing per cycle is no longer expressible.** The
+                # grant is minutes x credits-per-minute, and both are positive, so the
+                # smallest a plan can give is one minute's worth. The call rate is left
+                # alone -- zeroing it would make every call free, which is a different
+                # product entirely. A caller that genuinely wants a zero grant says so
+                # at activation, with `credit_grant=0`.
+                pack = 1
+
+            price = (
+                Decimal(str(legacy_price)) / pack
+            ).quantize(Decimal("0.0001")) if pack else Decimal("0.0000")
+            rates[basis] = (per_minute, price)
+
+            # The other two tiers priced at the same rupees-per-credit, so a factory
+            # plan is internally consistent and produces no readiness warnings. A
+            # plan that sells credits at three different prices is a legitimate thing
+            # to build, but it should never be what a test gets by accident.
+            per_credit = (price / per_minute) if per_minute else Decimal("0")
+            for op, (credits_per_min, _default_price) in list(rates.items()):
+                if op == basis:
+                    continue
+                rates[op] = (
+                    credits_per_min,
+                    (per_credit * credits_per_min).quantize(Decimal("0.0001")),
+                )
+            overrides.setdefault("min_minutes", pack)
+            overrides.setdefault("max_minutes", pack)
+        else:
+            overrides.setdefault("min_minutes", 1)
+            overrides.setdefault("max_minutes", 1)
+
     entitlements = {**DEFAULT_ENTITLEMENTS, **(overrides.pop("entitlements", None) or {})}
     with_rates = overrides.pop("with_rates", True)
     with_entitlements = overrides.pop("with_entitlements", True)
@@ -145,7 +238,6 @@ def make_plan(code=None, **overrides):
         "code": code or f"plan_{suffix}",
         "name": f'{overrides.pop("name", "Test Plan")} {suffix}',
         "description": "Created by billing_factories",
-        "base_price": Decimal("1000.00"),
         "discount_percentage": Decimal("0.00"),
         "tax_percentage": Decimal("18.00"),
         "currency": Plan.CurrencyChoices.INR,
@@ -156,7 +248,6 @@ def make_plan(code=None, **overrides):
         # derived from this now -- passing it directly would be overwritten, which is
         # what stops the two disagreeing.
         "status": Plan.Status.ACTIVE,
-        "allocated_credits": 1000,
         "cost_per_additional_credit": Decimal("1.00"),
         "max_rollover_credits": 0,
         "allow_rollover_on_renewal": True,
@@ -181,17 +272,35 @@ def make_plan(code=None, **overrides):
     return plan
 
 
+#: Trial credits a free plan grants. Its band is exactly this many minutes at one
+#: credit each, so the number is both the minutes sold and the credits granted.
+FREE_PLAN_CREDITS = 100
+
+
 def make_free_plan(code=None, **overrides):
-    """The shape a free plan has to have: priced at zero, and free to renew itself."""
+    """The shape a free plan has to have: costs nothing, renews itself, still meters.
+
+    **Free in rupees, not free in credits.** The rate card is priced at ₹0.00 a minute
+    so nothing is ever charged, but a call still costs a credit -- which is what makes
+    the trial finite. A card priced at zero *credits* would be an unlimited trial, and
+    a card with rows *missing* would raise on the tenant's first call.
+
+    Capped at a maximum, because a plan that is free per minute and open at the top
+    would grant unbounded credits for nothing. The activation gate refuses that.
+    """
     defaults = {
         "name": "Free Plan",
+        # Zero per minute, so whatever band the grant implies, a cycle costs nothing.
+        # The band itself is left to `make_plan`, which derives it from the grant and
+        # the call rate -- hardcoding one here would fight that arithmetic and produce
+        # a plan granting something other than what the caller asked for.
         "base_price": Decimal("0.00"),
+        "allocated_credits": FREE_PLAN_CREDITS,
         "tax_percentage": Decimal("0.00"),
         "plan_type": Plan.PlanTypeChoices.FREE,
-        "allocated_credits": 100,
         "cost_per_additional_credit": Decimal("0.00"),
         "renews_without_payment": True,
-        "rates": {op: 0 for op in DEFAULT_RATES},
+        "rates": {op: 1 for op in DEFAULT_RATES},
         "entitlements": {
             Resource.AGENT: (1, Decimal("0.00"), 1, 0),
             Resource.USER: (1, Decimal("0.00"), 1, 0),
@@ -201,21 +310,55 @@ def make_free_plan(code=None, **overrides):
     return make_plan(code or f"free_{_suffix()}", **defaults)
 
 
-def add_rates(plan, rates, *, effective_from=None):
-    """Open-ended rate rows for a ``{operation: credits_per_unit}`` mapping."""
+def add_rates(plan, rates, *, effective_from=None, unit=None):
+    """Open-ended rate rows for an ``{operation: spec}`` mapping.
+
+    ``spec`` is either ``credits_per_unit`` on its own, or
+    ``(credits_per_unit, price_per_minute_inr)`` for a plan that is sold by the
+    minute. The bare form leaves the rupee price null, which is what every legacy
+    plan looks like.
+    """
     effective_from = effective_from or timezone.now() - timedelta(days=1)
     created = {}
-    for operation, credits_per_unit in rates.items():
+    for operation, spec in rates.items():
+        if isinstance(spec, (tuple, list)):
+            credits_per_unit, price_per_minute_inr = spec
+        else:
+            credits_per_unit, price_per_minute_inr = spec, None
+
         created[operation] = CreditRate.objects.create(
             plan=plan,
             operation=operation,
-            unit=CreditRate.Unit.PER_MINUTE,
+            unit=unit or CreditRate.Unit.PER_MINUTE,
             credits_per_unit=credits_per_unit,
+            price_per_minute_inr=price_per_minute_inr,
             rounding=CreditRate.Rounding.CEIL,
             minimum_units=1,
             effective_from=effective_from,
         )
     return created
+
+
+def make_minutes_plan(code=None, *, min_minutes=None, max_minutes=None,
+                      credit_basis=Operation.CONVERSATION_HIGH_LATENCY,
+                      minute_prices=None, **overrides):
+    """A plan sold by the minute: a band, a basis, and rupee prices on every tier.
+
+    Priced at ₹1.80/min and 8 credits/min on the default basis, so 1,000 minutes is
+    ₹1,800 net and 8,000 credits.
+    """
+    prices = {**DEFAULT_MINUTE_PRICES, **(minute_prices or {})}
+    credits = {**DEFAULT_RATES, **(overrides.pop("rates", None) or {})}
+
+    overrides.setdefault("name", "Minutes Plan")
+    return make_plan(
+        code or f"minutes_{_suffix()}",
+        min_minutes=min_minutes,
+        max_minutes=max_minutes,
+        credit_basis=credit_basis,
+        rates={op: (credits[op], prices[op]) for op in credits},
+        **overrides,
+    )
 
 
 def add_entitlements(plan, entitlements):
@@ -255,7 +398,12 @@ def subscribe(tenant, plan, **kwargs):
 
     Accepts a ``TenantContext`` or a ``Tenant``, because half the callers have one and
     half have the other.
+
+    A quantity is filled in when the caller does not name one -- the plan's smallest
+    sellable amount. Without it a plan sold by the minute would grant nothing, and
+    every caller that predates minutes says only "put this tenant on this plan".
     """
+    kwargs.setdefault("minutes", plan.min_minutes or plan.max_minutes)
     return subscription_service.activate(_tenant_of(tenant), plan, **kwargs)
 
 

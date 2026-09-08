@@ -539,7 +539,12 @@ class EnforcementJourneys(JourneyTestCase):
             rates={Operation.CONVERSATION_HIGH_LATENCY: 5},
         )
         ctx = make_tenant("journey-e2e11")
-        subscription = subscription_service.activate(ctx, payg)
+        # **A zero grant is an activation decision now, not a plan setting.** The
+        # grant is minutes x credits-per-minute and both are positive, so no plan can
+        # describe "included: nothing" — which is exactly the pay-as-you-go shape.
+        # `credit_grant=0` is the same override a negotiated contract uses, and it is
+        # what keeps this product expressible.
+        subscription = subscription_service.activate(ctx, payg, credit_grant=0)
 
         wallet = assert_invariant(self, ctx.tenant, msg="payg signup")
         self.assertEqual(wallet.balance, 0)

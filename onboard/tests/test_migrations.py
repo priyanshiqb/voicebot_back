@@ -91,13 +91,11 @@ class MigrationTestCase(TransactionTestCase):
             "code": code,
             "name": f"Migration Plan {code}",
             "description": "built by a migration test",
-            "base_price": Decimal("999.00"),
             "discount_percentage": Decimal("0.00"),
             "tax_percentage": Decimal("18.00"),
             "currency": "INR",
             "billing_cycle": "monthly",
             "plan_type": "paid",
-            "allocated_credits": 1000,
         }
         fields.update(overrides)
         return Plan.objects.create(**fields)

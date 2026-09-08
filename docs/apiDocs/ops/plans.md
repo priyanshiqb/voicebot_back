@@ -14,6 +14,12 @@ has to be there before it can safely be offered to anybody.
 
 ---
 
+> ⚠️ **Changed in 1.0.2 — plans are sold by the minute.** `base_price` and
+> `allocated_credits` are **gone** from the plan payload; `min_minutes`, `max_minutes`,
+> `credit_basis`, `low_balance_percent` and `max_rollover_ratio` are new; each rate row
+> carries `price_per_minute_inr`. Activation gained eight blocking codes. Full
+> walkthrough: [Minutes-Driven Plans](../../flows/plan-v2-minutes.md).
+
 ## Why the API is shaped like this
 
 **A partly-configured plan is silently broken, not obviously broken:**
@@ -87,8 +93,9 @@ judge.
 {
   "id": "c3e19c1d-…", "code": "starter", "name": "Starter",
   "status": "active", "billing_cycle": "monthly", "sort_order": 2,
-  "base_price": "1000.00", "total_price": "1180.00",
-  "allocated_credits": 1000, "is_most_popular": false,
+  "min_minutes": null, "max_minutes": 500,
+  "credit_basis": "conversation_high_latency",
+  "total_price": "3.25", "is_most_popular": false,
   "subscriber_count": 0,
   "entitlements_configured": 7,
   "rates_configured": 3,
@@ -116,8 +123,9 @@ half-loaded.
 
 ```jsonc
 {
-  "plan":         { /* 20 settings + 4 derived: discount_amount, net_base_price,
-                       tax_amount, total_price */ },
+  "plan":         { /* 23 settings + 4 derived: discount_amount, net_base_price,
+                       tax_amount, total_price — all four are the plan's ENTRY
+                       price, i.e. what its smallest sellable quantity costs */ },
   "entitlements": [ /* 7 rows */ ],
   "rates":        [ /* 3 rows */ ],
   "readiness":    { /* see below */ },
@@ -136,7 +144,8 @@ An entitlement row:
 A rate row:
 
 ```json
-{ "operation": "conversation_high_latency", "credits_per_unit": 8,
+{ "operation": "conversation_high_latency",
+  "credits_per_unit": 4, "price_per_minute_inr": "1.8000",
   "unit": "per_minute", "rounding": "ceil", "minimum_units": 1, "notes": null }
 ```
 
@@ -147,15 +156,34 @@ A rate row:
 ```jsonc
 {
   "reason": "new tier for the enterprise segment",
-  "plan":         { /* all 20 fields */ },
+  "plan":         { /* the plan's own settings — see below */ },
   "entitlements": [ /* all 7 resources, all 7 fields each */ ],
-  "rates":        [ /* all 3 tiers, all 5 fields each */ ]
+  "rates":        [ /* all 3 tiers, including price_per_minute_inr */ ]
 }
 ```
 
 **Every field is required**, including the ones the model defaults. `sort_order` in
 particular: the model defaults it to `0`, and every plan sharing that value orders
 arbitrarily against the others on the pricing page.
+
+**The five minutes fields are the exception — all optional at create time:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `min_minutes` | integer \| null | Fewest minutes sold, inclusive. `null` = no floor |
+| `max_minutes` | integer \| null | Most sold, inclusive. `null` = no ceiling. Equal to `min_minutes` makes it a **pack** |
+| `credit_basis` | choice \| null | `static_reel`, `conversation_high_latency` or `conversation_low_latency` — the tier the plan is **sold at** |
+| `low_balance_percent` | integer \| null | Alert at this % of the cycle's grant. Read before the absolute `low_balance_threshold` |
+| `max_rollover_ratio` | decimal \| null | Cap as a multiple of the cycle's grant. Read before the absolute `max_rollover_credits` |
+
+They are optional because a plan is a **draft** until activated, and completeness is
+enforced at the gate — where the whole ladder is visible and a band can be checked against
+its neighbours. A create that demanded them would be checking one plan in isolation, which
+is exactly the check that cannot catch an overlap.
+
+> `base_price` and `allocated_credits` **were removed** and are rejected as unknown
+> fields. Price is `minutes × price_per_minute_inr` on the basis row; the grant is
+> `minutes × credits_per_unit` on the same row.
 
 Rejected if a resource is missing, a tier is missing, or any field is absent — **a
 present `null` is an answer, an absent key is not.**
@@ -236,7 +264,33 @@ nothing, and a real rate change would be indistinguishable from a save.
 
 > Existing subscribers are unaffected either way. Their card was frozen onto their
 > wallet when they subscribed, so **a rate change never re-prices a call already made,
-> or a customer already on a cycle.**
+> or a customer already on a cycle.** What a rate change *does* reach is their next
+> renewal, which is where a price change is meant to land.
+
+### 🆕 `price_per_minute_inr`, and the write that gets refused
+
+Each row now carries a rupee price beside its credit price:
+
+```json
+{ "operation": "conversation_high_latency",
+  "credits_per_unit": 4, "price_per_minute_inr": "1.8000",
+  "unit": "per_minute", "rounding": "ceil", "minimum_units": 1, "notes": "" }
+```
+
+**Required on the tier named by `credit_basis`** — that one row supplies both the price
+and the grant for every sale on the plan. Strongly recommended on the other two so the
+pricing page can quote them; missing there is a warning, not a refusal.
+
+| Status | `errors` | When |
+|---|---|---|
+| **409** | `RATE_WOULD_STRAND_BASIS` | The write would leave an **active** plan's basis tier without a rupee price, or make it `per_event` |
+
+Activation checks the basis tier, but rates are edited long afterwards — so without this
+a rate write would be a second door into exactly the state the gate exists to prevent, on
+a plan already being sold. Drafts are exempt: being incomplete is what a draft is for.
+
+> **Always send `price_per_minute_inr` back when echoing a card.** Dropping it from a row
+> you did not mean to change is what triggers the `409`.
 
 ---
 
@@ -253,9 +307,44 @@ What is missing, and what looks wrong.
   "warnings": [
     { "code": "CAMPAIGNS_SOLD_AS_ADDON", "resource": "campaign_monthly",
       "message": "Campaigns are purchasable. Add-ons are prorated by time remaining, so a subscriber buying late in the window pays a fraction of the price for the whole allowance." }
-  ]
+  ],
+  "ladder": {
+    "bands": [
+      { "code": "starter", "name": "Starter", "min_minutes": null, "max_minutes": 500,
+        "is_fixed_quantity": false, "is_this_plan": false },
+      { "code": "growth",  "name": "Growth",  "min_minutes": 501,  "max_minutes": 2000,
+        "is_fixed_quantity": false, "is_this_plan": true }
+    ],
+    "boundaries": [
+      { "from_plan": "starter", "to_plan": "growth",
+        "at_minutes": 500,  "price_below": "1375.00",
+        "next_minutes": 501, "price_above": "901.80",
+        "cheaper_above": true }
+    ],
+    "warnings": []
+  }
 }
 ```
+
+### 🆕 `ladder` — the plans this one sits beside
+
+A band is only correct **relative to its neighbours**: an overlap or a gap is a property
+of the pair, not of either plan. A review screen that renders one plan alone is asking
+somebody to hold the rest of the catalogue in their head, so the whole ladder for this
+plan's billing cycle comes back with it.
+
+| Field | Meaning |
+|---|---|
+| `bands[]` | Every active minutes plan in this cycle, in band order. `is_this_plan` marks the one being reviewed — it appears even while still a draft |
+| `boundaries[]` | The price either side of every boundary: `at_minutes` / `price_below` against `next_minutes` / `price_above` |
+| `boundaries[].cheaper_above` | Whether crossing the boundary costs **less** |
+| `warnings[]` | Ladder-level warnings — `LADDER_OPEN_BOTTOM_MISSING`, `LADDER_OPEN_TOP_MISSING` |
+
+> **`cheaper_above` is information, not a fault — do not flag it.** Avoiding it would
+> require every band to cost at least as much per minute as the one below, which is a
+> ladder with no volume discount at all. Every real volume ladder is cheaper just past a
+> boundary; that *is* the discount. Render the four numbers and let commercial decide
+> whether the dead zone at the top of each band is acceptable.
 
 ### Blocking — refuses activation
 
@@ -263,6 +352,14 @@ What is missing, and what looks wrong.
 |---|---|
 | `MISSING_ENTITLEMENTS` | A resource with no allowance is **not limited to zero — it is not limited at all** |
 | `MISSING_RATES` | Calls on an unpriced tier fail at the point of the call |
+| `CREDIT_BASIS_UNSET` | 🆕 No basis tier — the plan has nothing to be priced or granted from |
+| `CREDIT_BASIS_RATE_MISSING` | 🆕 The basis tier has no open rate row |
+| `CREDIT_BASIS_NO_INR_PRICE` | 🆕 The basis row has no rupees-per-minute price, so a sale cannot be priced |
+| `CREDIT_BASIS_PER_EVENT` | 🆕 A per-call basis has no per-minute meaning |
+| `FREE_MINUTES_PLAN_UNCAPPED` | 🆕 Free per minute with no `max_minutes` — unbounded credits for nothing |
+| `RENEWS_FREE_BUT_PRICED` | 🆕 A priced plan that renews itself would stop billing. *Was a database constraint on `base_price`; the price is cross-table now, so the gate owns it* |
+| `BAND_OVERLAPS` | 🆕 Another active plan sells the same quantities — the pricing page would get two answers |
+| `BAND_GAP` | 🆕 A gap to the next **ranged** band. A gap beside a fixed-quantity pack is expected and allowed |
 
 ### Warnings — never block
 
@@ -272,8 +369,11 @@ business, so refusing them would be wrong more often than the mistake it prevent
 | Code | Flags |
 |---|---|
 | `DISCOUNT_OVER_100` | Produces a negative price. The column accepts to 999.99 |
-| `PAID_PLAN_NO_CREDITS` | Charged for, but a subscriber cannot make a call |
 | `TOP_UPS_DISABLED` | ₹0 per credit — upgrading is the only route to more |
+| `RUPEES_PER_CREDIT_INCONSISTENT` | 🆕 The plan's three tiers sell credits at different prices, so which price a customer gets depends on a basis they never chose |
+| `RATE_MISSING_INR_PRICE` | 🆕 A non-basis tier has no rupee price — the pricing page cannot quote it |
+| `LADDER_OPEN_BOTTOM_MISSING` | 🆕 Nothing sells below the smallest band; the smallest customers cannot buy |
+| `LADDER_OPEN_TOP_MISSING` | 🆕 Nothing sells above the largest band |
 | `NO_SORT_ORDER` | Ties with every other plan at 0 |
 | `ADDON_PRICED_AT_ZERO` | Capacity purchasable for nothing |
 | `ADDON_UNCAPPED` | A subscriber can assemble the plan above at add-on prices |
@@ -351,6 +451,8 @@ The response carries a `review` list naming what the copy specifically gets wron
 | `CYCLE_CHANGED` | Every price was copied as-is and now buys a different amount of time |
 | `ADDON_PRICES_NEED_REVIEW` | Names each add-on still carrying the original's block price |
 | `SORT_ORDER_COLLIDES` | Both plans sit at the same order |
+| `BAND_COLLIDES` | 🆕 **Same cycle** — the copy sells exactly the quantities its source does. Harmless while it is a draft, refused at activation as `BAND_OVERLAPS`; move the band first |
+| `BAND_NEEDS_CONVERSION` | 🆕 **Cycle switched** — the band came across unchanged, and 500 monthly minutes is not 500 yearly ones. The per-minute prices were copied verbatim too |
 
 Two nets catch the mispricing: `clone` says it at the moment of copying, `readiness`
 says it again at activation, when the source is no longer in mind.

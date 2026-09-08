@@ -28,12 +28,15 @@ def plan_fields(**overrides):
         "sort_order": 5,
         "is_most_popular": False,
         "plan_type": Plan.PlanTypeChoices.PAID,
-        "base_price": Decimal("999.00"),
         "discount_percentage": Decimal("0.00"),
         "tax_percentage": Decimal("18.00"),
         "currency": Plan.CurrencyChoices.INR,
         "billing_cycle": Plan.BillingCycleChoices.MONTHLY,
-        "allocated_credits": 1000,
+        # Sold by the minute: a band, a basis, and a rupee price on the
+        # basis row. Without these the plan cannot be activated.
+        "min_minutes": None,
+        "max_minutes": 1000,
+        "credit_basis": Operation.CONVERSATION_HIGH_LATENCY,
         "cost_per_additional_credit": Decimal("1.20"),
         "low_balance_threshold": 100,
         "allow_rollover_on_renewal": False,
@@ -74,6 +77,7 @@ def rate_rows(**overrides):
         row = {
             "operation": operation,
             "credits_per_unit": 5,
+            "price_per_minute_inr": Decimal("2.2500"),
             "unit": CreditRate.Unit.PER_MINUTE,
             "rounding": CreditRate.Rounding.CEIL,
             "minimum_units": 1,
@@ -229,9 +233,15 @@ class RateCardTests(TestCase):
         """Otherwise every save fills the history with rows that say nothing."""
         before = {r.operation: r.pk for r in config.live_rates(self.plan)}
 
+        # Both numbers, because a rate row now carries both. Copying only the credit
+        # price would leave the rupee price differing from the fixture default, which
+        # is a real change and would correctly supersede.
         config.replace_rates(self.plan, rate_rows(**{
-            op: {"credits_per_unit": r.credits_per_unit}
-            for op, r in [(x.operation, x) for x in config.live_rates(self.plan)]
+            r.operation: {
+                "credits_per_unit": r.credits_per_unit,
+                "price_per_minute_inr": r.price_per_minute_inr,
+            }
+            for r in config.live_rates(self.plan)
         }), supersede=True)
 
         after = {r.operation: r.pk for r in config.live_rates(self.plan)}

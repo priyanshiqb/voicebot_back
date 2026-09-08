@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny
 from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import TempUser
 from onboard.authentication import generate_temp_token
+from onboard.views.onboarding.base import billing_breakdown as build_breakdown
 from onboard.serializers.onboarding import VerifyOTPSerializer, VerifyOTPResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
@@ -87,15 +88,7 @@ class VerifyOTPView(ResponseMixin, APIView):
 
         # Get initial pricing breakdown of their selected plan
         plan = temp_user.selected_plan
-        billing_breakdown = {
-            "base_price": str(plan.base_price),
-            "discount_amount": str(plan.discount_amount),
-            "net_base_price": str(plan.net_base_price),
-            "tax_percentage": str(plan.tax_percentage),
-            "tax_amount": str(plan.tax_amount),
-            "total_price": str(plan.total_price),
-            "currency": plan.currency
-        }
+        billing_breakdown = build_breakdown(plan, temp_user.selected_minutes)
 
         return self.success(
             data={

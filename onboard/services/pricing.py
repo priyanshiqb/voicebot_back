@@ -133,12 +133,17 @@ def cycle_days_for(plan, *, anchor=None):
     return Decimal((anchor + delta - anchor).days)
 
 
-def bonus_days_for(value, plan, *, anchor=None):
+def bonus_days_for(value, plan, *, anchor=None, minutes=None):
     """How many days of ``plan`` ``value`` rupees buys, at the plan's daily rate.
 
     Both sides are **pre-tax**. Tax is charged on the new plan's full price
     separately, so mixing a tax-inclusive figure in here would buy days with money
     that was never the plan's to spend.
+
+    ``minutes`` sets the daily rate on a minutes-based plan: a day of 2,000 minutes
+    costs more than a day of 500, so unused value has to be converted against the
+    quantity actually being bought rather than against a catalogue price the customer
+    never agreed to.
 
     Returns 0 for a free plan rather than dividing by zero — a plan that costs
     nothing per day cannot be bought more of, so the remaining value simply has
@@ -150,10 +155,103 @@ def bonus_days_for(value, plan, *, anchor=None):
     days = cycle_days_for(plan, anchor=anchor)
     if days <= 0:
         return Decimal("0.00")
-    per_day = Decimal(str(plan.net_base_price)) / days
+    per_day = net_for(plan, minutes) / days
     if per_day <= 0:
         return Decimal("0.00")
     return (value / per_day).quantize(Decimal("0.01"))
+
+
+# --------------------------------------------------------------------------- #
+# Minutes-based plans
+# --------------------------------------------------------------------------- #
+
+#: Re-exported from the model, where the coercion helper lives beside it. A single
+#: subscription cannot buy more minutes than this: a guard rather than a policy, in
+#: the same spirit as MAX_TOP_UP_CREDITS.
+from onboard.models.plan import (  # noqa: E402
+    MAX_CHARGEABLE_TOTAL,
+    MAX_SELECTABLE_MINUTES,
+    coerce_minutes,
+)
+
+
+def quote_plan(plan, minutes):
+    """Price ``minutes`` on ``plan``.
+
+    The quote a signup, a renewal and the pricing page all run through, and the thing
+    frozen onto ``Transaction.amount_breakdown`` when an order is raised.
+
+    **Both per-minute figures are frozen into the detail**, not just referenced. The
+    basis rate can be superseded between the moment a customer is quoted and the
+    moment their payment clears; reading them back from here is what guarantees they
+    are charged and granted what they were shown.
+    """
+    if not plan.is_minutes_based:
+        raise PricingError("This plan is not sold by the minute.")
+
+    minutes = coerce_minutes(minutes)
+    if minutes is None:
+        raise PricingError(
+            f"Number of minutes must be a whole number between 1 and "
+            f"{MAX_SELECTABLE_MINUTES:,}."
+        )
+    if not plan.contains_minutes(minutes):
+        raise PricingError(
+            f"{plan.name} sells {_band_label(plan)}, not {minutes:,} minutes."
+        )
+
+    price = plan.price_components(minutes)
+    rate = plan.basis_rate()
+
+    # A quote larger than the amount column can hold would fail at the moment the
+    # order is written -- a 500 in the middle of a checkout rather than something the
+    # customer can read. Only reachable through a misconfigured rate, which is exactly
+    # when a clear refusal is worth most.
+    if price.total > MAX_CHARGEABLE_TOTAL:
+        raise PricingError(
+            f"{minutes:,} minutes on {plan.name} comes to ₹{price.total}, which is "
+            f"more than a single order can carry. Contact us about an invoice."
+        )
+
+    return Quote(
+        net=price.net,
+        tax=price.tax,
+        total=price.total,
+        tax_percentage=Decimal(str(plan.tax_percentage or 0)),
+        detail={
+            "selected_minutes": minutes,
+            "credit_basis": plan.credit_basis,
+            "price_per_minute_inr": rate.price_per_minute_inr,
+            "credits_per_minute": plan.credits_per_minute(),
+            "allocated_credits": plan.credits_for(minutes),
+            "gross": price.gross,
+            "discount": price.discount,
+            "discount_percentage": Decimal(str(plan.discount_percentage or 0)),
+        },
+    )
+
+
+def _band_label(plan):
+    """A plan's band as something a customer can read, for an error message."""
+    if plan.is_fixed_quantity:
+        return f"exactly {plan.min_minutes:,} minutes"
+    if plan.min_minutes is None and plan.max_minutes is None:
+        return "any number of minutes"
+    if plan.min_minutes is None:
+        return f"up to {plan.max_minutes:,} minutes"
+    if plan.max_minutes is None:
+        return f"from {plan.min_minutes:,} minutes"
+    return f"{plan.min_minutes:,}-{plan.max_minutes:,} minutes"
+
+
+def net_for(plan, minutes=None):
+    """Pre-tax rupees per cycle for ``plan`` at ``minutes``.
+
+    The one place the legacy and minutes-based branches are joined for *pricing*, so
+    every caller that needs "what does a cycle of this plan cost" gets the right
+    answer without asking which generation of plan it is holding.
+    """
+    return plan.price_components(minutes).net
 
 
 PAID_CHANGE = "paid_change"          # they owe something; applies when it clears
@@ -161,8 +259,8 @@ SCHEDULED_CHANGE = "scheduled_change"  # they owe nothing; applies at cycle end
 IMMEDIATE_FREE = "immediate_free"    # they owe less than a gateway will take
 
 
-def quote_plan_change(subscription, new_plan, *, now=None):
-    """Price a mid-cycle move to another plan.
+def quote_plan_change(subscription, new_plan, *, minutes=None, now=None):
+    """Price a mid-cycle move to another plan, or to a different quantity of one.
 
     Computed on **pre-tax** values, then taxed at the *new* plan's rate — tax has to
     be charged on the actual taxable amount, not on a figure that already includes
@@ -180,17 +278,29 @@ def quote_plan_change(subscription, new_plan, *, now=None):
 
     That falls out correctly for monthly-to-yearly, yearly-to-monthly and same-price
     sidegrades without anyone having to rank the plans.
+
+    **Buying more minutes of the same plan is a plan change too**, and the same sign
+    test prices it. Only a move that changes neither the plan nor the quantity is
+    refused, because that is the one request with nothing in it.
+
+    ``minutes`` defaults to what the tenant already has, resolved into the new plan's
+    band -- "the same usage, over there". On a fixed-quantity pack that is the pack's
+    single value whatever they had before.
     """
     from onboard.services import entitlements as entitlement_service
 
-    if new_plan.pk == subscription.plan_id:
+    now = now or timezone.now()
+
+    minutes = new_plan.resolve_minutes(
+        minutes if minutes is not None else subscription.selected_minutes
+    )
+
+    if new_plan.pk == subscription.plan_id and minutes == subscription.selected_minutes:
         raise PricingError("That is the plan you are already on.")
 
     snapshot = subscription.plan_snapshot or {}
     old_net = Decimal(str(snapshot.get("net_base_price") or subscription.plan.net_base_price))
-    new_net = Decimal(str(new_plan.net_base_price))
-
-    now = now or timezone.now()
+    new_net = net_for(new_plan, minutes)
 
     # A lapsed subscription has no unused time to credit and no cycle to schedule
     # against, so this stops being an upgrade-or-downgrade question and becomes a
@@ -237,7 +347,7 @@ def quote_plan_change(subscription, new_plan, *, now=None):
         # total service bought is the same, because the value left over is converted
         # at the new plan's daily rate rather than written off.
         net, tax, total, tax_percentage = _with_tax(new_net, new_plan)
-        bonus_days = bonus_days_for(bonus_value, new_plan, anchor=now)
+        bonus_days = bonus_days_for(bonus_value, new_plan, anchor=now, minutes=minutes)
         # A move to a zero-cost plan cannot be charged and cannot be paid in days.
         # Apply it outright rather than raising an order the gateway would refuse.
         change_type = IMMEDIATE_FREE if total < Decimal("1.00") else PAID_CHANGE
@@ -254,6 +364,15 @@ def quote_plan_change(subscription, new_plan, *, now=None):
             "effective_at": effective_at.isoformat(),
             "from_plan": snapshot.get("code") or subscription.plan.code,
             "to_plan": new_plan.code,
+            # What is being moved to, in minutes and credits. `selected_minutes` is
+            # read back at activation rather than recomputed -- the tenant paid for a
+            # specific quantity, and the band could have moved since.
+            "selected_minutes": minutes,
+            "allocated_credits": new_plan.credits_for(minutes),
+            "credits_delta": (
+                new_plan.credits_for(minutes)
+                - (subscription.allocated_credits or 0)
+            ),
             "current_plan_net": old_net,
             "new_plan_net": new_net,
             "unused_ratio": ratio,
@@ -272,13 +391,22 @@ def quote_plan_change(subscription, new_plan, *, now=None):
     )
 
 
-def credit_impact(subscription, new_plan, *, reason):
+def credit_impact(subscription, new_plan, *, reason, minutes=None):
     """What a plan change does to the tenant's credits, before they commit to it.
 
     A tenant who is about to lose credits must be told before they click, not after.
+
+    ``minutes`` decides the incoming allocation on a minutes-based plan, and defaults
+    the same way ``quote_plan_change`` does. This is the number shown to a customer
+    while they are still deciding, so it has to be the number they will actually get.
     """
     from onboard.services import subscriptions as subscription_service
     from wallet.services import wallet as wallet_service
+
+    minutes = new_plan.resolve_minutes(
+        minutes if minutes is not None else subscription.selected_minutes
+    )
+    new_allocation = new_plan.credits_for(minutes)
 
     wallet = wallet_service.for_tenant(subscription.tenant_id)
     carried, forfeited, code = subscription_service.rollover_amount(
@@ -301,8 +429,9 @@ def credit_impact(subscription, new_plan, *, reason):
         "purchased": wallet.purchased_balance,
         "carried_forward": carried,
         "forfeited": forfeited,
-        "new_plan_allocation": new_plan.allocated_credits,
-        "balance_after_change": carried + wallet.purchased_balance + new_plan.allocated_credits,
+        "new_plan_allocation": new_allocation,
+        "balance_after_change": carried + wallet.purchased_balance + new_allocation,
+        "selected_minutes": minutes,
         "warnings": warnings,
     }
 

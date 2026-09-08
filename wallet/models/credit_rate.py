@@ -102,6 +102,30 @@ class CreditRate(BaseModelCore):
     credits_per_unit = models.PositiveIntegerField(
         help_text="Credits charged per billable unit. 0 makes the operation free on this plan.",
     )
+    price_per_minute_inr = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        blank=True,
+        null=True,
+        help_text=(
+            "Pre-discount, pre-tax rupees per minute of this tier, on this plan. Read "
+            "when a plan is *sold* at this tier -- see ``Plan.credit_basis`` -- and "
+            "never on the call path.\n\n"
+            "**Here rather than on Plan, beside credits_per_unit rather than apart from "
+            "it.** What a minute of a tier costs in money and what it costs in credits "
+            "are two views of one commercial decision. Split across two tables they can "
+            "be changed independently, and switching a plan's basis would double the "
+            "credits it grants while leaving the price untouched, with nothing anywhere "
+            "to compare the two against.\n\n"
+            "Being here also means a money price is **superseded rather than "
+            "overwritten**: re-pricing closes this row and opens another, so what a "
+            "plan cost last month stays answerable. ``Plan.base_price`` never had that.\n\n"
+            "Null on a plan that is not sold in minutes. Four decimal places because "
+            "two cannot express the difference between 1.80 and 1.85 on a 2,000-minute "
+            "plan without moving 100 rupees of monthly revenue; the charged total is "
+            "still quantized to paise."
+        ),
+    )
     rounding = models.CharField(
         max_length=16,
         choices=Rounding.choices,

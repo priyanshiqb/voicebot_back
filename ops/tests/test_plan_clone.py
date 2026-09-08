@@ -53,7 +53,16 @@ class CloneServiceTests(TestCase):
 
         self.assertEqual(len(config.live_entitlements(plan)), 7)
         self.assertEqual(len(config.live_rates(plan)), 3)
-        self.assertTrue(readiness.report(plan)["can_activate"])
+
+        # **Complete, but not activatable — and that is right.** A same-cycle copy
+        # sells exactly the quantities its source does, so the two would give the
+        # pricing page two answers. The clone review says so up front
+        # (`BAND_COLLIDES`); the gate refuses it until somebody moves the band.
+        report = readiness.report(plan)
+        self.assertFalse(report["can_activate"])
+        self.assertEqual(
+            [p["code"] for p in report["blocking"]], ["BAND_OVERLAPS"]
+        )
 
     def test_the_copy_is_a_draft_however_live_the_original_was(self):
         self.source.status = Plan.Status.ACTIVE
@@ -75,8 +84,16 @@ class CloneServiceTests(TestCase):
     def test_the_settings_are_genuinely_copied(self):
         plan, _ = clone_service.clone(self.source, code="c4", name="C4")
 
-        self.assertEqual(plan.base_price, self.source.base_price)
-        self.assertEqual(plan.allocated_credits, self.source.allocated_credits)
+        # Price and grant both live on the basis rate row now, and both are copied.
+        self.assertEqual(plan.credit_basis, self.source.credit_basis)
+        self.assertEqual(
+            plan.basis_rate().price_per_minute_inr,
+            self.source.basis_rate().price_per_minute_inr,
+        )
+        self.assertEqual(
+            plan.basis_rate().credits_per_unit,
+            self.source.basis_rate().credits_per_unit,
+        )
         self.assertEqual(
             plan.allow_rollover_on_upgrade, self.source.allow_rollover_on_upgrade
         )
@@ -126,7 +143,10 @@ class CycleChangeReviewTests(TestCase):
             billing_cycle=Plan.BillingCycleChoices.YEARLY,
         )
 
-        self.assertEqual(plan.base_price, self.monthly.base_price)
+        self.assertEqual(
+            plan.basis_rate().price_per_minute_inr,
+            self.monthly.basis_rate().price_per_minute_inr,
+        )
         self.assertEqual(
             plan.entitlements.get(resource=Resource.STORAGE_GB).price_per_additional,
             Decimal("199.00"),

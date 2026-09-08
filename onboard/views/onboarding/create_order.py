@@ -79,57 +79,52 @@ class CreateOrderJustInTimeView(ResponseMixin, APIView):
         address_serializer.is_valid(raise_exception=True)
         address_serializer.save(temp_user=temp_user)
 
-        # Calculate pricing in Paisa for Razorpay
-        amount_in_paisa = int(plan.total_price * 100)
+        # What this plan costs for the quantity the registrant chose. `quote_plan`
+        # for a minutes-based plan; the catalogue price for a legacy one.
+        from onboard.services import pricing
+
+        if plan.is_minutes_based:
+            try:
+                quote = pricing.quote_plan(plan, temp_user.selected_minutes)
+            except pricing.PricingError as exc:
+                return self.error(
+                    message=str(exc),
+                    errors=["MINUTES_NOT_SELLABLE"],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            amount, breakdown = quote.total, quote.as_breakdown()
+        else:
+            amount, breakdown = plan.total_price, None
+
+        amount_in_paisa = int(amount * 100)
 
         # Handle 0 amount (free trial/tier) checkouts by skipping Razorpay completely
         if amount_in_paisa == 0:
-            # Save local successful transaction record
+            from rest_framework_simplejwt.tokens import RefreshToken
+
+            from onboard.services import payment_application
+
             transaction = Transaction.objects.create(
                 temp_user=temp_user,
                 plan=plan,
                 razorpay_order_id=f"free_{uuid.uuid4().hex[:14]}",
-                amount=plan.total_price,
+                amount=amount,
+                amount_breakdown=breakdown,
                 status=Transaction.TransactionStatusChoices.SUCCESSFUL
             )
 
-            # Migrate TempUser -> CustomUser
-            from django.contrib.auth import get_user_model
-            from rest_framework_simplejwt.tokens import RefreshToken
-            from onboard.views.onboarding.base import create_tenant_and_mapping
-            
-            User = get_user_model()
-            user = User(
-                email=temp_user.email,
-                username=temp_user.email,
-                phone_number=temp_user.phone_number,
-                first_name=temp_user.first_name,
-                last_name=temp_user.last_name,
-                password=temp_user.password_hash,
-                is_active=True,
-                is_verified=True
-            )
-            user.save()
+            # **The shared promotion, not a local copy of it.** This branch used to
+            # inline its own TempUser -> CustomUser migration, and it had already
+            # drifted from `_apply_onboarding`: it dropped the registrant's timezone
+            # and language, and never set `transaction.tenant`, so a free signup's
+            # first payment was missing from their own billing history. Carrying a
+            # third copy through the minutes change would have guaranteed a fourth
+            # difference.
+            payment_application.apply(transaction)
 
-            # Create Tenant and Tenant User Mapping cleanly
-            tenant = create_tenant_and_mapping(temp_user, user)
+            transaction.refresh_from_db()
+            user = transaction.user
 
-            # Subscription, rate card and the cycle's credits, in one place.
-            from onboard.services import subscriptions as subscription_service
-            subscription_service.activate(tenant, plan, transaction=transaction)
-
-            # Link BillingAddress and Transaction to the new active CustomUser
-            BillingAddress.objects.filter(temp_user=temp_user).update(user=user, temp_user=None)
-            transaction.user = user
-            transaction.temp_user = None
-            transaction.save()
-
-            # Mark the TempUser as onboarded and soft-delete
-            temp_user.is_onboarded = True
-            temp_user.save()
-            temp_user.soft_delete()
-
-            # Generate permanent simplejwt access and refresh tokens
             refresh = RefreshToken.for_user(user)
             access = refresh.access_token
 
@@ -166,12 +161,15 @@ class CreateOrderJustInTimeView(ResponseMixin, APIView):
                     status_code=status.HTTP_502_BAD_GATEWAY
                 )
 
-        # Save Transaction record locally
+        # Save Transaction record locally. The breakdown freezes the two per-minute
+        # figures, so activation grants what was quoted even if the rate card moves
+        # between now and the payment clearing.
         Transaction.objects.create(
             temp_user=temp_user,
             plan=plan,
             razorpay_order_id=razorpay_order_id,
-            amount=plan.total_price,
+            amount=amount,
+            amount_breakdown=breakdown,
             status=Transaction.TransactionStatusChoices.PENDING
         )
 

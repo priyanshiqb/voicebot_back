@@ -34,6 +34,12 @@ Four rules govern everything here:
 
 ---
 
+> ⚠️ **Changed in 1.0.2.** Plans are sold by the minute. `change-plan/` and
+> `preview-change/` take an optional `minutes`, `eligible-plans/` takes `?minutes=`, and
+> the current subscription reports `selected_minutes` and `allocated_credits`. Buying more
+> minutes of the plan you already have is now a valid change. Full walkthrough:
+> [Minutes-Driven Plans](../../flows/plan-v2-minutes.md).
+
 ## Upgrade or downgrade is decided by arithmetic
 
 `preview-change` and `change-plan` both compute the prorated difference and branch on
@@ -70,7 +76,9 @@ catalogue — the tenant is owed credit for what they actually paid.
   "data": {
     "id": "…",
     "status": "active",
-    "plan": { "id": "3f2a…", "code": "starter_inr", "name": "Starter INR", "billing_cycle": "monthly" },
+    "plan": { "id": "3f2a…", "code": "growth", "name": "Growth", "billing_cycle": "monthly" },
+    "selected_minutes": 1200,
+    "allocated_credits": 4800,
     "start_date": "2026-08-01T00:00:00Z",
     "end_date": "2026-09-01T00:00:00Z",
     "days_remaining": 8,
@@ -94,6 +102,11 @@ pre-tax.
 
 `days_remaining` floors at **0** — a lapsed cycle reports 0, never a negative number.
 
+`selected_minutes` is the quantity this subscription bought, and `allocated_credits` is
+what **this cycle** granted for it. Both are `null`/`0` on a subscription to a plan that
+is not sold by the minute. They are properties of the *sale*, not of the plan — two
+tenants on the same plan can hold different quantities and different grants.
+
 **Returned for a lapsed subscription too**, with `status: "expired"`. That is
 deliberate: this is the endpoint a dashboard uses to explain why calls stopped, and it
 cannot do that if it refuses to answer. Only a tenant who has *never* subscribed gets
@@ -109,19 +122,39 @@ per plan to build a pricing page.
 ```json
 {
   "data": { "plans": [
-    { "id": "3f2a…", "code": "starter_inr", "name": "Starter INR", "is_current": true,
-      "change_type": "current", "amount_due": "0.00", "allocated_credits": 1000 },
-    { "id": "7b1c…", "code": "professional_inr", "name": "Professional INR", "is_current": false,
-      "change_type": "paid_change", "amount_due": "2792.03",
-      "effective_at": "2026-08-24T09:14:22Z", "allocated_credits": 3500 },
-    { "id": "9d4e…", "code": "free_plan", "change_type": "scheduled_change", "amount_due": "0.00",
-      "effective_at": "2026-09-01T00:00:00Z", "allocated_credits": 100 }
+    { "id": "3f2a…", "code": "growth", "name": "Growth", "is_current": true,
+      "min_minutes": 501, "max_minutes": 2000, "is_fixed_quantity": false,
+      "total_price": "901.80", "change_type": "current", "amount_due": "0.00" },
+    { "id": "7b1c…", "code": "scale", "name": "Scale", "is_current": false,
+      "min_minutes": 2001, "max_minutes": null, "is_fixed_quantity": false,
+      "total_price": "2833.20", "change_type": "paid_change", "amount_due": "2792.03",
+      "selected_minutes": 2001, "effective_at": "2026-08-24T09:14:22Z" },
+    { "id": "9d4e…", "code": "starter", "change_type": "scheduled_change",
+      "min_minutes": null, "max_minutes": 500, "is_fixed_quantity": false,
+      "total_price": "3.25", "amount_due": "0.00",
+      "selected_minutes": 500, "effective_at": "2026-09-01T00:00:00Z" }
   ]}
 }
 ```
 
 A plan that cannot be priced is still listed, with `change_type: "unavailable"` and a
 `reason` — the tenant should see it exists.
+
+**Optional `?minutes=N`.** By default every candidate is priced at the tenant's *current*
+quantity, resolved into each plan's band. Pass `minutes` to price them all at a quantity
+the tenant is considering instead, so the table answers *"what would my usage cost on
+each plan"* rather than *"what does each plan cost at some quantity nobody asked about"*.
+
+| Field | Meaning |
+|---|---|
+| `min_minutes`, `max_minutes` | 🆕 The band this plan sells |
+| `is_fixed_quantity` | 🆕 A pack rather than a range |
+| `selected_minutes` | 🆕 The quantity this plan would be bought at |
+| `total_price` | The plan's **entry price** — a "from ₹X" label, not what they would pay |
+| `amount_due` | What they would actually pay to move |
+
+> `allocated_credits` **was removed** from this response. A plan has no single grant any
+> more; `preview-change/` reports the grant for a specific quantity.
 
 > **`id` is what `preview-change/` and `change-plan/` take.** Pass it straight through
 > as `plan_id`; there is no need to look the plan up by `code` first. Every response
@@ -137,7 +170,11 @@ below.
 
 **Zero side effects.** Nothing is created, charged or scheduled.
 
-**Request:** `{ "plan_id": "<uuid>" }`
+**Request:** `{ "plan_id": "<uuid>", "minutes": 2500 }`
+
+`minutes` *(integer, optional)* — the quantity to move to. Omitted, the tenant's current
+quantity is carried across and resolved into the new plan's band; a fixed-quantity pack
+always resolves to its single value.
 
 ```json
 {
@@ -194,7 +231,7 @@ serialised the same way it is persisted.
 Recomputes the quote server-side — a client-supplied amount is never trusted — then
 takes one of three paths.
 
-**Request:** `{ "plan_id": "<uuid>" }`
+**Request:** `{ "plan_id": "<uuid>", "minutes": 2500 }` — `minutes` optional, as above.
 
 **Paid change** returns a Razorpay order, same envelope as any other purchase. The plan
 does not change until the payment clears.
@@ -203,10 +240,15 @@ does not change until the payment clears.
 
 ```json
 { "data": { "change_type": "scheduled_change",
-            "plan_id": "9d4e…", "plan_code": "free_plan",
+            "plan_id": "9d4e…", "plan_code": "growth",
+            "selected_minutes": 600,
             "effective_at": "2026-09-01T00:00:00Z", "charged": false },
-  "message": "Downgrade to Free Tier scheduled for 01 Sep 2026. Nothing changes until then." }
+  "message": "Downgrade to Growth scheduled for 01 Sep 2026. Nothing changes until then." }
 ```
+
+`selected_minutes` is the quantity the change moves to. **A downgrade in quantity moves
+no plan at all** — the example above stays on Growth and drops from 1,200 minutes to 600 —
+so the quantity is stored alongside the plan and applied together when the cycle ends.
 
 Nothing about the current plan changes in the meantime — no second subscription is
 created, so the one-active constraint is never approached.
@@ -214,15 +256,21 @@ created, so the one-active constraint is never approached.
 **An upgrade clears any pending downgrade.** Otherwise one scheduled weeks ago fires
 later and silently undoes a change the tenant has just paid for.
 
-**Choosing the plan you are already on** returns `409 PLAN_UNCHANGED`. For a lapsed
-tenant the message points at `renew/`, which extends the existing subscription rather
+**Choosing the plan you are already on *at the same quantity*** returns
+`409 PLAN_UNCHANGED`. Choosing it at a **different** quantity is a real change — more
+minutes is an upgrade, fewer is a downgrade scheduled to the end of the cycle you have
+already paid for. That is the same sign test that decides every other change; nothing
+about it is special-cased.
+
+For a lapsed tenant the message points at `renew/`, which extends the existing subscription rather
 than opening a second one.
 
 ---
 
 ## `DELETE /billing/subscription/scheduled-change/`
 
-Drops a pending downgrade; the current plan simply continues.
+Drops a pending downgrade — **both the plan and the quantity it was moving to** — and
+the current subscription simply continues.
 
 Returns `409 NO_SCHEDULED_CHANGE` if nothing is scheduled.
 

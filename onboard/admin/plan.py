@@ -23,7 +23,7 @@ class PlanAdmin(BaseAdminCore):
         "name",
         "plan_type",
         "currency",
-        "base_price",
+        "total_price",
         "discount_percentage",
         "tax_percentage",
         "total_price_display",
@@ -71,7 +71,6 @@ class PlanAdmin(BaseAdminCore):
         }),
         ("Pricing Configuration", {
             "fields": (
-                "base_price",
                 "currency",
                 "billing_cycle",
             )

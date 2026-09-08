@@ -471,16 +471,25 @@ def unfreeze(tenant):
 
 
 @db_transaction.atomic
-def set_plan_context(tenant, plan, *, at=None):
+def set_plan_context(tenant, plan, *, at=None, low_balance_threshold=None):
     """Stamp a plan's rate card and alert threshold onto the wallet.
 
     Call this **before** granting the cycle's credits. A grant that lands first is
     credited while the wallet still carries the previous plan's prices, and any call
     in between is rated at the wrong tier.
+
+    ``low_balance_threshold`` is passed in because the plan alone can no longer answer
+    it: on a minutes-based plan the alert is a percentage of *this* subscription's
+    grant, and the plan does not know what that was. Omitted, it falls back to the
+    plan's absolute figure, which is what every legacy caller wants.
     """
     wallet = _lock(tenant)
     rating.stamp(wallet, plan, at=at, save=False)
-    wallet.low_balance_threshold = plan.low_balance_threshold
+    wallet.low_balance_threshold = (
+        plan.low_balance_threshold
+        if low_balance_threshold is None
+        else low_balance_threshold
+    )
     wallet.save(update_fields=[
         "rate_snapshot", "rate_snapshot_at", "current_plan",
         "low_balance_threshold", "updated_at",

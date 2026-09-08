@@ -235,10 +235,11 @@ class CallChargeTests(ConsumptionTestCase):
         # agrees with the balance. Breaking the wallet by hand would be testing the
         # bucket constraint rather than the shortfall.
         broke = make_tenant("consumption-broke")
-        broke_plan = make_plan(
-            "consumption-broke-plan", rates=RATES, allocated_credits=2
-        )
-        subscription_service.activate(broke, broke_plan)
+        broke_plan = make_plan("consumption-broke-plan", rates=RATES)
+        # A grant smaller than one minute of the plan's own rate is not something a
+        # plan can describe -- the grant is minutes x credits-per-minute. Two credits
+        # is an activation-time decision, the same override a negotiated deal uses.
+        subscription_service.activate(broke, broke_plan, credit_grant=2)
         broke_agent = make_agent(
             broke.tenant, service_tier=ServiceTier.CONVERSATION_HIGH_LATENCY
         )

@@ -50,14 +50,17 @@ class PlanFieldsSerializer(serializers.ModelSerializer):
             "code", "name", "description", "sort_order", "is_most_popular",
             "plan_type",
             # price
-            "base_price", "discount_percentage", "tax_percentage", "currency",
+            "discount_percentage", "tax_percentage", "currency",
             "billing_cycle",
+            # minutes — the band this plan sells and the tier it is sold at
+            "min_minutes", "max_minutes", "credit_basis",
             # credits
-            "allocated_credits", "cost_per_additional_credit",
-            "low_balance_threshold",
+            "cost_per_additional_credit",
+            "low_balance_threshold", "low_balance_percent",
             # rollover
             "allow_rollover_on_renewal", "allow_rollover_on_upgrade",
             "allow_rollover_on_downgrade", "max_rollover_credits",
+            "max_rollover_ratio",
             # what happens when a cycle ends
             "allow_use_after_expiry", "renews_without_payment",
             # derived
@@ -77,14 +80,21 @@ class PlanFieldsSerializer(serializers.ModelSerializer):
             "description": {"required": True, "allow_blank": True},
             "is_most_popular": {"required": True},
             "plan_type": {"required": True},
-            "base_price": {"required": True},
             "discount_percentage": {"required": True},
             "tax_percentage": {"required": True},
             "currency": {"required": True},
             "billing_cycle": {"required": True},
-            "allocated_credits": {"required": True},
+            # Not required: a plan may be legacy (fixed price, fixed credits) or
+            # minutes-based, and demanding a band would make the first unexpressible.
+            # Completeness is enforced at activation, where the whole ladder is
+            # visible, rather than field by field on the wire.
+            "min_minutes": {"required": False, "allow_null": True},
+            "max_minutes": {"required": False, "allow_null": True},
+            "credit_basis": {"required": False, "allow_null": True},
             "cost_per_additional_credit": {"required": True},
             "low_balance_threshold": {"required": True},
+            "low_balance_percent": {"required": False, "allow_null": True},
+            "max_rollover_ratio": {"required": False, "allow_null": True},
             "allow_rollover_on_renewal": {"required": True},
             "allow_rollover_on_upgrade": {"required": True},
             "allow_rollover_on_downgrade": {"required": True},
@@ -94,23 +104,9 @@ class PlanFieldsSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, attrs):
-        # `ck_plan_free_renewal_only_when_zero_cost` refuses this at the database, as
-        # an opaque 500. A paid plan that renews itself would silently stop billing.
-        base_price = attrs.get(
-            "base_price", getattr(self.instance, "base_price", None)
-        )
-        renews_free = attrs.get(
-            "renews_without_payment",
-            getattr(self.instance, "renews_without_payment", False),
-        )
-        if renews_free and (base_price or 0) > 0:
-            raise serializers.ValidationError({
-                "renews_without_payment": (
-                    "Only a ₹0 plan can renew without payment. This plan is charged "
-                    f"for at ₹{base_price}, so renewing it for nothing would give the "
-                    "product away."
-                )
-            })
+        # The 'a paid plan may not renew itself' rule lives in the readiness
+        # gate now (RENEWS_FREE_BUT_PRICED). The price is on the basis rate
+        # row, so it is a cross-table question a field serializer cannot see.
         return attrs
 
 
@@ -134,7 +130,7 @@ class PlanListSerializer(serializers.ModelSerializer):
         model = Plan
         fields = (
             "id", "code", "name", "status", "billing_cycle", "sort_order",
-            "base_price", "total_price", "allocated_credits", "is_most_popular",
+            "total_price", "is_most_popular",
             "subscriber_count", "entitlements_configured", "rates_configured",
             "is_complete",
         )

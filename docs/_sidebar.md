@@ -2,6 +2,7 @@
 
 <!-- * **🚀 Release Notes**
   * [Overview & Conventions](release-note/README.md)
+  * [1.0.2](release-note/1.0.2.md)
   * [1.0.1](release-note/1.0.1.md) -->
 
 <!-- * **📊 Executive Dashboard**
@@ -45,6 +46,7 @@
   * [Subscription Lifecycle](apiDocs/billing/subscription.md)
   * [Top-Ups & Add-Ons](apiDocs/billing/purchases.md)
   * [How Money Moves — pricing & payments](apiDocs/billing/money-and-payments.md)
+  * [Minutes-Driven Plans — what changed](flows/plan-v2-minutes.md)
   * [Razorpay Webhook](apiDocs/onboard/webhooks.md)
 
 * **🛠 Admin Console**

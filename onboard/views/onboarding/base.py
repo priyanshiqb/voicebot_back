@@ -22,6 +22,55 @@ class IsTempUserAuthenticated(BasePermission):
         return isinstance(request.user, TempUser)
 
 
+def billing_breakdown(plan, minutes=None):
+    """What the registrant will be charged, and what they get for it.
+
+    **One implementation, four callers** — verify-otp, update-plan and both
+    resume-session views all showed the customer a price, and all four built the same
+    dict by hand off the plan's catalogue price. That was survivable while a plan had one
+    price; with the price depending on a quantity it would be four chances to show a
+    figure that does not match the order.
+
+    Falls back to the plan's catalogue price for a legacy plan, which is exactly what
+    those four hand-rolled dicts did.
+    """
+    price = plan.price_components(minutes)
+    return {
+        "base_price": str(price.gross),
+        "discount_amount": str(price.discount),
+        "net_base_price": str(price.net),
+        "tax_percentage": str(plan.tax_percentage),
+        "tax_amount": str(price.tax),
+        "total_price": str(price.total),
+        "currency": plan.currency,
+        # Null on a legacy plan, so a client can tell the two apart without
+        # inspecting the plan.
+        "selected_minutes": minutes,
+        "price_per_minute_inr": (
+            str(plan.basis_rate().price_per_minute_inr)
+            if plan.is_minutes_based
+            else None
+        ),
+        "allocated_credits": plan.credits_for(minutes),
+    }
+
+
+def empty_billing_breakdown():
+    """The shape returned when a registrant has no plan selected yet."""
+    return {
+        "base_price": "0.00",
+        "discount_amount": "0.00",
+        "net_base_price": "0.00",
+        "tax_percentage": "0.00",
+        "tax_amount": "0.00",
+        "total_price": "0.00",
+        "currency": "INR",
+        "selected_minutes": None,
+        "price_per_minute_inr": None,
+        "allocated_credits": 0,
+    }
+
+
 def create_tenant_and_mapping(temp_user, user):
     """
     Creates a new Tenant organization for the onboarded registrant,

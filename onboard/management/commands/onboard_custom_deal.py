@@ -48,6 +48,16 @@ from onboard.models.timezone import Timezone
 #: is an open-ended hosting bill rather than a generous seat count.
 DEFAULT_STORAGE_GB = 10
 
+
+def _band_label(plan):
+    """A plan's minutes band, phrased for a prompt."""
+    if plan.is_fixed_quantity:
+        return f"exactly {plan.min_minutes:,} minutes"
+    low = f"{plan.min_minutes:,}" if plan.min_minutes is not None else "any"
+    high = f"{plan.max_minutes:,}" if plan.max_minutes is not None else "any"
+    return f"{low}-{high} minutes"
+
+
 class Command(BaseCommand):
     help = "Interactively onboard a business that paid offline, on negotiated terms."
 
@@ -193,8 +203,9 @@ class Command(BaseCommand):
         registrant = self._collect_registrant()
         address = self._collect_address()
         plan = self._select_plan()
-        payment = self._collect_payment(plan)
-        terms = self._collect_terms(plan)
+        minutes = self._collect_minutes(plan)
+        payment = self._collect_payment(plan, minutes)
+        terms = self._collect_terms(plan, minutes)
         entitlements = self._collect_entitlements(plan)
 
         self._review(registrant, address, plan, payment, terms, entitlements)
@@ -210,7 +221,7 @@ class Command(BaseCommand):
             return
 
         subscription = self._provision(
-            registrant, address, plan, payment, terms, entitlements
+            registrant, address, plan, payment, terms, entitlements, minutes
         )
         self._report(subscription, registrant)
 
@@ -295,32 +306,66 @@ class Command(BaseCommand):
         return self._ask_choice(
             "Plan",
             [
-                (p, f"{p.name} ({p.code}) — {p.currency} {p.total_price}, "
-                    f"{p.billing_cycle}, {p.allocated_credits} credits")
+                (p, f"{p.name} ({p.code}) — {p.billing_cycle}, "
+                    + (
+                        f"{_band_label(p)} at {p.currency} "
+                        f"{p.basis_rate().price_per_minute_inr}/min"
+                        if p.is_minutes_based
+                        else "not sold by the minute -- not selectable"
+                    ))
                 for p in plans
             ],
             default_index=1,
         )
 
-    def _collect_payment(self, plan):
+    def _collect_minutes(self, plan):
+        """The quantity, for a plan sold by the minute.
+
+        Asked before payment, because on such a plan the amount owed is a function
+        of it.
+
+        **Anything is accepted, including a quantity outside the published band.**
+        That is the whole point of this command: the band is an offer on a pricing
+        page, not a limit on what a business can agree in a meeting. The price and
+        the grant are both overridable further down, so an off-band quantity stays
+        coherent.
+        """
+        if not plan.is_minutes_based:
+            return None
+
+        self._heading("3b. Minutes")
+        self.stdout.write(
+            f"  {plan.name} sells {_band_label(plan)} at {plan.currency} "
+            f"{plan.basis_rate().price_per_minute_inr}/min, "
+            f"{plan.credits_per_minute()} credits/min.\n"
+            "  A negotiated quantity outside that band is accepted.\n"
+        )
+        return self._ask_int(
+            "Minutes per cycle",
+            default=plan.min_minutes or plan.max_minutes or 0,
+        )
+
+    def _collect_payment(self, plan, minutes=None):
         self._heading("4. Payment received")
         self.stdout.write(
             "  Recorded as already paid and verified — the money arrived outside the\n"
             "  gateway, so there is nothing left to confirm.\n"
         )
-        amount = self._ask_decimal("Amount received", default=plan.total_price)
+        amount = self._ask_decimal(
+            "Amount received", default=plan.price_components(minutes).total
+        )
         reference = self._ask(
             "Payment reference (bank UTR, cheque number, invoice)"
         )
         return {"amount": amount, "reference": reference}
 
-    def _collect_terms(self, plan):
+    def _collect_terms(self, plan, minutes=None):
         self._heading("5. Negotiated terms")
         self.stdout.write("  Defaults are the plan's. Override anything.\n")
 
         credits = self._ask_int(
             "Credits to grant for this cycle",
-            default=plan.allocated_credits or 0,
+            default=plan.credits_for(minutes) or 0,
         )
         max_rollover = self._ask_int(
             "Max rollover credits", default=plan.max_rollover_credits or 0
@@ -462,7 +507,8 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
 
     @db_transaction.atomic
-    def _provision(self, registrant, address, plan, payment, terms, entitlements):
+    def _provision(self, registrant, address, plan, payment, terms, entitlements,
+                   minutes=None):
         from onboard.services import subscriptions as subscription_service
         from onboard.views.onboarding.base import create_tenant_and_mapping
         from user.models.CustomUser import CustomUser
@@ -518,6 +564,7 @@ class Command(BaseCommand):
         subscription = subscription_service.activate(
             tenant,
             plan,
+            minutes=minutes,
             transaction=txn,
             credit_grant=terms["credits"],
             notes=f"Manual enterprise onboarding — {payment['reference']}",

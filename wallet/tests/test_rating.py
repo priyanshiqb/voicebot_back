@@ -368,7 +368,9 @@ class SnapshotTests(TestCase):
         self.assertEqual(first.rate_applied, 8)
         self.assertEqual(abs(first.amount), 8)
 
-        cheaper = make_plan("snapshot-plan-cheaper", rates={
+        # The grant has to divide by the rate — a plan's band is grant ÷ rate, and a
+        # remainder would cost this test the exact 3 credits/min it is about.
+        cheaper = make_plan("snapshot-plan-cheaper", allocated_credits=999, rates={
             Operation.CONVERSATION_HIGH_LATENCY: 3,
         })
         wallet_service.set_plan_context(self.tenant, cheaper)

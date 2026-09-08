@@ -3,8 +3,12 @@ from rest_framework import status
 
 from utils.views.base_model_viewset import ResponseMixin
 from onboard.models import Plan
+from onboard.models.plan import MAX_SELECTABLE_MINUTES, coerce_minutes
 from onboard.authentication import TempUserAuthentication
-from onboard.views.onboarding.base import IsTempUserAuthenticated
+from onboard.views.onboarding.base import (
+    IsTempUserAuthenticated,
+    billing_breakdown as build_breakdown,
+)
 from onboard.serializers.onboarding import UpdatePlanSerializer, UpdatePlanResponseSerializer, GeneralResponseSerializer
 from drf_spectacular.utils import extend_schema
 
@@ -38,20 +42,46 @@ class UpdatePlanView(ResponseMixin, APIView):
                 status_code=status.HTTP_404_NOT_FOUND
             )
 
-        # Update the selected plan in the TempUser record
+        # **Re-validated against the new plan, not carried over.** A registrant on
+        # 1,200 minutes who switches to a plan selling up to 500 has to be stopped
+        # here; letting it through means the quantity and the plan disagree until
+        # checkout, where the failure is much less explicable.
+        raw = request.data.get("minutes", temp_user.selected_minutes)
+        minutes = coerce_minutes(raw)
+        if plan.is_minutes_based:
+            if minutes is None:
+                return self.error(
+                    message=f"{plan.name} is sold by the minute; tell us how many.",
+                    errors=["MINUTES_REQUIRED"],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            if minutes > MAX_SELECTABLE_MINUTES:
+                return self.error(
+                    message=(
+                        f"Minutes must be between 1 and "
+                        f"{MAX_SELECTABLE_MINUTES:,}."
+                    ),
+                    errors=["MINUTES_OUT_OF_BAND"],
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            if not plan.contains_minutes(minutes):
+                return self.error(
+                    message=f"{plan.name} does not sell {minutes:,} minutes.",
+                    errors=["MINUTES_OUT_OF_BAND"],
+                    data={
+                        "min_minutes": plan.min_minutes,
+                        "max_minutes": plan.max_minutes,
+                    },
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            minutes = None
+
         temp_user.selected_plan = plan
+        temp_user.selected_minutes = minutes
         temp_user.save()
 
-        # Compute updated price breakdown dynamically
-        billing_breakdown = {
-            "base_price": str(plan.base_price),
-            "discount_amount": str(plan.discount_amount),
-            "net_base_price": str(plan.net_base_price),
-            "tax_percentage": str(plan.tax_percentage),
-            "tax_amount": str(plan.tax_amount),
-            "total_price": str(plan.total_price),
-            "currency": plan.currency
-        }
+        billing_breakdown = build_breakdown(plan, temp_user.selected_minutes)
 
         return self.success(
             data={

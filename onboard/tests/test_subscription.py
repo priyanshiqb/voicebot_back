@@ -4,6 +4,7 @@ from rest_framework.test import APITestCase
 from onboard.models.plan import Plan
 from user.models import CustomUser
 from decimal import Decimal
+from onboard.tests.billing_factories import make_plan
 
 
 class SubscriptionTests(APITestCase):
@@ -22,7 +23,6 @@ class SubscriptionTests(APITestCase):
             code="free_plan",
             name="Free Plan",
             description="Perfect for testing",
-            base_price=Decimal("0.00"),
             discount_percentage=Decimal("0.00"),
             tax_percentage=Decimal("0.00"),
             currency=Plan.CurrencyChoices.INR,
@@ -32,21 +32,16 @@ class SubscriptionTests(APITestCase):
             is_active=True
         )
 
-        # Create a paid plan
-        self.paid_plan = Plan.objects.create(
-            # Live plan: `status` drives `is_active`, and it defaults to DRAFT.
-            status=Plan.Status.ACTIVE,
-            code="premium_plan",
+        # Through the factory: a plan without a rate card has no price to freeze.
+        # `base_price` is translated into a band and a per-minute price, so the
+        # figures this test asserts are unchanged.
+        self.paid_plan = make_plan(
+            "premium_plan",
             name="Premium Plan",
-            description="Unlimited power",
             base_price=Decimal("150.00"),
             discount_percentage=Decimal("10.00"),
             tax_percentage=Decimal("18.00"),
-            currency=Plan.CurrencyChoices.INR,
-            billing_cycle=Plan.BillingCycleChoices.MONTHLY,
-            plan_type=Plan.PlanTypeChoices.PAID,
             sort_order=2,
-            is_active=True
         )
 
         self.tenant = Tenant.objects.create(
@@ -70,7 +65,7 @@ class SubscriptionTests(APITestCase):
         # Check that plan_snapshot is generated automatically
         self.assertIsNotNone(subscription.plan_snapshot)
         self.assertEqual(subscription.plan_snapshot["code"], "premium_plan")
-        self.assertEqual(subscription.plan_snapshot["name"], "Premium Plan")
+        self.assertEqual(subscription.plan_snapshot["name"], self.paid_plan.name)
         self.assertEqual(subscription.plan_snapshot["base_price"], "150.00")
         self.assertEqual(subscription.plan_snapshot["total_price"], "159.30")  # 150 - 15 (discount) + 24.30 (tax) = 159.30
 

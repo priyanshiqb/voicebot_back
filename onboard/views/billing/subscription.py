@@ -61,6 +61,8 @@ class CurrentSubscriptionView(_PurchaseBase):
                     "name": subscription.plan.name,
                     "billing_cycle": subscription.plan.billing_cycle,
                 },
+                "selected_minutes": subscription.selected_minutes,
+                "allocated_credits": subscription.allocated_credits,
                 "start_date": subscription.start_date,
                 "end_date": subscription.end_date,
                 "days_remaining": days_left,
@@ -69,6 +71,7 @@ class CurrentSubscriptionView(_PurchaseBase):
                     {
                         "plan_id": str(subscription.scheduled_plan_id),
                         "plan_code": subscription.scheduled_plan.code,
+                        "selected_minutes": subscription.scheduled_minutes,
                         "effective_at": subscription.scheduled_change_at,
                     }
                     if subscription.scheduled_plan_id
@@ -102,8 +105,36 @@ class EligiblePlansView(_PurchaseBase):
         if error:
             return error
 
+        # Optional: price every plan at a quantity the tenant is considering rather
+        # than at the one they hold. Without it the table answers "what does each plan
+        # cost at some quantity nobody asked about".
+        try:
+            requested_minutes = int(request.query_params.get("minutes") or 0) or None
+        except (TypeError, ValueError):
+            requested_minutes = None
+
+        # Pricing a plan reads its basis rate, so the whole catalogue's open rows are
+        # fetched once rather than one plan at a time. QB-11 measures this.
+        from django.db.models import Prefetch
+
+        from wallet.models import CreditRate
+
+        catalogue = (
+            Plan.objects.filter(is_active=True, is_deleted=False)
+            .order_by("sort_order")
+            .prefetch_related(
+                Prefetch(
+                    "credit_rates",
+                    queryset=CreditRate.objects.filter(
+                        is_deleted=False, effective_to__isnull=True
+                    ),
+                    to_attr="open_rates",
+                )
+            )
+        )
+
         plans = []
-        for plan in Plan.objects.filter(is_active=True, is_deleted=False).order_by("sort_order"):
+        for plan in catalogue:
             entry = {
                 # `preview-change/` and `change-plan/` both take `plan_id`, so the
                 # id has to be here -- otherwise picking a plan from this list means
@@ -114,7 +145,9 @@ class EligiblePlansView(_PurchaseBase):
                 "description": plan.description,
                 "billing_cycle": plan.billing_cycle,
                 "total_price": str(plan.total_price),
-                "allocated_credits": plan.allocated_credits,
+                "min_minutes": plan.min_minutes,
+                "max_minutes": plan.max_minutes,
+                "is_fixed_quantity": plan.is_fixed_quantity,
                 "is_current": plan.pk == subscription.plan_id,
                 "is_most_popular": plan.is_most_popular,
             }
@@ -124,9 +157,12 @@ class EligiblePlansView(_PurchaseBase):
                 entry["amount_due"] = "0.00"
             else:
                 try:
-                    quote = pricing.quote_plan_change(subscription, plan)
+                    quote = pricing.quote_plan_change(
+                        subscription, plan, minutes=requested_minutes
+                    )
                     entry["change_type"] = quote.detail["change_type"]
                     entry["amount_due"] = str(quote.total)
+                    entry["selected_minutes"] = quote.detail.get("selected_minutes")
                     entry["effective_at"] = quote.detail["effective_at"]
                 except pricing.PricingError as exc:
                     # A plan that cannot be priced is still worth listing — the tenant
@@ -181,7 +217,9 @@ class RenewSubscriptionView(_PurchaseBase):
 
         plan = subscription.plan
         addons = entitlement_service.recurring_total(tenant.id)
-        net = plan.net_base_price + addons
+        # The plan half priced for what this tenant actually bought, not for the
+        # catalogue.
+        net = pricing.net_for(plan, subscription.selected_minutes) + addons
         quote = pricing.Quote(
             net=pricing._money(net),
             tax=pricing._money(net * (plan.tax_percentage or 0) / 100),
@@ -234,8 +272,9 @@ class PreviewPlanChangeView(_PurchaseBase):
                               errors=["PLAN_NOT_FOUND"],
                               status_code=status.HTTP_404_NOT_FOUND)
 
+        minutes = payload.validated_data.get("minutes")
         try:
-            quote = pricing.quote_plan_change(subscription, plan)
+            quote = pricing.quote_plan_change(subscription, plan, minutes=minutes)
         except pricing.PricingError as exc:
             return self.error(message=str(exc), errors=["PLAN_UNCHANGED"],
                               status_code=status.HTTP_409_CONFLICT)
@@ -244,10 +283,15 @@ class PreviewPlanChangeView(_PurchaseBase):
             "upgrade" if quote.detail["change_type"] != pricing.SCHEDULED_CHANGE
             else "downgrade"
         )
+        # The quantity the quote settled on, not the one that was asked for -- the
+        # credit preview has to describe the same purchase the price does.
+        settled = quote.detail.get("selected_minutes")
         return self.success(
             data={
                 "money": quote.as_breakdown(),
-                "credits": pricing.credit_impact(subscription, plan, reason=reason),
+                "credits": pricing.credit_impact(
+                    subscription, plan, reason=reason, minutes=settled
+                ),
             },
             message="Preview calculated",
         )
@@ -294,9 +338,17 @@ class ChangePlanView(_PurchaseBase):
                               errors=["PLAN_NOT_FOUND"],
                               status_code=status.HTTP_404_NOT_FOUND)
 
-        if plan.pk == subscription.plan_id:
-            # Coming back on the plan you already had is a renewal, and renew/ is the
-            # endpoint that extends the existing row rather than starting a new one.
+        minutes = payload.validated_data.get("minutes")
+        settled = plan.resolve_minutes(
+            minutes if minutes is not None else subscription.selected_minutes
+        )
+
+        # **The plan and the quantity together are what identifies a sale.** Buying
+        # more minutes of the plan you are already on is a real change and a real
+        # upgrade; only a request that moves neither is refused.
+        if plan.pk == subscription.plan_id and settled == subscription.selected_minutes:
+            # Coming back on exactly what you already had is a renewal, and renew/ is
+            # the endpoint that extends the existing row rather than starting a new one.
             return self.error(
                 message=(
                     "That is the plan you are already on. Use the renew endpoint to "
@@ -309,7 +361,7 @@ class ChangePlanView(_PurchaseBase):
         try:
             # Recomputed here rather than trusting anything the client sends. A quote
             # is a display artefact; the charge is decided by the server.
-            quote = pricing.quote_plan_change(subscription, plan)
+            quote = pricing.quote_plan_change(subscription, plan, minutes=minutes)
         except pricing.PricingError as exc:
             return self.error(message=str(exc), errors=["PLAN_UNCHANGED"],
                               status_code=status.HTTP_409_CONFLICT)
@@ -317,11 +369,14 @@ class ChangePlanView(_PurchaseBase):
         change_type = quote.detail["change_type"]
 
         if change_type == pricing.SCHEDULED_CHANGE:
-            subscription_service.schedule_plan_change(subscription, plan)
+            subscription_service.schedule_plan_change(
+                subscription, plan, minutes=settled
+            )
             return self.success(
                 data={"change_type": change_type,
                       "plan_id": str(plan.pk),
                       "plan_code": plan.code,
+                      "selected_minutes": settled,
                       "effective_at": subscription.end_date,
                       "charged": False},
                 message=(
@@ -331,10 +386,13 @@ class ChangePlanView(_PurchaseBase):
             )
 
         if change_type == pricing.IMMEDIATE_FREE:
-            subscription_service.apply_plan_change(subscription, plan, reason="upgrade")
+            subscription_service.apply_plan_change(
+                subscription, plan, minutes=settled, reason="upgrade"
+            )
             return self.success(
                 data={"change_type": change_type, "plan_id": str(plan.pk),
-                      "plan_code": plan.code, "charged": False},
+                      "plan_code": plan.code, "selected_minutes": settled,
+                      "charged": False},
                 message=f"Moved to {plan.name}.",
             )
 

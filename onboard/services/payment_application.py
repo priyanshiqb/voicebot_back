@@ -133,7 +133,10 @@ def _apply_onboarding(transaction):
 
     tenant = create_tenant_and_mapping(temp_user, user)
     subscription_service.activate(
-        tenant, temp_user.selected_plan, transaction=transaction
+        tenant,
+        temp_user.selected_plan,
+        minutes=temp_user.selected_minutes,
+        transaction=transaction,
     )
 
     BillingAddress.objects.filter(temp_user=temp_user).update(
@@ -265,10 +268,25 @@ def _apply_upgrade(transaction):
         )
         bonus_days = Decimal("0")
 
+    # Same rule as bonus_days: read back what was quoted, never recompute. The
+    # tenant paid for a specific quantity, and the plan's band may have moved since
+    # the order was raised.
+    selected_minutes = breakdown.get("selected_minutes")
+    try:
+        selected_minutes = int(selected_minutes) if selected_minutes else None
+    except (TypeError, ValueError):
+        logger.warning(
+            "upgrade order %s has an unreadable selected_minutes (%r); falling back "
+            "to the tenant's current quantity",
+            transaction.razorpay_order_id, breakdown.get("selected_minutes"),
+        )
+        selected_minutes = None
+
     subscription_service.cancel_scheduled_change(subscription)
     subscription_service.apply_plan_change(
         subscription,
         transaction.target_plan,
+        minutes=selected_minutes,
         transaction=transaction,
         reason="upgrade",
         bonus_days=bonus_days,

@@ -55,7 +55,14 @@ def process_billing_cycle():
                 ):
                     new_plan = subscription.scheduled_plan
                     subscription_service.apply_plan_change(
-                        subscription, new_plan, reason="downgrade"
+                        subscription,
+                        new_plan,
+                        # None keeps the current quantity, which is what a plan-only
+                        # downgrade wants. Set when the tenant scheduled a drop in
+                        # minutes -- without passing it the change would fire having
+                        # moved nothing.
+                        minutes=subscription.scheduled_minutes,
+                        reason="downgrade",
                     )
                     changed += 1
                     continue

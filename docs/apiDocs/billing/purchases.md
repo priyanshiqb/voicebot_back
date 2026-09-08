@@ -19,6 +19,13 @@ A credit is worth the same whenever it is bought and never expires out of the
 purchased bucket. Capacity is *rented* for the remainder of the cycle, so buying 20 GB
 on day 20 of 30 costs a third of a cycle's price.
 
+> ✅ **Unaffected by minutes-driven plans (1.0.2).** Both endpoints are unchanged.
+> A top-up is bought in **credits** at `cost_per_additional_credit`; an add-on is
+> **capacity** priced in rupees per cycle. Neither is measured in minutes, so neither
+> gained a field. A renewal order is still the plan's price plus whatever capacity is
+> still held — the plan half is now priced from the subscription's quantity.
+> [What changed elsewhere](../../flows/plan-v2-minutes.md).
+
 ## Endpoints Summary
 
 > **The arithmetic behind every price on this page** — proration, plan changes,

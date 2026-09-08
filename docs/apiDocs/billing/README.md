@@ -11,6 +11,8 @@ and is scoped to that user's tenant.
 
 ---
 
+> ⚠️ **Plans are sold by the minute as of 1.0.2.** The customer names a quantity; the plan, the price and the credit grant all follow from it. [What changed, end to end](../../flows/plan-v2-minutes.md).
+
 ## Two things are metered, and they behave nothing alike
 
 This is the single most important thing to understand before building against these

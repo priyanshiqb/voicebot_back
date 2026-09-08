@@ -5,6 +5,8 @@ from onboard.serializers.plan import (
     PlanDropdownSerializer,
 )
 from utils.views.base_model_viewset import BaseViewSet
+from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import (
     extend_schema,
@@ -113,7 +115,26 @@ class PlanViewSet(BaseViewSet):
     queryset = Plan.objects.all()
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        """Plans with their open rate rows attached.
+
+        The serializer reports `is_minutes_based`, `is_fixed_quantity` and the entry
+        price, and every one of those reads the plan's basis rate. Without the
+        prefetch that is a query per plan on an endpoint that is public, unpaginated
+        and hit by every visitor to the pricing page.
+        """
+        from django.db.models import Prefetch
+
+        from wallet.models import CreditRate
+
+        queryset = super().get_queryset().prefetch_related(
+            Prefetch(
+                "credit_rates",
+                queryset=CreditRate.objects.filter(
+                    is_deleted=False, effective_to__isnull=True
+                ).order_by("operation"),
+                to_attr="open_rates",
+            )
+        )
         if self.action in ["list", "dropdown"]:
             return queryset.filter(is_active=True)
         return queryset
@@ -130,7 +151,7 @@ class PlanViewSet(BaseViewSet):
 
     ordering_fields = [
         "name",
-        "base_price",
+        "sort_order",
         "sort_order",
         "created_at",
     ]
@@ -141,7 +162,6 @@ class PlanViewSet(BaseViewSet):
         "plan_type": ["exact"],
         "currency": ["exact"],
         "billing_cycle": ["exact"],
-        "base_price": ["gte", "lte"],
         "tax_percentage": ["gte", "lte"],
         "discount_percentage": ["gte", "lte"],
         "created_at": ["date", "gte", "lte"],
@@ -169,3 +189,155 @@ class PlanViewSet(BaseViewSet):
     def get_permissions(self):
         """Public read. Every action left on this viewset is one."""
         return [AllowAny()]
+
+    @extend_schema(
+        summary="Find the plan that sells a given number of minutes",
+        description=(
+            "The entry point for minutes-driven signup: the customer says how many "
+            "minutes they need, and this returns the one plan that sells them, "
+            "priced and with the credit grant worked out.\n\n"
+            "**`selected_minutes` may differ from `requested_minutes`.** Where the "
+            "catalogue is built from fixed-quantity packs, a request is rounded up "
+            "to the smallest pack that covers it, and `rounded_up` says so. "
+            "`selected_minutes` is the quantity that is actually sold, priced and "
+            "granted — it is the number to send back when creating the order.\n\n"
+            "Returns 404 when nothing covers the request, with the nearest bands "
+            "either side so the page can say what *is* available."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="minutes",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Minutes the customer needs per billing cycle.",
+            ),
+            OpenApiParameter(
+                name="billing_cycle",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="monthly (default) or yearly.",
+            ),
+            OpenApiParameter(
+                name="currency",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="ISO code. INR by default.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="The plan, its price and its credits."),
+            400: OpenApiResponse(response=GeneralResponseSerializer,
+                                 description="Missing or nonsensical quantity."),
+            404: OpenApiResponse(response=GeneralResponseSerializer,
+                                 description="No plan sells that quantity."),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="for-minutes")
+    def for_minutes(self, request):
+        from onboard.services import plan_selection, pricing
+
+        raw = request.query_params.get("minutes")
+        try:
+            minutes = int(raw)
+        except (TypeError, ValueError):
+            return self.error(
+                message="Tell us how many minutes you need.",
+                errors=["INVALID_MINUTES"],
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if minutes <= 0 or minutes > pricing.MAX_SELECTABLE_MINUTES:
+            return self.error(
+                message=(
+                    f"Minutes must be between 1 and "
+                    f"{pricing.MAX_SELECTABLE_MINUTES:,}."
+                ),
+                errors=["INVALID_MINUTES"],
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        billing_cycle = request.query_params.get("billing_cycle") or None
+        currency = request.query_params.get("currency") or "INR"
+
+        # Loaded once and passed down: `for_minutes` and `nearest_bands` would
+        # otherwise each rebuild the whole ladder.
+        ladder = plan_selection.ladder(billing_cycle=billing_cycle, currency=currency)
+        plan, sold = plan_selection.for_minutes(minutes, plans=ladder)
+
+        if plan is None:
+            return self.error(
+                message="We do not have a plan for that many minutes yet.",
+                errors=["NO_PLAN_FOR_MINUTES"],
+                data=plan_selection.nearest_bands(minutes, plans=ladder),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            quote = pricing.quote_plan(plan, sold)
+        except pricing.PricingError as exc:
+            # The ladder said this plan sells the quantity and pricing disagreed,
+            # which means the catalogue is inconsistent rather than the request bad.
+            return self.error(
+                message=str(exc),
+                errors=["PLAN_NOT_SELLABLE"],
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        return self.success(
+            data={
+                "plan": {
+                    "id": str(plan.pk),
+                    "code": plan.code,
+                    "name": plan.name,
+                    "description": plan.description,
+                    "billing_cycle": plan.billing_cycle,
+                    "currency": plan.currency,
+                    "min_minutes": plan.min_minutes,
+                    "max_minutes": plan.max_minutes,
+                    "is_fixed_quantity": plan.is_fixed_quantity,
+                    "is_most_popular": plan.is_most_popular,
+                },
+                "requested_minutes": minutes,
+                "selected_minutes": sold,
+                # True only where a pack covers a smaller request. The page has to be
+                # able to say "the 5,000-minute pack covers your 1,200" rather than
+                # quietly quoting a number the customer never typed.
+                "rounded_up": sold != minutes,
+                "money": {
+                    "basis": plan.credit_basis,
+                    "price_per_minute_inr": str(quote.detail["price_per_minute_inr"]),
+                    "gross": str(quote.detail["gross"]),
+                    "discount": str(quote.detail["discount"]),
+                    "net": str(quote.net),
+                    "tax": str(quote.tax),
+                    "total": str(quote.total),
+                    "tax_percentage": str(quote.tax_percentage),
+                    "currency": plan.currency,
+                },
+                "credits": {
+                    "per_minute": quote.detail["credits_per_minute"],
+                    "granted": quote.detail["allocated_credits"],
+                    # What the grant is actually worth on each tier. Without this the
+                    # promise "1,200 minutes" is only true on the basis tier, and the
+                    # customer has no way to see that.
+                    "equivalent_minutes": self._equivalent_minutes(
+                        plan, quote.detail["allocated_credits"]
+                    ),
+                },
+                "entitlements": PlanSerializer(plan).data["entitlements"],
+                "rates": PlanSerializer(plan).data["rates"],
+            },
+            message="Plan matched",
+        )
+
+    def _equivalent_minutes(self, plan, credits):
+        """How far the grant goes on each tier, not just the one it was sold at."""
+        rates = getattr(plan, "open_rates", None)
+        if rates is None:
+            rates = plan.credit_rates.filter(is_deleted=False, effective_to__isnull=True)
+        return {
+            rate.operation: (credits // rate.credits_per_unit)
+            for rate in rates
+            if rate.credits_per_unit
+        }

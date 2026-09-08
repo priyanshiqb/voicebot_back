@@ -18,6 +18,10 @@ from onboard.serializers.onboarding import (
     GeneralResponseSerializer,
 )
 from onboard.authentication import generate_temp_token
+from onboard.views.onboarding.base import (
+    billing_breakdown as build_breakdown,
+    empty_billing_breakdown as empty_breakdown,
+)
 from drf_spectacular.utils import extend_schema
 
 User = get_user_model()
@@ -128,15 +132,10 @@ class ResumeSessionView(ResponseMixin, APIView):
 
         # Get their selected plan
         plan = temp_user.selected_plan
-        billing_breakdown = {
-            "base_price": str(plan.base_price) if plan else "0.00",
-            "discount_amount": str(plan.discount_amount) if plan else "0.00",
-            "net_base_price": str(plan.net_base_price) if plan else "0.00",
-            "tax_percentage": str(plan.tax_percentage) if plan else "0.00",
-            "tax_amount": str(plan.tax_amount) if plan else "0.00",
-            "total_price": str(plan.total_price) if plan else "0.00",
-            "currency": plan.currency if plan else "INR"
-        }
+        billing_breakdown = (
+            build_breakdown(plan, temp_user.selected_minutes)
+            if plan else empty_breakdown()
+        )
 
         # Check if they have already saved a billing address
         billing_address = BillingAddress.objects.filter(temp_user=temp_user).first()
@@ -167,6 +166,7 @@ class ResumeSessionView(ResponseMixin, APIView):
                     "name": plan.name if plan else None,
                     "code": plan.code if plan else None
                 } if plan else None,
+                "selected_minutes": temp_user.selected_minutes,
                 "billing_breakdown": billing_breakdown,
                 "billing_address": billing_address_data,
                 "razorpay_order_id": pending_transaction.razorpay_order_id if pending_transaction else None

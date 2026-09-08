@@ -111,8 +111,22 @@ class Command(BaseCommand):
             issues = []
             if missing:
                 issues.append(f"no rate for {', '.join(sorted(missing))}")
-            if plan.allocated_credits == 0 and plan.plan_type != "pay_as_you_go":
-                issues.append("grants 0 credits per cycle")
+            if plan.is_minutes_based:
+                # A minutes plan grants per minute, so a zero here means nothing.
+                # What can break it is the basis row going missing or losing its
+                # rupee price after activation -- a rate edit, not a plan edit, so
+                # the activation gate never sees it.
+                if plan.credits_per_minute() in (None, 0):
+                    issues.append(
+                        f"sold at {plan.credit_basis} but that tier grants no credits"
+                    )
+                if plan.basis_rate() is None:
+                    issues.append(f"no open rate for its basis tier {plan.credit_basis}")
+            else:
+                issues.append("has no basis tier, so it can neither be priced nor grant credits")
+
+            if plan.credit_basis and not plan.is_minutes_based:
+                issues.append("has a basis tier but cannot be sold by the minute")
             if entitlements < len(EntitlementResource.values):
                 issues.append(f"only {entitlements}/{len(EntitlementResource.values)} entitlements configured")
 
@@ -120,13 +134,49 @@ class Command(BaseCommand):
                 problems += 1
                 self.stdout.write(self.style.WARNING(f"  {plan.code:26} {'; '.join(issues)}"))
             else:
+                summary = (
+                    f"{plan.min_minutes or 'any'}-{plan.max_minutes or 'any'} min "
+                    f"@ {plan.basis_rate().price_per_minute_inr}/min"
+                    if plan.is_minutes_based
+                    else "no basis"
+                )
                 self.stdout.write(
-                    f"  {plan.code:26} {plan.allocated_credits:>6} credits, "
+                    f"  {plan.code:26} {summary}, "
                     f"{len(priced.get(plan.pk, set()))} rates, {entitlements} entitlements"
                 )
 
+        problems += self._ladder_findings()
+
         if not problems:
             self.stdout.write(self.style.SUCCESS("  every active plan is fully configured"))
+
+    def _ladder_findings(self):
+        """Overlaps and gaps across each minutes ladder.
+
+        Activation refuses a plan that would break its ladder, but a ladder can also
+        be broken *after* the fact -- by retiring the plan that covered the middle of
+        it, or by editing a band on a plan that is already live. Nothing else looks.
+        """
+        from onboard.models import Plan
+        from onboard.services import plan_selection
+
+        found = 0
+        for cycle in Plan.BillingCycleChoices.values:
+            ladder = plan_selection.ladder(billing_cycle=cycle)
+            if not ladder:
+                continue
+
+            problems = plan_selection.ladder_problems(ladder)
+            for problem in problems:
+                found += 1
+                self.stdout.write(
+                    self.style.ERROR(f"  {cycle} ladder: {problem['message']}")
+                )
+            if not problems:
+                self.stdout.write(
+                    f"  {cycle} ladder: {len(ladder)} band(s), no overlaps or gaps"
+                )
+        return found
 
     def _wallet_findings(self, tenant):
         """Balance must agree with the ledger, per bucket."""

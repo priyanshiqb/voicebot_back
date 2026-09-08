@@ -23,6 +23,7 @@ from onboard.services import subscriptions as subscription_service
 from onboard.tests.billing_factories import (
     assert_invariant,
     make_free_plan,
+    add_rates,
     make_plan,
     make_tenant,
     make_transaction,
@@ -191,9 +192,12 @@ class ActivateTests(LifecycleTestCase):
     def test_sl11_a_plan_that_grants_nothing_writes_no_row(self):
         """SL-11: a zero-amount ledger row is rejected by the non-zero constraint,
         and would be noise even if it were not."""
-        no_credits = make_plan("lifecycle-no-credits", allocated_credits=0)
+        # A plan cannot describe "grants nothing" any more -- the grant is minutes
+        # times credits-per-minute and both are positive. `credit_grant=0` is where
+        # that decision lives now, and the assertion below is unchanged.
+        no_credits = make_plan("lifecycle-no-credits")
 
-        subscription_service.activate(self.tenant, no_credits)
+        subscription_service.activate(self.tenant, no_credits, credit_grant=0)
 
         self.assertEqual(self.rows(entry_type=EntryType.CYCLE_ALLOCATION).count(), 0)
         wallet = assert_invariant(self, self.tenant)
@@ -224,7 +228,7 @@ class ActivateTests(LifecycleTestCase):
         subscription_service.activate(self.tenant, free)
 
         wallet = assert_invariant(self, self.tenant)
-        self.assertEqual(wallet.balance, free.allocated_credits)
+        self.assertEqual(wallet.balance, free.credits_for(free.min_minutes))
         self.assertEqual(len(wallet.rate_snapshot["operations"]), 3)
 
 
@@ -434,9 +438,15 @@ class RenewTests(LifecycleTestCase):
         """SL-27: **a renewal is a future cycle**, and this is where a price or
         rule change legitimately reaches an existing customer."""
         subscription = subscription_service.activate(self.tenant, self.plan)
-        self.plan.base_price = Decimal("1500.00")
-        self.plan.allocated_credits = 1200
-        self.plan.save(update_fields=["base_price", "allocated_credits"])
+
+        # The price and the grant now live on the basis rate row, and re-pricing means
+        # superseding it rather than editing a column. The plan sells 200 minutes, so
+        # 7.50/min and 6 credits/min is the same change this test always made:
+        # ₹1,500 a cycle, 1,200 credits.
+        current = self.plan.basis_rate()
+        current.effective_to = timezone.now()
+        current.save(update_fields=["effective_to"])
+        add_rates(self.plan, {Operation.CONVERSATION_HIGH_LATENCY: (6, Decimal("7.5000"))})
 
         renewed = subscription_service.renew(subscription)
 

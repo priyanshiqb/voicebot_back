@@ -4,6 +4,7 @@ What changed, release by release — written for the people integrating against 
 
 | Version | Date | Summary |
 |---|---|---|
+| [1.0.2](1.0.2.md) | unreleased | Minutes-driven plans: bands, per-minute pricing, `for-minutes/`, quantity on signup and change-plan, `base_price` and `allocated_credits` removed |
 | [1.0.1](1.0.1.md) | 2026-08-14 | Session retention & zero-query validation, FCM device-token lifecycle, push delivery hardening, session↔device link, push self-test endpoint |
 
 ---

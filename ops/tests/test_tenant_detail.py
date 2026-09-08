@@ -77,15 +77,18 @@ class FullyConfiguredTests(TestCase):
         """Read through `rules`, never off the live plan."""
         self.assertEqual(
             self.data["subscription"]["rules"]["allocated_credits"],
-            self.plan.allocated_credits,
+            self.plan.credits_for(self.plan.min_minutes),
         )
 
     def test_wallet_block_carries_the_stamped_rate_card(self):
         """Not derivable from anything else on the screen."""
         block = self.data["wallet"]
         self.assertTrue(block["exists"])
-        self.assertEqual(block["balance"], self.plan.allocated_credits)
-        self.assertEqual(block["allocated_balance"], self.plan.allocated_credits)
+        self.assertEqual(block["balance"], self.plan.credits_for(self.plan.min_minutes))
+        self.assertEqual(
+            block["allocated_balance"],
+            self.plan.credits_for(self.plan.min_minutes),
+        )
         self.assertIsNotNone(block["rate_snapshot"])
         self.assertIn("operations", block["rate_snapshot"])
 
@@ -102,8 +105,8 @@ class FullyConfiguredTests(TestCase):
         rows = self.data["ledger"]
         self.assertTrue(rows)
         self.assertEqual(rows[0]["entry_type"], "cycle_allocation")
-        self.assertEqual(rows[0]["amount"], self.plan.allocated_credits)
-        self.assertEqual(rows[0]["balance_after"], self.plan.allocated_credits)
+        self.assertEqual(rows[0]["amount"], self.plan.credits_for(self.plan.min_minutes))
+        self.assertEqual(rows[0]["balance_after"], self.plan.credits_for(self.plan.min_minutes))
 
     def test_usage_counts_calls_and_minutes(self):
         make_call_log(self.ctx, duration_seconds=90)

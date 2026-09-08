@@ -180,7 +180,10 @@ class VerifyPaymentView(ResponseMixin, APIView):
                 # Idempotent against the webhook doing the same thing first.
                 from onboard.services import subscriptions as subscription_service
                 subscription_service.activate(
-                    tenant, temp_user.selected_plan, transaction=transaction
+                    tenant,
+                    temp_user.selected_plan,
+                    minutes=temp_user.selected_minutes,
+                    transaction=transaction,
                 )
 
                 # Link BillingAddress and Transaction to the new active CustomUser

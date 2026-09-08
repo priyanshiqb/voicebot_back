@@ -18,7 +18,7 @@ Status = Plan.Status
 
 def make_plan(code, **kwargs):
     return Plan.objects.create(
-        code=code, name=code, base_price=Decimal("999.00"), **kwargs
+        code=code, name=code, **kwargs
     )
 
 

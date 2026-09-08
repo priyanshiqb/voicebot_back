@@ -1,0 +1,357 @@
+{
+  "_note": "Allowances for the placeholder minutes plans. Gauges - rupees per cycle, never credits.",
+  "app_label": "onboard",
+  "model": "planentitlement",
+  "unique_fields": [
+    "plan_id",
+    "resource"
+  ],
+  "fk": [
+    {
+      "field": "plan",
+      "app_label": "onboard",
+      "model": "plan",
+      "lookup_fields": [
+        "code"
+      ]
+    }
+  ],
+  "data": [
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "agent",
+      "included_quantity": 2,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "299.00",
+      "addon_step": 1,
+      "max_additional": 10
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "user",
+      "included_quantity": 3,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 1,
+      "max_additional": 15
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "contact",
+      "included_quantity": 2000,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 3,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 100,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 5,
+      "reset_period": "monthly",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "starter_minutes"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 5,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 10,
+      "max_additional": 100
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "agent",
+      "included_quantity": 5,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "249.00",
+      "addon_step": 1,
+      "max_additional": 25
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "user",
+      "included_quantity": 10,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "129.00",
+      "addon_step": 1,
+      "max_additional": 50
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "contact",
+      "included_quantity": 20000,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 10,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 500,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 25,
+      "reset_period": "monthly",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 25,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "179.00",
+      "addon_step": 10,
+      "max_additional": 500
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "agent",
+      "included_quantity": 20,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "199.00",
+      "addon_step": 1,
+      "max_additional": 100
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "user",
+      "included_quantity": 50,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "99.00",
+      "addon_step": 1,
+      "max_additional": 250
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "contact",
+      "included_quantity": 200000,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 50,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 5000,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 200,
+      "reset_period": "monthly",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "scale_minutes"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 100,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "149.00",
+      "addon_step": 10,
+      "max_additional": 2000
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "agent",
+      "included_quantity": 5,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "249.00",
+      "addon_step": 1,
+      "max_additional": 25
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "user",
+      "included_quantity": 10,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "129.00",
+      "addon_step": 1,
+      "max_additional": 50
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "contact",
+      "included_quantity": 20000,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "knowledge_base",
+      "included_quantity": 10,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "crawl_page",
+      "included_quantity": 500,
+      "reset_period": "none",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "campaign_monthly",
+      "included_quantity": 25,
+      "reset_period": "monthly",
+      "is_addon_available": false,
+      "price_per_additional": "0.00",
+      "addon_step": 1,
+      "max_additional": null
+    },
+    {
+      "plan": {
+        "code": "growth_minutes_yearly"
+      },
+      "resource": "storage_gb",
+      "included_quantity": 25,
+      "reset_period": "none",
+      "is_addon_available": true,
+      "price_per_additional": "179.00",
+      "addon_step": 10,
+      "max_additional": 500
+    }
+  ]
+}

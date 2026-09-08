@@ -9,7 +9,6 @@
       "code": "free_plan",
       "name": "Free Tier",
       "description": "Standard free plan for trial users.",
-      "base_price": "0.00",
       "discount_percentage": "0.00",
       "tax_percentage": "0.00",
       "currency": "INR",
@@ -17,8 +16,7 @@
       "plan_type": "free",
       "sort_order": 1,
       "is_most_popular": false,
-      "is_active": true,
-      "allocated_credits": 100,
+      "is_active": false,
       "cost_per_additional_credit": "0.00",
       "max_rollover_credits": null,
       "allow_rollover_on_renewal": false,
@@ -26,13 +24,13 @@
       "allow_rollover_on_downgrade": false,
       "allow_use_after_expiry": false,
       "low_balance_threshold": 20,
-      "renews_without_payment": false
+      "renews_without_payment": false,
+      "status": "retired"
     },
     {
       "code": "starter_inr",
       "name": "Starter INR",
       "description": "Perfect for individuals and small startups in India.",
-      "base_price": "999.00",
       "discount_percentage": "0.00",
       "tax_percentage": "18.00",
       "currency": "INR",
@@ -40,8 +38,7 @@
       "plan_type": "paid",
       "sort_order": 2,
       "is_most_popular": false,
-      "is_active": true,
-      "allocated_credits": 1000,
+      "is_active": false,
       "cost_per_additional_credit": "1.20",
       "max_rollover_credits": 1000,
       "allow_rollover_on_renewal": false,
@@ -49,13 +46,13 @@
       "allow_rollover_on_downgrade": false,
       "allow_use_after_expiry": false,
       "low_balance_threshold": 100,
-      "renews_without_payment": false
+      "renews_without_payment": false,
+      "status": "retired"
     },
     {
       "code": "professional_inr",
       "name": "Professional INR",
       "description": "Advanced tools for growing teams in India.",
-      "base_price": "2999.00",
       "discount_percentage": "10.00",
       "tax_percentage": "18.00",
       "currency": "INR",
@@ -63,8 +60,7 @@
       "plan_type": "paid",
       "sort_order": 3,
       "is_most_popular": true,
-      "is_active": true,
-      "allocated_credits": 3500,
+      "is_active": false,
       "cost_per_additional_credit": "1.00",
       "max_rollover_credits": 3500,
       "allow_rollover_on_renewal": true,
@@ -72,13 +68,13 @@
       "allow_rollover_on_downgrade": false,
       "allow_use_after_expiry": false,
       "low_balance_threshold": 350,
-      "renews_without_payment": false
+      "renews_without_payment": false,
+      "status": "retired"
     },
     {
       "code": "starter_inr_yearly",
       "name": "Starter INR Yearly",
       "description": "Perfect for individuals and small startups - Billed Yearly.",
-      "base_price": "9999.00",
       "discount_percentage": "0.00",
       "tax_percentage": "18.00",
       "currency": "INR",
@@ -86,8 +82,7 @@
       "plan_type": "paid",
       "sort_order": 5,
       "is_most_popular": false,
-      "is_active": true,
-      "allocated_credits": 12000,
+      "is_active": false,
       "cost_per_additional_credit": "1.20",
       "max_rollover_credits": 12000,
       "allow_rollover_on_renewal": false,
@@ -95,13 +90,13 @@
       "allow_rollover_on_downgrade": false,
       "allow_use_after_expiry": false,
       "low_balance_threshold": 1200,
-      "renews_without_payment": false
+      "renews_without_payment": false,
+      "status": "retired"
     },
     {
       "code": "professional_inr_yearly",
       "name": "Professional INR Yearly",
       "description": "Advanced tools for growing teams - Billed Yearly.",
-      "base_price": "29999.00",
       "discount_percentage": "10.00",
       "tax_percentage": "18.00",
       "currency": "INR",
@@ -109,8 +104,7 @@
       "plan_type": "paid",
       "sort_order": 6,
       "is_most_popular": true,
-      "is_active": true,
-      "allocated_credits": 42000,
+      "is_active": false,
       "cost_per_additional_credit": "1.00",
       "max_rollover_credits": 42000,
       "allow_rollover_on_renewal": true,
@@ -118,7 +112,9 @@
       "allow_rollover_on_downgrade": false,
       "allow_use_after_expiry": false,
       "low_balance_threshold": 4200,
-      "renews_without_payment": false
+      "renews_without_payment": false,
+      "status": "retired"
     }
-  ]
+  ],
+  "_note": "The original fixed-price catalogue. These plans predate minutes-based selling and have no basis tier, so they can neither be priced nor grant credits -- they are seeded RETIRED, which is what migration 0035 does to any that survived. Kept so existing subscriptions still resolve their plan. New plans live in plan_v2.json or are created from the admin console."
 }

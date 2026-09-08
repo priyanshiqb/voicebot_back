@@ -4,6 +4,9 @@
     "plan",
     "plan_entitlement",
     "credit_rate",
-    "language"
+    "language",
+    "plan_v2",
+    "plan_entitlement_v2",
+    "credit_rate_v2"
   ]
 }

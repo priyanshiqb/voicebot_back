@@ -42,7 +42,6 @@ class SignupEmailLoggingTests(TestCase):
             code="basic_inr",
             name="Basic Plan",
             description="Starter",
-            base_price=Decimal("1000.00"),
             discount_percentage=Decimal("0.00"),
             tax_percentage=Decimal("18.00"),
             currency=Plan.CurrencyChoices.INR,
