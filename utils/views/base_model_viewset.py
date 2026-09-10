@@ -16,6 +16,7 @@ from utils.permissions.login_window import (
     IsWithinLoginWindow
 )
 from tenant.common.views.agent_tenant_scope import VBAgentActionPermission
+from utils.views.ordering import MappedOrderingFilter
 
 class SetPagination(PageNumberPagination):
     page_size = 10
@@ -101,7 +102,11 @@ class BaseViewSet(ResponseMixin, ModelViewSet):
     filter_backends = (
         DjangoFilterBackend,
         filters.SearchFilter,
-        filters.OrderingFilter,
+        # MappedOrderingFilter, not filters.OrderingFilter: identical behaviour unless
+        # the viewset declares `ordering_field_map`, which lets a listing sort on a
+        # column the client sees as one field but the queryset spells differently
+        # (an annotation alias, or a path through a relation).
+        MappedOrderingFilter,
     )
 
     """
@@ -542,6 +547,17 @@ class BaseViewSet(ResponseMixin, ModelViewSet):
     """
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
+
+    # Public ordering name -> what it resolves to on the queryset. A value may be a
+    # single term or a tuple of them (sorting by "full_name" when the model stores
+    # first and last separately). Names still have to appear in `ordering_fields`.
+    ordering_field_map = {}
+
+    # Columns appended after the client's own, to give a total order. Worth setting on
+    # any paginated list sortable by a low-cardinality column: most rows end up tied,
+    # SQL does not promise a stable order among ties, and page 2 can then repeat a row
+    # from page 1 and skip another. Empty means "leave the SQL alone".
+    ordering_tiebreaker = ()
 
     select_related_fields = []
     prefetch_related_fields = []

@@ -1,6 +1,8 @@
 from onboard.constants.entitlement_resource import EntitlementResource
 from tenant.common.views.entitlement_guard import EntitlementGuardMixin
 import django_filters
+from django.db.models import Value
+from django.db.models.functions import Concat, Lower, Trim
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -99,9 +101,45 @@ class ContactViewSet(EntitlementGuardMixin, ImportExportMixin, TenantBaseViewSet
         "email_address",
         "company",
     ]
-    ordering_fields = ["created_at", "updated_at", "first_name", "last_name", "company"]
+    ordering_fields = [
+        "created_at",
+        "updated_at",
+        "first_name",
+        "last_name",
+        # The columns the contact table actually renders, so every header is sortable.
+        "full_name",
+        "phone_e164",
+        "email_address",
+        "company",
+        "consent_status",
+    ]
+    # `full_name` is a model property, not a column, so it cannot be ordered on
+    # directly. It resolves to the annotation added in get_queryset() — which is
+    # deliberately NOT called `full_name`: DRF assigns annotations onto the instance,
+    # and the read-only property of that name would make the assignment raise.
+    ordering_field_map = {"full_name": "_full_name"}
+    # `company` and `consent_status` are both low-cardinality — a book of 500 contacts
+    # has a handful of distinct values — so sorting on either leaves almost every row
+    # tied and paging over the ties is not reproducible without this.
+    ordering_tiebreaker = ("-created_at", "id")
     ordering = ["-created_at"]
     select_related_fields = ["tenant"]
+
+    # A contact's name lives in two columns. Concatenating them here is what makes
+    # "sort by name" mean what the user sees in the row, rather than sorting everyone
+    # with a blank first name to one end. Lower() so the sort is A-Z rather than
+    # Postgres' byte order, which files every lowercase name after every uppercase one.
+    FULL_NAME_ORDER_EXPR = Lower(
+        Trim(Concat("first_name", Value(" "), "last_name"))
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Only where it is used. Every action shares this method, and there is no
+        # reason to compute the expression for a retrieve or a delete.
+        if self.action in {"list", "export_data"}:
+            queryset = queryset.annotate(_full_name=self.FULL_NAME_ORDER_EXPR)
+        return queryset
 
     @extend_schema(exclude=True)
     @action(

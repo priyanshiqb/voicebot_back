@@ -61,6 +61,17 @@ An event template defines duration, buffers, how a host is chosen, and the booki
 
 ### 2. Get Dropdown List
 - **Path**: `GET /api/v1/core/event-templates/dropdown/`
+
+> **Returns active templates only** (BUG-000923). This is a picker, and everything downstream of
+> picking refuses an inactive template — the availability and booking endpoints both scope their
+> queryset to `is_active=True` — so offering one produced a choice that could only fail. It was
+> most visible in manual booking, where selecting an inactive template went straight on to call
+> slot availability and surfaced the refusal as an error there.
+>
+> The **list** endpoint is unaffected and still returns inactive templates: it is the management
+> table, and they have to be visible to be reactivated or deleted. Filter it with `?is_active=true`
+> if you want the dropdown's set from there.
+
 - **Success Response (200 OK)**:
   ```json
   {

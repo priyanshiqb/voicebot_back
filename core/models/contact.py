@@ -2,6 +2,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
 
 from tenant.common.models.tenant_base_model import TenantBaseModel
@@ -99,6 +100,27 @@ class Contact(TenantBaseModel):
                 condition=models.Q(is_deleted=False),
                 name="unique_active_contact_phone_tenant",
             ),
+            # Names are unique per tenant, case-insensitively, so "John Smith" and
+            # "john smith" collide the way a user expects them to. Surrounding
+            # whitespace is stripped by the serializer before it ever reaches here.
+            #
+            # Two carve-outs, both deliberate:
+            #   * soft-deleted rows are excluded, matching the phone constraint — a
+            #     deleted contact must not reserve a name forever;
+            #   * wholly unnamed contacts are excluded, because a name is optional here
+            #     and every contact captured from an inbound call arrives with none.
+            #     Without this, the second such contact could never be created.
+            models.UniqueConstraint(
+                Lower("first_name"),
+                Lower("last_name"),
+                "tenant",
+                condition=models.Q(is_deleted=False)
+                & ~models.Q(first_name="", last_name=""),
+                name="unique_active_contact_name_tenant",
+                violation_error_message=(
+                    "A contact with this name already exists."
+                ),
+            ),
         ]
         indexes = [
             models.Index(fields=["tenant", "phone_e164"]),
@@ -150,18 +172,13 @@ class Contact(TenantBaseModel):
         """
         Un-delete, refusing to create a duplicate.
 
-        The unique constraint only covers live rows, so a number freed by soft-deleting
-        this contact may have been taken since. Without this check the restore raises a
-        raw IntegrityError out of the admin.
+        Both unique constraints only cover live rows, so the number *and* the name this
+        contact freed by being soft-deleted may have been taken since. Without these
+        checks the restore raises a raw IntegrityError out of the admin.
         """
-        clash = (
-            Contact.objects.filter(
-                tenant_id=self.tenant_id, phone_e164=self.phone_e164
-            )
-            .exclude(pk=self.pk)
-            .exists()
-        )
-        if clash:
+        siblings = Contact.objects.filter(tenant_id=self.tenant_id).exclude(pk=self.pk)
+
+        if siblings.filter(phone_e164=self.phone_e164).exists():
             raise ValidationError(
                 {
                     "phone_number": (
@@ -170,4 +187,17 @@ class Contact(TenantBaseModel):
                     )
                 }
             )
+
+        if (self.first_name or self.last_name) and siblings.filter(
+            first_name__iexact=self.first_name, last_name__iexact=self.last_name
+        ).exists():
+            raise ValidationError(
+                {
+                    "first_name": (
+                        "Another active contact already uses this name. "
+                        "Rename that contact before restoring this one."
+                    )
+                }
+            )
+
         super().restore()

@@ -207,10 +207,23 @@ class CalendarOAuthApiTests(TestCase):
         )
 
     def test_callback_rejects_bad_state(self):
+        """
+        A tampered or expired state connects nothing.
+
+        The response is a 302 back to the Integrations page carrying
+        `reason=invalid_state`, not a 400, whenever FRONTEND_PROJECT_URL is set —
+        the callback runs in the host's browser mid-redirect, and the commonest way
+        to reach here is taking longer than the state's 10-minute life on Google's
+        consent screen. That deserves a page, not raw JSON. What is asserted here is
+        the part that matters: nothing was connected.
+        """
         response = self.client.get(
             "/api/v1/core/calendar-integrations/callback/?code=abc&state=tampered"
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertIn(response.status_code, (302, 400))
+        if response.status_code == 302:
+            self.assertIn("reason=invalid_state", response["Location"])
+        self.assertFalse(CalendarIntegration.objects.exists())
 
     @patch("core.services.calendars.GoogleCalendarProvider.exchange_code")
     def test_callback_reuses_the_row_for_the_tenant_user_pair(self, mock_exchange):

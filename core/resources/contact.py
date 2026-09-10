@@ -23,6 +23,31 @@ class ContactResource(TenantModelResource):
     ContactImportSession flow, which adds conflict review and phone normalization.
     """
 
+    # The exported columns, in order. `id` and `phone_e164` are deliberately absent:
+    # both are internal. `id` is a UUID nobody re-keys by hand, and `phone_e164` is the
+    # normalized twin of `phone_number` — two columns of the same number in every file.
+    #
+    # Removing them from Meta.fields alone would NOT drop them. `id` is declared on
+    # TenantModelResource (import_id_fields resolves through self.fields, so it must
+    # be), and _get_ordered_field_names appends every declared field that Meta.fields
+    # omitted — relocating the column to the end rather than removing it. EXPORT_FIELDS
+    # is the switch that actually decides. Import is unaffected: it reads whatever
+    # columns the uploaded file has, and `id` still resolves an existing row.
+    EXPORT_FIELDS = (
+        "first_name",
+        "last_name",
+        "phone_number",
+        "email_address",
+        "company",
+        "tags",
+        "notes",
+        "source",
+        "consent_status",
+        "do_not_call",
+        "is_active",
+        "created_at",
+    )
+
     class Meta:
         model = Contact
         fields = (

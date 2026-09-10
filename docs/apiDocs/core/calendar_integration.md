@@ -67,27 +67,42 @@ without a bearer token, and stops a leaked callback URL being replayed.
 
 Google's redirect target. **Your code never calls this** — a browser does, after consent.
 
-- **Auth**: none. Trust comes from the signed `state` minted at connect.
+**Both `…/callback` and `…/callback/` work.** Set `GOOGLE_CALENDAR_REDIRECT_URI` to whichever you
+registered in the Google console and the two must match character-for-character, trailing slash
+included, or Google returns `redirect_uri_mismatch` before reaching us at all.
+
+- **Auth**: none, on either spelling. Trust comes from the signed `state` minted at connect.
 - On success: exchanges the code, stores **encrypted** tokens, sets `sync_status = CONNECTED`,
   and establishes a push watch if `GOOGLE_CALENDAR_WEBHOOK_URL` is configured.
-- Then **redirects the browser** to `{FRONTEND_PROJECT_URL}/integrations` — so the host lands back
-  in your app, not on a JSON page. If `FRONTEND_PROJECT_URL` is unset it returns
-  `200 "Calendar connected successfully."` instead.
+- Then **redirects the browser** to `{FRONTEND_PROJECT_URL}/integrations?calendar_status=connected`
+  — so the host lands back in your app, not on a JSON page. If `FRONTEND_PROJECT_URL` is unset it
+  returns `200 "Calendar connected successfully."` instead.
+- On failure it redirects to the same page with
+  `?calendar_status=error&reason=<slug>`, so the UI can show something. `reason` is one of our own
+  slugs, listed below — never provider text. With no `FRONTEND_PROJECT_URL` it returns the JSON
+  error instead, carrying the same slug in `errors.code`.
 
-| Status | When | `message` |
+| Status | When | `reason` / `message` |
 |---|---|---|
-| **302** | Connected; redirecting to the front-end. | — |
+| **302** | Connected; redirecting to the front-end. | `calendar_status=connected` |
 | **200** | Connected, but no `FRONTEND_PROJECT_URL` configured. | `Calendar connected successfully.` |
-| **400** | `code` or `state` missing from the redirect. | `Missing code or state.` |
-| **400** | `state` signature invalid or older than its max age. | `Invalid or expired state.` |
-| **400** | `state` nonce already consumed — a replay, or a double-submitted callback. | `State token already used or invalid.` |
-| **400** | The tenant in the state no longer exists. | `Unknown tenant.` |
-| **400** | Token exchange with the provider failed — expired code, revoked consent, or a scope mismatch. | `Failed to connect calendar.` |
-| **500** | Encryption key not configured. | `Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.` |
+| **302** / **400** | The host declined the Google consent screen. | `consent_denied` — `Calendar access was not granted.` |
+| **302** / **400** | `code` or `state` missing from the redirect. | `missing_code` — `Missing code or state.` |
+| **302** / **400** | `state` signature invalid or older than its max age. | `invalid_state` — `Invalid or expired state.` |
+| **302** / **400** | `state` nonce already consumed — a replay, or a double-submitted callback. | `state_already_used` — `State token already used or invalid.` |
+| **302** / **400** | The tenant in the state no longer exists. | `unknown_tenant` — `Unknown tenant.` |
+| **302** / **400** | Token exchange with the provider failed — expired code, revoked consent. | `exchange_failed` — `Failed to connect calendar.` |
+| **302** / **500** | Encryption key not configured. | `missing_encryption_key` — `Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.` |
 
 > The errors are deliberately terse and do not echo the provider's response, since this endpoint is
 > unauthenticated. When a host reports a failed connect, check the server logs — the underlying
 > cause is logged with a stack trace.
+>
+> **Granted scopes may differ from requested ones, and that is not an error.** The connect URL is
+> built with `include_granted_scopes=true`, so Google returns a token covering everything this
+> host has already granted the OAuth client, plus its own normalisation. oauthlib treats any
+> difference as fatal by default; the exchange relaxes that, or the flow would fail for exactly
+> the hosts who have connected something else before and pass in testing with a fresh account.
 >
 > **Reconnecting is safe.** One integration per `(tenant, user)`, so running the flow again updates
 > the existing row rather than creating a duplicate. This is the fix for `REAUTH_REQUIRED`.

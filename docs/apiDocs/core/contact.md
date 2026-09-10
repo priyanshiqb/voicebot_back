@@ -10,8 +10,8 @@ Four things to understand before you build against this:
   it; the server normalizes and stores both. A client-supplied `phone_e164` is ignored outright,
   because letting the identity key drift from the raw number defeats every duplicate check that
   depends on it.
-- **Uniqueness is per tenant and applies only to live rows.** Soft-deleting a contact releases its
-  number for reuse.
+- **Two things are unique per tenant, both only among live rows:** the phone number, and the
+  name. Soft-deleting a contact releases both for reuse.
 - **Bulk creation does not happen here.** `POST /contacts/import/` deliberately returns **405** —
   use the staged [Contact Import](./contact_import.md) flow, which normalizes and shows you
   conflicts before anything is written.
@@ -70,6 +70,25 @@ tenant can never share a number; a soft-deleted one does not block reuse.
 
 ---
 
+## Name uniqueness
+
+`(tenant, lower(first_name), lower(last_name))` is unique among non-deleted rows (BUG-001234).
+Two live contacts in the same tenant cannot share a name.
+
+- **Case-insensitive, and whitespace is trimmed first.** `John Smith`, `john smith` and
+  `  John  ` / `Smith` are all the same name.
+- **Both halves count together.** `John Smith` does not collide with `John Doe`.
+- **Wholly unnamed contacts are exempt**, and there may be any number of them. A name is
+  optional here and contacts captured from an inbound call arrive without one, so a rule that
+  made `("", "")` unique would let exactly one such contact exist.
+- **Soft-deleted contacts do not hold their name**, the same way they do not hold their number.
+  Restoring one through the admin fails if the name has been taken since.
+
+A duplicate is a **400** on `first_name`, not a 500 — the check runs in the serializer and the
+partial unique index behind it catches anything that races past.
+
+---
+
 ## Consent & suppression
 
 | Field | Type | Meaning |
@@ -104,7 +123,7 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
 | `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
 | `search` | string | Partial, case-insensitive match across `first_name`, `last_name`, `phone_e164`, `phone_number`, `email_address`, `company`. | Words are split on spaces and **AND**ed; each word must match at least one field. |
-| `ordering` | string | Sort. Default `-created_at`. | Only `created_at`, `updated_at`, `first_name`, `last_name`, `company`, each optionally `-` prefixed. Anything else is ignored silently. |
+| `ordering` | string | Sort. Default `-created_at`. | Only `created_at`, `updated_at`, `first_name`, `last_name`, `full_name`, `phone_e164`, `email_address`, `company`, `consent_status`, each optionally `-` prefixed. Comma-separate for multiple keys. Anything else is ignored silently. |
 | `is_active` | boolean | Exact match. | `true` / `false`. |
 | `do_not_call` | boolean | Exact match. Use to build a suppression list. | `true` / `false`. |
 | `consent_status` | string | Exact match. | One of the four choices; unknown value → **400**. |
@@ -112,6 +131,12 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
 | `company` | string | **Exact, case-sensitive** match on the whole field. | `?company=Acme` will not match `acme corp`. Use `search` for partial matching. |
 | `tags` | string | Comma-separated. Matches contacts carrying **ANY** of these tags. | Blank entries are dropped; an all-blank value is a no-op, not an error. |
 | `tags_all` | string | Comma-separated. Matches contacts carrying **ALL** of them. | Same. |
+
+> **Every sort is tie-broken by `-created_at` then `id`.** `company` and
+> `consent_status` have a handful of distinct values across a whole contact book, so
+> sorting on either leaves almost every row tied — and SQL makes no promise about the
+> order of tied rows between two queries. Without the tiebreaker, page 2 can repeat a
+> row from page 1 and skip another.
 
 > **Searching by phone: use the digits.** `search` splits on spaces, so `?search=+1 (415)` becomes
 > two terms that must *both* match. Search `4155552671` or `+14155552671` instead — `phone_e164`
@@ -182,8 +207,8 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
 | Field | Type | Description | Validation |
 |---|---|---|---|
 | `phone_number` * | string | The person's number, in any shape you have it. This is the only required field — a contact with no name is legal, one with no number is not. | Max **32** characters. Must normalize to a valid E.164 number (see [Phone numbers](#phone-numbers--read-this-first)). Must not already belong to a live contact in this tenant. |
-| `first_name` | string | Given name. | Optional, may be blank. Max **120**. |
-| `last_name` | string | Family name. | Optional, may be blank. Max **120**. |
+| `first_name` | string | Given name. | Optional, may be blank. Max **120**. Trimmed. Together with `last_name`, must not match a live contact in this tenant — see [Name uniqueness](#name-uniqueness). |
+| `last_name` | string | Family name. | Optional, may be blank. Max **120**. Trimmed. See `first_name`. |
 | `email_address` | string | Email. Not unique — two contacts may share one. | Optional. Must be a valid email address. Max **254**. |
 | `company` | string | Organisation name. Used by the exact-match `company` filter, so keep it consistent if you intend to filter on it. | Optional. Max **200**. |
 | `tags` | string array | Free-form labels for segmentation. | Optional, default `[]`. At most **25** entries (`CONTACT_MAX_TAGS_PER_CONTACT`). Each tag max **50** characters. Entries are trimmed; blank ones are dropped; duplicates are removed, keeping first-seen order. |
@@ -259,6 +284,7 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
 | **400** | The configured default region is not a real ISO-3166 code. | `'XX' is not a recognised region code.` | `{"phone_number": [...]}` |
 | **400** | Number parses but is not valid for its country. | `'<value>' is not a valid phone number.` | `{"phone_number": [...]}` |
 | **400** | A live contact in this tenant already has this number. | `A contact with this phone number already exists.` | `{"phone_number": [...]}` |
+| **400** | A live contact in this tenant already has this name. | `A contact with this name already exists.` | `{"first_name": [...]}` |
 | **400** | More than 25 tags. | `A contact may have at most 25 tags.` | `{"tags": [...]}` |
 | **400** | A tag longer than 50 characters. | `Each tag may be at most 50 characters.` | `{"tags": [...]}` |
 | **400** | Invalid `email_address`, unknown `source` / `consent_status`, or a field over its max length. | field message | `{"<field>": [...]}` |
@@ -310,6 +336,7 @@ The duplicate case returns a clean field error rather than a 500:
 | **200** | Updated. | `Updated successfully` | `null` |
 | **400** | Any validation failure from §2. | as above | `{"<field>": [...]}` |
 | **400** | The new number already belongs to **another** live contact in this tenant. | `A contact with this phone number already exists.` | `{"phone_number": [...]}` |
+| **400** | The new name already belongs to **another** live contact in this tenant. | `A contact with this name already exists.` | `{"first_name": [...]}` |
 | **401** / **403** / **404** | As in §3. | — | — |
 
 > **Changing `phone_number` changes identity.** `phone_e164` and `phone_region` are re-derived on
@@ -425,8 +452,13 @@ Sorted by `count` descending, then alphabetically (case-insensitive) for ties.
 Every List filter and `search` term also applies here, so you can export a segment rather than the
 whole book: `?do_not_call=true&file_format=xlsx`.
 
-**Columns:** `id`, `first_name`, `last_name`, `phone_number`, `phone_e164`, `email_address`,
-`company`, `tags`, `notes`, `source`, `consent_status`, `do_not_call`, `is_active`, `created_at`.
+**Columns:** `first_name`, `last_name`, `phone_number`, `email_address`, `company`, `tags`,
+`notes`, `source`, `consent_status`, `do_not_call`, `is_active`, `created_at`.
+
+> **`id` and `phone_e164` are not exported** (BUG-001207). `id` is an internal UUID, and
+> `phone_e164` is the normalized twin of `phone_number` — it put the same number in the file
+> twice. Import still accepts an `id` column to match an existing row, so a file exported before
+> this change re-imports unchanged.
 
 | Status | When | Body |
 |---|---|---|

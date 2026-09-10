@@ -21,6 +21,14 @@ session until its `status` settles.
 
 Download the template: `GET /api/v1/core/contact-imports/template/`
 
+**CSV by default; `?file_format=xlsx` for a workbook.** The filename always matches the bytes —
+`contacts_template.csv` or `contacts_template.xlsx`. The CSV carries a UTF-8 BOM and CRLF line
+endings so Excel opens it without mangling non-ASCII names.
+
+> The default was briefly `xlsx` while clients still saved the download as `contacts_template.csv`.
+> That put a zip container behind a `.csv` name, and Excel — which sniffs the content — refused it
+> with *"The file format and extension of 'contacts_template.csv' don't match."*
+
 | Column | Required | Notes |
 |---|---|---|
 | `first_name` | | |
@@ -76,7 +84,7 @@ The session row itself always survives as an audit record.
 | Status | Meaning |
 |---|---|
 | `PENDING` | Clean; will create a new contact |
-| `INVALID` | Malformed — missing/unparseable phone, bad email |
+| `INVALID` | Malformed — missing/unparseable phone, bad email, or a name that is already taken |
 | `CONFLICT_EXISTING` | Phone matches a live contact |
 | `CONFLICT_DUPLICATE` | Phone appears more than once in this file |
 | `CONFLICT_ARCHIVED` | Phone matches a soft-deleted contact |
@@ -88,6 +96,16 @@ The session row itself always survives as an audit record.
 > `status` is **never writable by the client.** It is re-derived from validation after
 > every edit. Allowing a client to set it would let a row be marked resolved without the
 > duplicate actually being fixed, which then fails at commit.
+
+> **A taken name is `INVALID`, not a `CONFLICT_*`.** Contact names are unique per tenant
+> (see [Contacts → Name uniqueness](./contact.md#name-uniqueness)), and a row is flagged when
+> its name is already held by a live contact (`A contact with this name already exists.`) or
+> appears twice in the file (`This name appears more than once in the file.`).
+>
+> The conflict statuses exist so you can choose between creating and updating, and neither
+> choice resolves a name collision — the only way out is to edit the name, which is what
+> `INVALID` asks for. `PATCH` the row's `first_name` / `last_name` and it revalidates to
+> `PENDING`. Rows left `INVALID` are simply not written.
 
 ---
 

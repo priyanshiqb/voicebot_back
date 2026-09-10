@@ -120,27 +120,43 @@ class ContactImportViewSet(TenantBaseViewSet):
         description=(
             "Headers plus one example row. Tags are pipe-delimited (`vip|lead`); "
             "phone numbers should be in international format unless you pass a region. "
-            "Returns an Excel file by default, or CSV if `?file_format=csv` is passed."
+            "Returns CSV by default, or an Excel workbook if `?file_format=xlsx` is "
+            "passed. The filename always matches the bytes."
         ),
         parameters=[
-            OpenApiParameter(name="file_format", required=False, type=str, description="csv or xlsx. Default is xlsx."),
+            OpenApiParameter(name="file_format", required=False, type=str, description="csv or xlsx. Default is csv."),
         ],
         responses={200: bytes},
     )
     @action(detail=False, methods=["get"], url_path="template")
     def template(self, request, *args, **kwargs):
-        file_format = request.query_params.get("file_format", "xlsx").lower()
-        if file_format == "csv":
-            response = HttpResponse(
-                import_service.build_template_csv(), content_type="text/csv"
+        """
+        CSV is the default, and the format decides the filename.
+
+        The default was briefly xlsx while clients still saved the download as
+        `contacts_template.csv`, which put a zip container behind a `.csv` name — Excel
+        sniffs the content, sees the mismatch, and refuses to open it without the
+        "format and extension don't match" warning. Anything that varies here has to
+        vary in both places at once, so the two are derived from one value below.
+        """
+        file_format = (request.query_params.get("file_format") or "csv").lower()
+
+        if file_format == "xlsx":
+            body = import_service.build_template_xlsx()
+            content_type = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            response["Content-Disposition"] = 'attachment; filename="contacts_template.csv"'
+            extension = "xlsx"
         else:
-            response = HttpResponse(
-                import_service.build_template_xlsx(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-            response["Content-Disposition"] = 'attachment; filename="contacts_template.xlsx"'
+            body = import_service.build_template_csv()
+            # charset is explicit so the BOM the body carries is not second-guessed.
+            content_type = "text/csv; charset=utf-8"
+            extension = "csv"
+
+        response = HttpResponse(body, content_type=content_type)
+        response["Content-Disposition"] = (
+            f'attachment; filename="contacts_template.{extension}"'
+        )
         return response
 
     # ------------------------------------------------------------------

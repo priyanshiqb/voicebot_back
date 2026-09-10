@@ -1,7 +1,9 @@
 """Google Calendar provider. All google/* SDK imports are lazy (inside methods)
 so the module loads without the libraries and tests can substitute a fake."""
 
+import hashlib
 import logging
+import os
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
@@ -21,6 +23,37 @@ logger = logging.getLogger(__name__)
 GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 GOOGLE_REVOKE_URI = "https://oauth2.googleapis.com/revoke"
+
+
+def _pkce_cache_key(state):
+    """
+    Cache key for a flow's PKCE verifier.
+
+    Hashed rather than interpolated: `state` is a signed payload a few hundred
+    characters long, and Django's cache key limit is 250 — memcached rejects a longer
+    key outright and every backend warns. The digest is of a value we signed ourselves,
+    so a collision is not something an attacker can steer.
+    """
+    return "pkce_" + hashlib.sha256(state.encode()).hexdigest()
+
+
+def _relax_token_scope():
+    """
+    Stop oauthlib raising when Google hands back a different scope list than we asked
+    for.
+
+    It always does, sooner or later: `include_granted_scopes=true` means the token
+    carries every scope this user has already granted the client, and Google also
+    normalises the set (adding `openid`, dropping duplicates, reordering). oauthlib
+    treats any difference as a `Warning` raised out of `fetch_token`, which the view
+    can only report as "Failed to connect calendar" — the connect flow then fails for
+    exactly the users who have connected something else before, and works in testing
+    with a fresh account.
+
+    The env var is oauthlib's own documented switch and is read per call, so setting
+    it here rather than in the process environment keeps it scoped to this exchange.
+    """
+    os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
 
 def _parse_rfc3339(value):
@@ -104,7 +137,7 @@ class GoogleCalendarProvider(CalendarProvider):
             access_type="offline", include_granted_scopes="true", prompt="consent"
         )
         if getattr(flow, "code_verifier", None):
-            cache.set(f"pkce_{state}", flow.code_verifier, timeout=600)
+            cache.set(_pkce_cache_key(state), flow.code_verifier, timeout=600)
         return url
 
     @classmethod
@@ -114,10 +147,11 @@ class GoogleCalendarProvider(CalendarProvider):
         flow = cls._flow()
         kwargs = {"code": code}
         if state:
-            cv = cache.get(f"pkce_{state}")
+            cv = cache.get(_pkce_cache_key(state))
             if cv:
                 kwargs["code_verifier"] = cv
-        
+
+        _relax_token_scope()
         flow.fetch_token(**kwargs)
         creds = flow.credentials
         return OAuthTokens(

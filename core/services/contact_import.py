@@ -14,6 +14,8 @@ import openpyxl
 from charset_normalizer import from_bytes
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Value
+from django.db.models.functions import Concat, Lower, Trim
 from django.utils import timezone
 
 from core.models.contact import Contact
@@ -124,13 +126,25 @@ class ImportError_(Exception):
 # ---------------------------------------------------------------------------
 
 
+# Excel decides a .csv is cp1252 unless the file opens with a UTF-8 BOM, so a template
+# without one renders any non-ASCII example as mojibake. The parse side already reads
+# through it — decode_csv_bytes tries utf-8-sig first — as does every other tool
+# that opens these files.
+CSV_BOM = "\ufeff"
+
+
 def build_template_csv():
-    """The downloadable CSV template: headers plus one example row."""
+    """
+    The downloadable CSV template: headers plus one example row.
+
+    RFC 4180 line endings and a UTF-8 BOM, because this file's whole job is to be
+    opened in Excel and saved again.
+    """
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+    writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(CANONICAL_COLUMNS)
     writer.writerow([TEMPLATE_EXAMPLE_ROW[column] for column in CANONICAL_COLUMNS])
-    return buffer.getvalue()
+    return CSV_BOM + buffer.getvalue()
 
 
 def build_template_xlsx():
@@ -335,6 +349,7 @@ def revalidate_row(row, save=True, actor=None):
 
     row.parsed_data = parsed
     row.phone_e164 = e164
+    row.name_key = name_key(parsed) or ""
     row.conflict_contact = None
     row.error_message = error or ""
 
@@ -376,8 +391,15 @@ def revalidate_row(row, save=True, actor=None):
                     "Creating will make a new contact."
                 )
             else:
-                row.status = ContactImportRow.Status.PENDING
-                row.error_message = ""
+                # Last, because a name clash is only worth reporting on a row that is
+                # otherwise ready to be created.
+                name_error = _row_name_error(row)
+                if name_error:
+                    row.status = ContactImportRow.Status.INVALID
+                    row.error_message = name_error
+                else:
+                    row.status = ContactImportRow.Status.PENDING
+                    row.error_message = ""
 
     # An explicit choice settles a conflict that still stands.
     if row.resolution and row.status in ContactImportRow.CONFLICT_STATUSES:
@@ -394,6 +416,7 @@ def revalidate_row(row, save=True, actor=None):
             update_fields=[
                 "parsed_data",
                 "phone_e164",
+                "name_key",
                 "status",
                 "resolution",
                 "conflict_contact",
@@ -520,6 +543,7 @@ def _do_parse(session):
             raw_data=raw_data,
             parsed_data=parsed,
             phone_e164=e164,
+            name_key=name_key(parsed) or "",
         )
 
         if error:
@@ -566,6 +590,8 @@ def _do_parse(session):
             counts["valid"] -= 1
             counts["conflict"] += 1
 
+    _flag_duplicate_names(session, rows, counts)
+
     ContactImportRow.objects.bulk_create(rows, batch_size=1000)
 
     session.total_rows = len(rows)
@@ -587,6 +613,126 @@ def _do_parse(session):
             "updated_at",
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# Name uniqueness
+# ---------------------------------------------------------------------------
+
+# Contact names are unique per tenant (unique_active_contact_name_tenant), so an
+# import has to answer "is this name taken" the same way the constraint does: trimmed
+# and case-folded. The separator is a control character, which cannot appear in a name
+# and therefore cannot make ("ab", "c") and ("a", "bc") collide.
+NAME_KEY_SEPARATOR = chr(31)
+
+NAME_TAKEN_MESSAGE = "A contact with this name already exists."
+NAME_DUPLICATE_IN_FILE_MESSAGE = "This name appears more than once in the file."
+
+# The SQL twin of name_key(), used to compare file rows against live contacts in one
+# indexed IN clause rather than a query per row.
+_NAME_KEY_EXPR = Concat(
+    Lower(Trim("first_name")),
+    Value(NAME_KEY_SEPARATOR),
+    Lower(Trim("last_name")),
+)
+
+
+def name_key(parsed):
+    """
+    This row's name identity, or None when it has no name at all.
+
+    None is not "no key" by accident — the constraint deliberately exempts wholly
+    unnamed contacts, because every contact captured from an inbound call arrives
+    without a name and there must be room for more than one of them.
+    """
+    first = (parsed.get("first_name") or "").strip()
+    last = (parsed.get("last_name") or "").strip()
+    if not first and not last:
+        return None
+    return f"{first.lower()}{NAME_KEY_SEPARATOR}{last.lower()}"
+
+
+def _lookup_taken_names(tenant_id, keys):
+    """Which of these name keys a live contact in this tenant already holds."""
+    keys = [key for key in keys if key]
+    if not keys:
+        return set()
+
+    taken = set()
+    base = Contact.objects.filter(tenant_id=tenant_id).annotate(
+        _name_key=_NAME_KEY_EXPR
+    )
+    # Chunked for the same reason _lookup_contacts is: a 50k-row import must not
+    # build a single enormous IN clause.
+    for start in range(0, len(keys), 1000):
+        chunk = keys[start : start + 1000]
+        taken.update(
+            base.filter(_name_key__in=chunk).values_list("_name_key", flat=True)
+        )
+    return taken
+
+
+def _row_name_error(row):
+    """
+    The name-uniqueness problem with this row, or None.
+
+    Checked at review time so a duplicate is something the user can still edit their
+    way out of. Left to the commit, it would be an IntegrityError against a half
+    written import instead.
+    """
+    key = row.name_key
+    if not key:
+        return None
+
+    if _lookup_taken_names(row.session.tenant_id, [key]):
+        return NAME_TAKEN_MESSAGE
+
+    clashes_in_file = (
+        ContactImportRow.all_objects.filter(session_id=row.session_id, name_key=key)
+        .exclude(pk=row.pk)
+        .exclude(status=ContactImportRow.Status.SKIPPED)
+        .exists()
+    )
+    if clashes_in_file:
+        return NAME_DUPLICATE_IN_FILE_MESSAGE
+
+    return None
+
+
+def _flag_duplicate_names(session, rows, counts):
+    """
+    Mark rows whose name is already taken, in the tenant or elsewhere in the file.
+
+    INVALID rather than a CONFLICT_* status on purpose: the conflict statuses exist so
+    the user can choose between creating and updating, and neither choice resolves a
+    name collision. The only way out is to edit the name, which is what INVALID asks
+    for. Two bulk lookups, mirroring the phone pass above — a query per row would make
+    a 50k-row import unusable.
+    """
+    seen = set()
+    unresolved = []
+
+    for row in rows:
+        if row.status != ContactImportRow.Status.PENDING or not row.name_key:
+            continue
+
+        if row.name_key in seen:
+            row.status = ContactImportRow.Status.INVALID
+            row.error_message = NAME_DUPLICATE_IN_FILE_MESSAGE
+            counts["valid"] -= 1
+            counts["invalid"] += 1
+            continue
+
+        seen.add(row.name_key)
+        unresolved.append(row)
+
+    taken = _lookup_taken_names(session.tenant_id, [r.name_key for r in unresolved])
+    for row in unresolved:
+        if row.name_key in taken:
+            row.status = ContactImportRow.Status.INVALID
+            row.error_message = NAME_TAKEN_MESSAGE
+            counts["valid"] -= 1
+            counts["invalid"] += 1
 
 
 def _lookup_contacts(tenant_id, phones, deleted=False):
@@ -824,6 +970,32 @@ def _commit_batch(session, rows):
     return counts
 
 
+# Constraint name -> what to tell the person looking at the failed row. Raw Postgres
+# text ("duplicate key value violates unique constraint ...") is not an answer anyone
+# can act on.
+_CONSTRAINT_MESSAGES = {
+    "unique_active_contact_name_tenant": NAME_TAKEN_MESSAGE,
+    "unique_active_contact_phone_tenant": (
+        "A contact with this phone number already exists."
+    ),
+}
+
+
+def _commit_failure_message(exc):
+    """
+    Why this row did not land, in words.
+
+    The review pass catches duplicates against the data as it stood then; a contact
+    created between review and commit still lands here, so this is the last chance to
+    say something useful.
+    """
+    text = str(exc)
+    for constraint, message in _CONSTRAINT_MESSAGES.items():
+        if constraint in text:
+            return message
+    return text[:1000]
+
+
 def _commit_rows_individually(session, rows):
     """Fallback when a batch hits a concurrent writer — isolate the damage per row."""
     counts = {"created": 0, "updated": 0, "skipped": 0, "failed": 0}
@@ -859,7 +1031,7 @@ def _commit_rows_individually(session, rows):
         except Exception as exc:  # noqa: BLE001 — one bad row must not stop the rest
             logger.warning("Contact import row %s failed: %s", row.pk, exc)
             row.status = ContactImportRow.Status.FAILED
-            row.error_message = str(exc)[:1000]
+            row.error_message = _commit_failure_message(exc)
             counts["failed"] += 1
 
         row.save(update_fields=["status", "error_message", "updated_at"])

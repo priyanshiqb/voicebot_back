@@ -1,5 +1,6 @@
 import logging
 import secrets
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core import signing
@@ -48,15 +49,46 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
     ordering = ["-created_at"]
     select_related_fields = ["user"]
 
+    # Both names for the same view. `callback` is the router's route
+    # (…/callback/) and `callback_slashless` is the explicit one registered in
+    # core/urls/calendar_integration.py (…/callback) — Google redirects to whichever
+    # GOOGLE_CALENDAR_REDIRECT_URI names, and deployments differ on the trailing slash.
+    _CALLBACK_ACTIONS = frozenset({"callback", "callback_slashless"})
+
+    def _is_callback(self):
+        """
+        Whether this request is the OAuth redirect, by either route name.
+
+        `self.action` is not set yet when get_authenticators() runs — ViewSetMixin
+        assigns it *after* super().initialize_request(), which is what calls us — so
+        action_map is the only thing to read at that point. Both are checked because
+        get_permissions() runs later, when action is populated.
+
+        This used to test `"callback" in action_map.values()`, which is an equality
+        test against each value, not a substring one: the slash-less route's value is
+        "callback_slashless", so it never matched. Google's redirect therefore arrived
+        at a view still demanding an Authorization header and was rejected with a 401
+        before any of the exchange below ran — the whole of BUG-001227 wherever
+        GOOGLE_CALENDAR_REDIRECT_URI has no trailing slash, which is how the dev
+        environment is configured.
+        """
+        if getattr(self, "action", None) in self._CALLBACK_ACTIONS:
+            return True
+        return bool(
+            self._CALLBACK_ACTIONS.intersection(
+                getattr(self, "action_map", {}).values()
+            )
+        )
+
     def get_authenticators(self):
         # The OAuth callback is hit by Google's browser redirect, which cannot
         # carry our auth header — it is trusted via the signed `state` instead.
-        if getattr(self, "action", None) == "callback" or "callback" in getattr(self, "action_map", {}).values():
+        if self._is_callback():
             return []
         return super().get_authenticators()
 
     def get_permissions(self):
-        if getattr(self, "action", None) == "callback" or "callback" in getattr(self, "action_map", {}).values():
+        if self._is_callback():
             return [AllowAny()]
         return super().get_permissions()
 
@@ -67,6 +99,35 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
             raise PermissionDenied(
                 "Your user account is not associated with any active tenant."
             )
+
+    @staticmethod
+    def _frontend_integrations_url(**params):
+        """The Integrations page, or None when no frontend is configured."""
+        frontend = getattr(settings, "FRONTEND_PROJECT_URL", "").rstrip("/")
+        if not frontend:
+            return None
+        url = f"{frontend}/integrations"
+        return f"{url}?{urlencode(params)}" if params else url
+
+    def _callback_failed(self, reason, message, status_code=400):
+        """
+        End a failed OAuth exchange somewhere the user can read.
+
+        The callback runs in the user's browser, mid-redirect from Google. Returning
+        the JSON envelope there drops them on a page of raw API output with no way
+        back, so when a frontend is configured the failure goes to the Integrations
+        page with a machine-readable `reason` instead. `reason` is one of our own short
+        slugs, never provider text — the detail is in the log.
+        """
+        logger.warning("Calendar connect failed: %s", reason)
+        target = self._frontend_integrations_url(
+            calendar_status="error", reason=reason
+        )
+        if target:
+            return redirect(target)
+        return self.error(
+            message=message, errors={"code": reason}, status_code=status_code
+        )
 
     def _resolve_provider(self, value):
         """Normalize/validate a provider name; returns a Provider value or None."""
@@ -135,37 +196,53 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
         from core.services import calendars
 
         if not settings.SCHEDULING_TOKEN_ENCRYPTION_KEY:
-            return self.error(message="Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.", status_code=500)
+            return self._callback_failed(
+                "missing_encryption_key",
+                "Missing SCHEDULING_TOKEN_ENCRYPTION_KEY config.",
+                status_code=500,
+            )
+
+        # Google reports a declined consent screen here rather than by not redirecting,
+        # so this is the ordinary "user pressed Cancel" path, not an edge case.
+        denied = request.query_params.get("error")
+        if denied:
+            return self._callback_failed(
+                "consent_denied", "Calendar access was not granted."
+            )
 
         code = request.query_params.get("code")
         state = request.query_params.get("state")
         if not code or not state:
-            return self.error(message="Missing code or state.", status_code=400)
+            return self._callback_failed("missing_code", "Missing code or state.")
         try:
             payload = signing.loads(state, salt=_STATE_SALT, max_age=_STATE_MAX_AGE)
         except signing.BadSignature:
-            return self.error(message="Invalid or expired state.", status_code=400)
+            return self._callback_failed("invalid_state", "Invalid or expired state.")
 
         nonce = payload.get("nonce")
         if not nonce or not cache.delete(f"oauth_state_{nonce}"):
-            return self.error(message="State token already used or invalid.", status_code=400)
+            return self._callback_failed(
+                "state_already_used", "State token already used or invalid."
+            )
 
         requested = payload.get("provider")
         provider = self._resolve_provider(requested)
         if provider is None:
-            return self.error(
-                message=self._unsupported_provider_message(requested), status_code=400
+            return self._callback_failed(
+                "unsupported_provider", self._unsupported_provider_message(requested)
             )
 
         tenant = Tenant.objects.filter(pk=payload["tenant_id"]).first()
         if tenant is None:
-            return self.error(message="Unknown tenant.", status_code=400)
+            return self._callback_failed("unknown_tenant", "Unknown tenant.")
 
         try:
             tokens = calendars.get_provider_class(provider).exchange_code(code, state=state)
         except Exception:  # noqa: BLE001
             logger.exception("%s code exchange failed", provider)
-            return self.error(message="Failed to connect calendar.", status_code=400)
+            return self._callback_failed(
+                "exchange_failed", "Failed to connect calendar."
+            )
 
         # Look up on the same key as the unique constraint (tenant, user) — NOT on
         # provider. Filtering by provider would miss a row belonging to a different
@@ -198,9 +275,9 @@ class CalendarIntegrationViewSet(TenantBaseViewSet):
 
         establish_calendar_watch.delay(str(integration.id))
 
-        frontend = getattr(settings, "FRONTEND_PROJECT_URL", "").rstrip("/")
-        if frontend:
-            return redirect(f"{frontend}/integrations")
+        target = self._frontend_integrations_url(calendar_status="connected")
+        if target:
+            return redirect(target)
         return self.success(message="Calendar connected successfully.")
 
     def perform_destroy(self, instance):

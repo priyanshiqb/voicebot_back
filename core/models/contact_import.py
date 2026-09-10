@@ -238,6 +238,17 @@ class ContactImportRow(TenantBaseModelCore):
         default=dict, help_text=_("Cleaned values. This is what gets committed.")
     )
     phone_e164 = models.CharField(max_length=20, blank=True, db_index=True)
+    name_key = models.CharField(
+        max_length=250,
+        blank=True,
+        db_index=True,
+        help_text=_(
+            "Case-folded first/last name, mirroring the Contact name uniqueness "
+            "constraint. Denormalized for the same reason phone_e164 is: detecting "
+            "in-file duplicates has to be one indexed query, not a scan of every "
+            "sibling row's JSON."
+        ),
+    )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
@@ -268,6 +279,7 @@ class ContactImportRow(TenantBaseModelCore):
         ordering = ["row_number"]
         indexes = [
             models.Index(fields=["session", "status"]),
+            models.Index(fields=["session", "name_key"]),
         ]
 
     def __str__(self):

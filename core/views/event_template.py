@@ -45,9 +45,20 @@ class EventTemplateViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
 
     def get_queryset(self):
         scoped = self.agent_scoped_queryset()
-        if scoped is not None:
-            return scoped
-        return super().get_queryset()
+        queryset = super().get_queryset() if scoped is None else scoped
+
+        # BUG-000923: the dropdown is a picker, and everything downstream of picking
+        # refuses an inactive template — the availability and booking serializers both
+        # scope their queryset to is_active=True. Offering one produced a choice that
+        # could only fail, most visibly in manual booking, where selecting it went
+        # straight on to call slot-availability and surfaced the refusal as an error.
+        #
+        # Scoped to `dropdown` alone: `list` is the management table, which has to keep
+        # showing inactive templates so they can be reactivated or deleted.
+        if self.action == "dropdown":
+            queryset = queryset.filter(is_active=True)
+
+        return queryset
 
     # No perform_destroy override: EventTemplate.soft_delete() refuses while active
     # bookings reference the type, so bulk_delete — which calls soft_delete directly

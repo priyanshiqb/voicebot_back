@@ -683,7 +683,16 @@ The frozen audience. Empty until materialisation completes.
 | `status` | enum | Narrow to one member state. | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`. **Not validated** — see below. |
 | `suppression_reason` | enum | Narrow to one exclusion reason. Pair with `status=SUPPRESSED` for a compliance list. | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED`. **Not validated.** |
 | `search` | string | Substring match on `phone_e164` **only**. | Case-insensitive. Does **not** search names — the audience is keyed by number here. |
+| `ordering` | string | Sort. Default `created_at` (oldest first). | `full_name`, `status`, `attempt_count`, `last_call_at`, `created_at`; prefix `-` to reverse, comma-separate for multiple keys. Unrecognised keys are dropped silently. |
 | `page`, `page_size` | int | Pagination. | Default page size 10, max 100. |
+
+> **`ordering=full_name` sorts on the contact's current name**, not a frozen copy — unlike
+> `search`, which matches the number as it stood at materialisation. Sorting joins through to
+> the contact; the number does not.
+
+> **Every sort is tie-broken by `created_at`.** Members materialised in one transaction share
+> a status and an attempt count, and an unordered tie lets Postgres return page 2 overlapping
+> page 1.
 
 > **These filters are not validated against their choices.** Unlike the campaign list, a
 > misspelled value such as `?status=PENDNIG` returns **`200` with an empty list**, not a `400`.

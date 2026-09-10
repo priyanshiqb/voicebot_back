@@ -25,6 +25,10 @@ from user.models import CustomUser as User
 IMPORTS = "/api/v1/core/contact-imports/"
 ROWS = "/api/v1/core/contact-import-rows/"
 
+# Computed rather than written as escapes so the exact bytes are unambiguous.
+UTF8_BOM = chr(0xFEFF).encode("utf-8")
+CRLF = bytes((13, 10))
+
 Status = ContactImportSession.Status
 RowStatus = ContactImportRow.Status
 Resolution = ContactImportRow.Resolution
@@ -674,13 +678,187 @@ class DiscardAndCleanupTests(ImportTestCase):
         self.assertEqual(ContactImportRow.all_objects.filter(session=session).count(), 0)
 
 
-class UploadEndpointTests(ImportTestCase):
-    def test_template_download(self):
+class NameConflictTests(ImportTestCase):
+    """
+    BUG-001234 in the import path. Contact names are unique per tenant, and the import
+    never goes through the serializer that enforces that - it writes with bulk_create.
+    So the review pass has to catch a duplicate name while the user can still edit it,
+    or the whole thing surfaces as an IntegrityError against a half-written import.
+    """
+
+    HEADER = "first_name,last_name,phone_number"
+
+    @staticmethod
+    def csv(*lines):
+        return chr(10).join(lines) + chr(10)
+
+    def existing_ada(self, phone):
+        return Contact.objects.create(
+            tenant=self.tenant,
+            first_name="Ada",
+            last_name="Lovelace",
+            phone_number=phone,
+        )
+
+    def test_a_name_already_in_the_tenant_is_flagged_during_review(self):
+        self.existing_ada("+14155559001")
+        response = self.start_import(
+            self.csv(self.HEADER, "Ada,Lovelace,+14155559002")
+        )
+        row = self.rows_of(self.session_from(response))[0]
+        self.assertEqual(row.status, RowStatus.INVALID)
+        self.assertEqual(row.error_message, "A contact with this name already exists.")
+
+    def test_the_match_is_case_insensitive(self):
+        self.existing_ada("+14155559003")
+        response = self.start_import(
+            self.csv(self.HEADER, "ADA,lovelace,+14155559004")
+        )
+        row = self.rows_of(self.session_from(response))[0]
+        self.assertEqual(row.status, RowStatus.INVALID)
+
+    def test_a_name_repeated_within_the_file_is_flagged(self):
+        response = self.start_import(
+            self.csv(
+                self.HEADER,
+                "Ada,Lovelace,+14155559005",
+                "Ada,Lovelace,+14155559006",
+            )
+        )
+        rows = self.rows_of(self.session_from(response))
+        # The first occurrence stands; only the repeat is refused.
+        self.assertEqual(rows[0].status, RowStatus.PENDING)
+        self.assertEqual(rows[1].status, RowStatus.INVALID)
+        self.assertEqual(
+            rows[1].error_message, "This name appears more than once in the file."
+        )
+
+    def test_unnamed_rows_do_not_collide_with_each_other(self):
+        """
+        Every contact captured from a call arrives unnamed, so the rule exempts them -
+        and so must the import, or a file of bare numbers would flag every row after
+        the first.
+        """
+        response = self.start_import(
+            self.csv("phone_number", "+14155559007", "+14155559008")
+        )
+        statuses = {row.status for row in self.rows_of(self.session_from(response))}
+        self.assertEqual(statuses, {RowStatus.PENDING})
+
+    def test_a_taken_name_in_another_tenant_does_not_flag_the_row(self):
+        Contact.objects.create(
+            tenant=self.other_tenant,
+            first_name="Ada",
+            last_name="Lovelace",
+            phone_number="+14155559009",
+        )
+        response = self.start_import(
+            self.csv(self.HEADER, "Ada,Lovelace,+14155559010")
+        )
+        row = self.rows_of(self.session_from(response))[0]
+        self.assertEqual(row.status, RowStatus.PENDING)
+
+    def test_editing_the_name_clears_the_flag(self):
+        """INVALID has to be a state the user can edit their way out of."""
+        self.existing_ada("+14155559011")
+        response = self.start_import(
+            self.csv(self.HEADER, "Ada,Lovelace,+14155559012")
+        )
+        row = self.rows_of(self.session_from(response))[0]
+
+        patched = self.client_alex.patch(
+            f"{ROWS}{row.id}/",
+            {"parsed_data": {"first_name": "Augusta"}},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK)
+        row.refresh_from_db()
+        self.assertEqual(row.status, RowStatus.PENDING)
+        self.assertEqual(row.error_message, "")
+
+    def test_flagged_rows_are_not_committed_and_the_rest_still_land(self):
+        self.existing_ada("+14155559013")
+        response = self.start_import(
+            self.csv(
+                self.HEADER,
+                "Ada,Lovelace,+14155559014",
+                "Grace,Hopper,+14155559015",
+            )
+        )
+        session = self.session_from(response)
+        self.commit(session)
+        session.refresh_from_db()
+
+        self.assertEqual(session.created_count, 1)
+        self.assertTrue(
+            Contact.objects.filter(tenant=self.tenant, first_name="Grace").exists()
+        )
+        self.assertEqual(
+            Contact.objects.filter(
+                tenant=self.tenant, first_name__iexact="ada"
+            ).count(),
+            1,
+        )
+
+
+class TemplateDownloadTests(ImportTestCase):
+    """
+    The downloaded file has to open in Excel, which is the only reason this endpoint
+    exists. The default was briefly xlsx while clients still named the download
+    `contacts_template.csv` — a zip container behind a `.csv` name, which Excel sniffs
+    and refuses with "the file format and extension don't match".
+    """
+
+    def test_template_download_defaults_to_csv(self):
         response = self.client_alex.get(f"{IMPORTS}template/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.content.decode()
+        body = response.content.decode("utf-8-sig")
         self.assertIn("phone_number", body)
         self.assertIn("vip|lead", body)
+
+    def test_the_filename_matches_the_bytes(self):
+        for file_format, extension, opener in (
+            (None, "csv", b"first_name"),
+            ("csv", "csv", b"first_name"),
+            # xlsx is a zip container; "PK" is its signature.
+            ("xlsx", "xlsx", b"PK"),
+        ):
+            with self.subTest(file_format=file_format):
+                params = {"file_format": file_format} if file_format else {}
+                response = self.client_alex.get(f"{IMPORTS}template/", params)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertIn(
+                    f'filename="contacts_template.{extension}"',
+                    response["Content-Disposition"],
+                )
+                self.assertTrue(
+                    response.content.lstrip(UTF8_BOM).startswith(opener),
+                    f"{extension} body does not look like {extension}",
+                )
+
+    def test_the_csv_carries_a_bom_and_crlf_endings(self):
+        """Without the BOM Excel reads the file as cp1252 and mangles non-ASCII."""
+        response = self.client_alex.get(f"{IMPORTS}template/", {"file_format": "csv"})
+        self.assertTrue(response.content.startswith(UTF8_BOM))
+        self.assertIn(CRLF, response.content)
+
+    def test_the_csv_declares_its_charset(self):
+        response = self.client_alex.get(f"{IMPORTS}template/", {"file_format": "csv"})
+        self.assertIn("charset=utf-8", response["Content-Type"])
+
+    def test_the_template_round_trips_through_the_parser(self):
+        """The BOM and CRLF must not become a header the importer cannot recognise."""
+        response = self.client_alex.get(f"{IMPORTS}template/")
+        import_response = self.start_import(response.content)
+        session = self.session_from(import_response)
+        self.assertEqual(session.status, Status.READY)
+        rows = self.rows_of(session)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].parsed_data["first_name"], "Ada")
+        self.assertEqual(rows[0].status, RowStatus.PENDING)
+
+
+class UploadEndpointTests(ImportTestCase):
 
     def test_confirm_upload_rejects_another_tenants_file(self):
         """The object key never leaves the server, and file_id is tenant-scoped."""

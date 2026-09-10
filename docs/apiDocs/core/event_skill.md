@@ -42,7 +42,9 @@ Three consequences worth knowing before you start:
   - `user` (optional): Filter by host user id.
   - `event_template` (optional): Filter by event template id.
   - `is_active` (optional): Boolean filter.
-  - `ordering` (optional): `created_at`, `updated_at`, `user__email`, `user__first_name`, `user__last_name`, or `event_template__name`; prefix `-` to reverse. Default `-created_at`.
+  - `ordering` (optional): `user_name`, `template_name`, `is_active`, `created_at`, `updated_at`, `user__email`, `user__first_name`, `user__last_name`, or `event_template__name`; prefix `-` to reverse, comma-separate for multiple keys. Default `-created_at`.
+    - `user_name` sorts by the host's full name, falling back to their email when both name fields are blank — matching what the table renders. `template_name` is an alias for `event_template__name`.
+    - Every sort is tie-broken by `-created_at` then `id`, so paging an `is_active` sort — which puts every row in one of two ties — does not repeat or skip rows.
 - **Success Response (200 OK)**:
   ```json
   {
@@ -92,6 +94,13 @@ A `(user, event_template)` pair is **unique per tenant** among non-deleted rows 
 duplicate is a `400`. To re-enable a host you previously turned off, `PATCH` the existing row's
 `is_active` back to `true` rather than creating a second link.
 
+**A host may hold several skills.** One user linked to several templates is intended — it is what
+makes them eligible for more than one meeting type — and only the exact repeated pair is refused.
+
+**The template must be active.** Linking a host to an inactive template is a `400` on
+`event_template`: availability and booking both refuse an inactive template downstream, so the
+link would only ever produce an error at slot time.
+
 > **Linking a host does not make them bookable on its own.** They also need an
 > [Availability Profile](./availability_profile.md) with rules; without one they produce zero slots
 > and, again, no error.
@@ -133,6 +142,7 @@ duplicate is a `400`. To re-enable a host you previously turned off, `PATCH` the
 | **400** | `user` belongs to another tenant. | `User does not belong to your tenant.` | `{"user": [...]}` |
 | **400** | `event_template` belongs to another tenant. | `Event template does not belong to your tenant.` | `{"event_template": [...]}` |
 | **400** | This pair is already linked and active. | uniqueness message | non-field |
+| **400** | `event_template` is inactive. | `This event template is inactive.` | `{"event_template": [...]}` |
 | **400** | Missing `user` or `event_template`. | `This field is required.` | `{"<field>": [...]}` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": ...}` |
 | **403** | Agent (`VB_AGENT`) token — this is human configuration. | permission denied | `{"detail": ...}` |

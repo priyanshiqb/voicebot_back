@@ -432,6 +432,23 @@ class ExportColumnContractTests(APITestCase):
             "is_mandatory",
             "is_active",
         ),
+        # BUG-001207: `id` and `phone_e164` were removed from the contact export.
+        # phone_e164 is the normalized twin of phone_number, so it duplicated a column
+        # already in the file.
+        ContactResource: (
+            "first_name",
+            "last_name",
+            "phone_number",
+            "email_address",
+            "company",
+            "tags",
+            "notes",
+            "source",
+            "consent_status",
+            "do_not_call",
+            "is_active",
+            "created_at",
+        ),
     }
 
     def test_each_resource_exports_exactly_its_agreed_columns(self):
@@ -450,8 +467,23 @@ class ExportColumnContractTests(APITestCase):
                 self.assertIn("id", resource.fields)
                 self.assertEqual(resource.get_import_id_fields(), ["id"])
 
+    def test_contact_export_omits_the_internal_columns(self):
+        """BUG-001207. Named separately from the table above so the intent survives
+        someone re-deriving `AGREED` from whatever the resources happen to declare."""
+        headers = ContactResource().get_export_headers()
+        self.assertNotIn("id", headers)
+        self.assertNotIn("phone_e164", headers)
+        # The number itself still ships — only its normalized duplicate is gone.
+        self.assertIn("phone_number", headers)
+
     def test_resources_without_an_agreed_list_keep_the_library_default(self):
         """`EXPORT_FIELDS` is opt-in — a resource that does not set it must not have
         its export silently narrowed by the shared base."""
         self.assertIsNone(TenantModelResource.EXPORT_FIELDS)
-        self.assertIn("id", ContactResource().get_export_headers())
+
+        class UnnarrowedResource(TenantModelResource):
+            class Meta:
+                model = AgentTemplate
+                fields = ("id", "name")
+
+        self.assertIn("id", UnnarrowedResource().get_export_headers())

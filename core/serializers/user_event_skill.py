@@ -68,6 +68,17 @@ class UserEventSkillSerializer(TenantBaseModelCoreSerializer):
                         {"user": "User does not belong to your tenant."}
                     )
             
+            # BUG-000923: an inactive template must not be selectable. The dropdown no
+            # longer offers one, but the id can still be posted directly, and linking a
+            # host to a template nobody can book is a silent dead end — the booking and
+            # availability serializers both refuse it downstream.
+            if event_template is not None and not event_template.is_active:
+                raise serializers.ValidationError(
+                    {"event_template": "This event template is inactive."}
+                )
+
+            # A host may hold several skills — that is the point of the table. Only the
+            # exact (user, template) pair is refused, matching the DB constraint.
             if user is not None and event_template is not None:
                 qs = UserEventSkill.objects.filter(
                     user=user,

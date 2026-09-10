@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from rest_framework import serializers
 
 from core.models.contact import Contact
@@ -30,6 +31,20 @@ CONTACT_FIELDS = [
 ]
 
 
+def _integrity_error_detail(exc):
+    """
+    Turn a lost uniqueness race into the same field error the pre-check would have
+    given. The pre-checks above are queries, so two simultaneous writes can still both
+    pass them and let the constraint decide — that must not surface as a 500.
+    """
+    message = str(exc)
+    if "unique_active_contact_name_tenant" in message:
+        return {"first_name": "A contact with this name already exists."}
+    if "unique_active_contact_phone_tenant" in message:
+        return {"phone_number": "A contact with this phone number already exists."}
+    raise exc
+
+
 class ContactSerializer(TenantBaseModelSerializer):
     """
     Full contact representation.
@@ -55,6 +70,14 @@ class ContactSerializer(TenantBaseModelSerializer):
             "full_name",
             "last_contacted_at",
         )
+
+    def validate_first_name(self, value):
+        # Stripped before the uniqueness check so " John" cannot slip past a name
+        # already stored as "John". The DB constraint lower()s but cannot trim.
+        return (value or "").strip()
+
+    def validate_last_name(self, value):
+        return (value or "").strip()
 
     def validate_phone_number(self, value):
         """
@@ -110,6 +133,42 @@ class ContactSerializer(TenantBaseModelSerializer):
                 {"phone_number": self._uniqueness_message()}
             )
 
+    def _check_unique_name(self, attrs, instance=None):
+        """
+        Enforce the per-tenant name rule before the DB does, so a duplicate is a field
+        error instead of a 500 out of the partial unique index.
+
+        Reads through to the instance for whichever half was not supplied: a PATCH that
+        sends only `last_name` still has to be checked against the stored `first_name`.
+        """
+        first_name = attrs.get(
+            "first_name", getattr(instance, "first_name", "") or ""
+        ).strip()
+        last_name = attrs.get(
+            "last_name", getattr(instance, "last_name", "") or ""
+        ).strip()
+
+        # Matches the constraint's carve-out: a wholly unnamed contact is allowed, and
+        # there may be many of them (every contact captured from an inbound call).
+        if not first_name and not last_name:
+            return
+
+        tenant = getattr(instance, "tenant_id", None) or self._tenant_id()
+        if tenant is None:
+            return
+
+        qs = Contact.objects.filter(
+            tenant_id=tenant,
+            first_name__iexact=first_name,
+            last_name__iexact=last_name,
+        )
+        if instance is not None:
+            qs = qs.exclude(pk=instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                {"first_name": "A contact with this name already exists."}
+            )
+
     def _tenant_id(self):
         request = self.context.get("request")
         user = getattr(request, "user", None)
@@ -123,6 +182,8 @@ class ContactSerializer(TenantBaseModelSerializer):
         phone_number = attrs.get("phone_number")
         if phone_number:
             self._check_unique(phone_number, instance=self.instance)
+        if "first_name" in attrs or "last_name" in attrs:
+            self._check_unique_name(attrs, instance=self.instance)
         return attrs
 
     def create(self, validated_data):
@@ -130,12 +191,16 @@ class ContactSerializer(TenantBaseModelSerializer):
             return super().create(validated_data)
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict)
+        except IntegrityError as exc:
+            raise serializers.ValidationError(_integrity_error_detail(exc))
 
     def update(self, instance, validated_data):
         try:
             return super().update(instance, validated_data)
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict)
+        except IntegrityError as exc:
+            raise serializers.ValidationError(_integrity_error_detail(exc))
 
 
 class ContactListSerializer(TenantBaseModelSerializer):

@@ -5,9 +5,10 @@ import logging
 import django_filters
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Value
+from django.db.models.functions import Concat, Lower, Trim
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle
@@ -26,6 +27,7 @@ from core.services import campaigns as campaign_service
 from core.tasks import materialize_campaign
 from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
 from tenant.common.views.tenant_base_viewset import TenantBaseViewSet
+from utils.views.ordering import resolve_ordering
 
 logger = logging.getLogger(__name__)
 
@@ -436,15 +438,50 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
     # Audience
     # ------------------------------------------------------------------
 
+    # Sortable columns on the member table. This action builds its own queryset and
+    # never runs filter_queryset, so the viewset's ordering_fields do not reach it —
+    # they describe campaigns, not members. `full_name` lives on the joined contact and
+    # spans two columns, so it resolves to the annotation added below.
+    MEMBER_ORDERING_FIELDS = frozenset(
+        {"attempt_count", "full_name", "status", "last_call_at", "created_at"}
+    )
+    MEMBER_ORDERING_MAP = {"full_name": "_full_name"}
+    MEMBER_ORDERING_DEFAULT = ("created_at",)
+    # Members materialised in one transaction share a status, an attempt count and a
+    # null last_call_at, so sorting on any of those leaves an audience of thousands in
+    # a few enormous ties. Without a total order, page 2 may repeat a row from page 1
+    # and drop another — on the endpoint whose whole job is a compliance record.
+    MEMBER_ORDERING_TIEBREAKER = ("created_at", "id")
+    MEMBER_FULL_NAME_EXPR = Lower(
+        Trim(Concat("contact__first_name", Value(" "), "contact__last_name"))
+    )
+
     @extend_schema(
         summary="List Campaign Members",
-        description="The frozen audience: who is queued, and who was suppressed and why.",
+        description=(
+            "The frozen audience: who is queued, and who was suppressed and why.\n\n"
+            "Sortable with `?ordering=` on `full_name`, `status`, `attempt_count`, "
+            "`last_call_at` or `created_at`; prefix with `-` for descending."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="ordering",
+                required=False,
+                type=str,
+                description=(
+                    "full_name, status, attempt_count, last_call_at, created_at. "
+                    "Prefix with '-' for descending."
+                ),
+            ),
+        ],
     )
     @action(detail=True, methods=["get"])
     def members(self, request, *args, **kwargs):
         campaign = self._get_campaign()
-        queryset = CampaignMember.objects.filter(campaign=campaign).select_related(
-            "contact"
+        queryset = (
+            CampaignMember.objects.filter(campaign=campaign)
+            .select_related("contact")
+            .annotate(_full_name=self.MEMBER_FULL_NAME_EXPR)
         )
 
         member_status = request.query_params.get("status")
@@ -458,6 +495,16 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
         search = request.query_params.get("search")
         if search:
             queryset = queryset.filter(phone_e164__icontains=search)
+
+        queryset = queryset.order_by(
+            *resolve_ordering(
+                request,
+                allowed=self.MEMBER_ORDERING_FIELDS,
+                default=self.MEMBER_ORDERING_DEFAULT,
+                field_map=self.MEMBER_ORDERING_MAP,
+                tiebreaker=self.MEMBER_ORDERING_TIEBREAKER,
+            )
+        )
 
         page = self.paginate_queryset(queryset)
         if page is not None:
