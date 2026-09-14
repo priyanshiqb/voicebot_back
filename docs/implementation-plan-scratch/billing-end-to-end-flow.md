@@ -322,7 +322,7 @@ Starter entitlements: 3 agents, 10 GB storage (+₹199 per 10 GB block, max +90)
 
 | Model | Records created |
 | :--- | :--- |
-| `Plan` | 5 rows, via `load_data plan` |
+| `Plan` | 5 rows, via `load_data plan` *(historical — plan seeds have since been removed; plans are created only from the super admin panel)* |
 | `PlanEntitlement` | 7 rows **per plan** = 35 |
 | `CreditRate` | 3 rows **per plan** = 15, all `effective_to = NULL` |
 

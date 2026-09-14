@@ -444,6 +444,7 @@ class CreditRateAdminActionTests(AdminActionTestCase):
         self.assertIn(CreditRateInline, PlanAdmin.inlines)
         inline = CreditRateInline(self.plan.__class__, self.site)
         self.assertIn("credits_per_unit", inline.fields)
+        self.assertIn("price_per_minute_inr", inline.fields)
         self.assertIn("effective_to", inline.fields)
 
 

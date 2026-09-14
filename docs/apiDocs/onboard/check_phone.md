@@ -71,9 +71,9 @@ submit. Part of the [signup flow](./signup_flow.md); safe to call on blur or wit
 > `400 "A registration is already pending for this phone number."` Handle that regardless of what
 > this returned.
 
-> **Unlike [check-email](./signup_flow.md#1-check-email-availability), there is no Bloom-filter
-> fast path** — this always queries the database. Both columns are indexed, so it is cheap, but
-> debounce it rather than firing on every keystroke.
+> **Debounce it rather than firing on every keystroke.** Like
+> [check-email](./signup_flow.md#1-check-email-availability), this queries the database
+> directly; both columns are indexed, so each call is cheap.
 
 ## Related
 

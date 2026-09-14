@@ -466,7 +466,8 @@ can perform means `RateNotConfigured` at call time.
 > stop the next deploy — and it blocked its own seeding migration, because Django runs
 > checks first. Rate cards are data an admin owns, not a code invariant.
 >
-> **As built:** rates are seeded from `json_files/credit_rate.json`, and
+> **As built:** rates were seeded from `json_files/credit_rate.json` (since removed — rate
+> cards are now created with their plan in the super admin panel), and
 > `manage.py audit_billing_readiness` *reports* every active plan with a missing rate
 > without blocking anything. `report_unrated_calls` catches whatever still reaches a
 > call, and `resolve_rate` raises loudly rather than charging zero.
@@ -1026,8 +1027,9 @@ which is what let the wallet ship before any of the subscription engine existed.
 
 *(As built: the seed migration and `wallet/checks.py` were both removed. Whatever an
 admin configures is final, so a hard-coded catalogue and a deploy gate on it were the
-wrong shape. Rates are seeded from `json_files/credit_rate.json` instead, and
-`audit_billing_readiness` reports plans with holes.)*
+wrong shape. Rates were then seeded from `json_files/credit_rate.json`, and
+`audit_billing_readiness` reports plans with holes. That seed file has since been removed
+too: plans and their rate cards are created only from the super admin panel.)*
 **Done when:** a 90-second call on a 5-credits/minute stamp rates to exactly 10 credits and
 the same call on a 3-credits/minute stamp rates to 6; a 4-second call bills
 `minimum_units`; re-stamping a wallet changes the price of the *next* call and none of the

@@ -377,7 +377,6 @@ uv run python manage.py audit_upload_key_ownership --verbose
 ```bash
 uv run python manage.py load_data                              # seed users/roles
 uv run python manage.py load_postal_data --csv <path> --force  # geography reference data
-uv run python manage.py rebuild_bloom_filter                   # phone-availability filter
 uv run python manage.py audit_timezone_offsets --year 2026     # report DST drift
 uv run python manage.py audit_timezone_offsets --fix           # and correct it
 ```

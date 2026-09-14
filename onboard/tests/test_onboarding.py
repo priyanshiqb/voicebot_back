@@ -936,90 +936,90 @@ class OnboardingTests(APITestCase):
         temp_user.refresh_from_db()
         self.assertIsNone(temp_user.otp_code)
 
-    def test_check_email_bloom_filter_integration(self):
-        from utils.bloom_filter import RedisBloomFilter
-        from django.core.cache import cache
-        
-        cache.clear()
-        bf = RedisBloomFilter()
-        
-        # Email that is NOT in the bloom filter
-        check_email_url = reverse("api-v1:check-email")
-        response = self.client.post(check_email_url, {"email": "bloomunique@example.com"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Message should contain fast-path to indicate Bloom Filter bypass
-        self.assertIn("fast-path", response.data["message"])
-        self.assertTrue(response.data["data"]["available"])
-
-        # Add email to Bloom Filter
-        bf.add("bloomunique@example.com")
-        
-        # Querying again should go to slow-path (since it exists in Bloom Filter)
-        response = self.client.post(check_email_url, {"email": "bloomunique@example.com"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("slow-path", response.data["message"])
-        # Should still be available as it is not in database
-        self.assertTrue(response.data["data"]["available"])
-
-    def test_check_email_bloom_filter_updates_and_deletions(self):
-        from utils.bloom_filter import RedisBloomFilter
+    def test_check_email_follows_renames_and_deletions(self):
+        """Availability is read from the database on every call, so a renamed or
+        withdrawn signup frees its old address at once -- there is nothing to keep in
+        sync with it."""
         from django.core.cache import cache
         from onboard.models import TempUser
-        
-        cache.clear()
-        bf = RedisBloomFilter()
-        bf.clear()
 
-        email = "test.lifecycle@example.com"
-        
-        # 1. Create a TempUser
+        # Throttle history is shared by every test posting from the default address.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        check_email_url = reverse("api-v1:check-email")
+
+        def available(email):
+            response = self.client.post(check_email_url, {"email": email}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["message"], "Email availability checked.")
+            return response.data["data"]["available"]
+
+        # 1. A pending registration reserves its address.
         temp_user = TempUser.objects.create(
-            email=email,
+            email="test.lifecycle@example.com",
             first_name="Test",
             last_name="Lifecycle",
             business_name="Test Corp",
             password_hash="somehash"
         )
-        # Verify it is in the Bloom Filter
-        self.assertTrue(bf.exists(email))
+        self.assertFalse(available("test.lifecycle@example.com"))
 
-        # 2. Change TempUser email
-        new_email = "new.lifecycle@example.com"
-        temp_user.email = new_email
+        # 2. Changing it frees the old address and reserves the new one.
+        temp_user.email = "new.lifecycle@example.com"
         temp_user.save()
+        self.assertTrue(available("test.lifecycle@example.com"))
+        self.assertFalse(available("new.lifecycle@example.com"))
 
-        # Verify old email is removed and new email is added
-        self.assertFalse(bf.exists(email))
-        self.assertTrue(bf.exists(new_email))
-
-        # 3. Soft delete TempUser
+        # 3. A withdrawn registration reserves nothing.
         temp_user.soft_delete()
-        
-        # Verify new email is removed from Bloom Filter
-        self.assertFalse(bf.exists(new_email))
+        self.assertTrue(available("new.lifecycle@example.com"))
 
-        # 4. Create CustomUser
-        user_email = "user.lifecycle@example.com"
+        # 4. The same for a real account.
         user = CustomUser.objects.create_user(
-            email=user_email,
+            email="user.lifecycle@example.com",
             password="SecurePassword123!",
             first_name="User",
             last_name="Lifecycle"
         )
-        self.assertTrue(bf.exists(user_email))
+        self.assertFalse(available("user.lifecycle@example.com"))
 
-        # 5. Change CustomUser email
-        new_user_email = "new.user.lifecycle@example.com"
-        user.email = new_user_email
+        user.email = "new.user.lifecycle@example.com"
         user.save()
+        self.assertTrue(available("user.lifecycle@example.com"))
+        self.assertFalse(available("new.user.lifecycle@example.com"))
 
-        # Verify old email is removed and new email is added
-        self.assertFalse(bf.exists(user_email))
-        self.assertTrue(bf.exists(new_user_email))
-
-        # 6. Delete CustomUser
         user.delete()
-        
-        # Verify new user email is removed from Bloom Filter
-        self.assertFalse(bf.exists(new_user_email))
+        self.assertTrue(available("new.user.lifecycle@example.com"))
+
+    def test_check_email_is_rate_limited_per_client_ip(self):
+        """check-email tells an anonymous caller whether an address is registered, so
+        it is throttled per client IP. A 429 means slow down; it never means taken."""
+        from unittest.mock import patch
+        from django.core.cache import cache
+        from onboard.views.onboarding.check_email import CheckEmailThrottle
+
+        cache.clear()
+        self.addCleanup(cache.clear)
+        check_email_url = reverse("api-v1:check-email")
+        payload = {"email": "rate.limited@example.com"}
+
+        with patch.object(CheckEmailThrottle, "THROTTLE_RATES", {"check_email": "2/min"}):
+            for _ in range(2):
+                response = self.client.post(
+                    check_email_url, payload, format="json", REMOTE_ADDR="203.0.113.7"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response = self.client.post(
+                check_email_url, payload, format="json", REMOTE_ADDR="203.0.113.7"
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertFalse(response.data["status"])
+            self.assertIn("throttled", response.data["message"])
+
+            # Another address has its own budget.
+            response = self.client.post(
+                check_email_url, payload, format="json", REMOTE_ADDR="198.51.100.4"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 

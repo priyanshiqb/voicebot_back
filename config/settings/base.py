@@ -322,6 +322,11 @@ REST_FRAMEWORK = {
         # on client IP, which is all an anonymous caller has. Generous enough that a
         # genuine invitee mistyping their password a few times is unaffected.
         "invitation_accept": env.str("INVITATION_ACCEPT_RATE", default="20/hour"),
+        # Unauthenticated and answers "is this address registered", so unbounded it
+        # is an account-enumeration oracle. Sized for a debounced signup form, not a
+        # keystroke-per-request one: typing and correcting an address is a handful of
+        # calls, and 30 a minute leaves a whole office behind one NAT room to spare.
+        "check_email": env.str("CHECK_EMAIL_RATE", default="30/min"),
     },
     # Subclasses drf-spectacular's AutoSchema to document the X-Tenant-ID header on the
     # operations agent tokens can reach, driven off each viewset's

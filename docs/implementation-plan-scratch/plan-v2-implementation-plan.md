@@ -760,7 +760,8 @@ Additive throughout — no cutover, no migration window.
 ```
 1  migrate                  6 nullable columns, 1 constraint. Nothing behaves differently
 2  deploy                   every plan is legacy; every path takes the legacy branch
-3  seed v2 plans as DRAFTS   bands, basis, rate rows with both numbers, entitlements
+3  create v2 plans as DRAFTS in the super admin panel: bands, basis, rate rows with
+                            both numbers, entitlements (nothing is seeded)
 4  review                    ops review screen -> ladder block and rupees-per-credit clean
 5  activate                  the gate refuses an overlapping or gapped ladder
 6  frontend                  slider + for-minutes/ + minutes on signup and change-plan

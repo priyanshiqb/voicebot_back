@@ -15,8 +15,8 @@ class CreditRateInline(admin.TabularInline):
 
     model = CreditRate
     extra = 0
-    fields = ("operation", "unit", "credits_per_unit", "rounding", "minimum_units",
-              "effective_from", "effective_to")
+    fields = ("operation", "unit", "credits_per_unit", "price_per_minute_inr", "rounding",
+              "minimum_units", "effective_from", "effective_to")
     ordering = ("operation", "-effective_from")
 
 
@@ -56,11 +56,14 @@ class CreditRateAdmin(BaseAdminCore):
     fieldsets = (
         ("Applies to", {"fields": ("id", "plan", "operation", "is_active")}),
         ("Price", {
-            "fields": ("unit", "credits_per_unit", "rounding", "minimum_units"),
+            "fields": ("unit", "credits_per_unit", "price_per_minute_inr", "rounding",
+                       "minimum_units"),
             "description": (
                 "Credits are whole numbers, so a per-minute price is a whole number of "
                 "credits. Rounding and minimum_units decide what a partial unit costs: "
-                "with ceil and a minimum of 1, a 4-second call bills one minute."
+                "with ceil and a minimum of 1, a 4-second call bills one minute. "
+                "price_per_minute_inr is what a minute costs in rupees when the plan is "
+                "sold at this tier; it is never read on a call."
             ),
         }),
         ("Validity", {

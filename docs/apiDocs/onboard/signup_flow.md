@@ -111,7 +111,7 @@ Non-committal lookup for live form feedback.
   ```json
   {
     "status": true,
-    "message": "Email availability checked (fast-path).",
+    "message": "Email availability checked.",
     "data": {
       "email": "jane@example.com",
       "available": true,
@@ -132,25 +132,26 @@ Non-committal lookup for live form feedback.
 
 | Status | When | `message` |
 |---|---|---|
-| **200** | Checked. | `Email availability checked (fast-path).` or `(slow-path).` |
+| **200** | Checked. | `Email availability checked.` |
 | **200** | Disposable domain. | `Email availability checked (disposable domain).` |
 | **400** | `email` missing or malformed. | `Validation failed` |
+| **429** | More than `CHECK_EMAIL_RATE` calls from one client IP (default `30/min`). | `Request was throttled. Expected available in N seconds.` |
 
 > **`available: false` has three causes, not two.** A form that renders "already taken"
 > for every falsy `available` will tell a user with a `@yopmail.com` address something
 > untrue and unactionable. Read `is_disposable` and say so instead — that is the whole
 > reason it is a separate flag rather than folded into the existing two.
 >
-> A disposable address short-circuits ahead of the Bloom filter and the database, so
+> A disposable address short-circuits ahead of the database lookups, so
 > `exists_in_active_users` and `exists_in_pending_registrations` are both `false` in
 > that response. They mean "not checked", not "free" — if the address is disposable,
 > whether it is also taken was never looked up. This endpoint applies the same rule and
 > the same `DISPOSABLE_EMAIL_ALLOWLIST` as signup, so the two never disagree.
 
-> **The `message` tells you which path answered.** A Bloom filter answers "definitely free"
-> instantly (`fast-path`); anything it flags is confirmed against the database (`slow-path`). The
-> filter can produce false positives but never false negatives, so `available: true` is always
-> trustworthy.
+> **Debounce it, and check only a well-formed address.** Every call is two indexed
+> lookups, and the endpoint is rate-limited per client IP — `30/min` by default,
+> `CHECK_EMAIL_RATE` — so a form firing on every keystroke will start seeing `429`s. A `429`
+> means "slow down", never "taken": keep the last answer on screen and retry after a pause.
 
 > **Advisory only.** Someone else can take the address between this call and
 > [register-pending](#3-start-the-signup), which returns its own `400`.
@@ -159,7 +160,7 @@ Non-committal lookup for live form feedback.
 
 ### 2. Check Phone Availability
 
-Same idea for phone numbers. **No Bloom filter** — this always hits the database.
+Same idea for phone numbers. Like check-email, this queries the database directly.
 
 - **Path**: `POST /api/v1/onboard/check-phone/`
 

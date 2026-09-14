@@ -27,8 +27,11 @@ Run the seeding command via Django's command line interface:
 Loads a single configuration file matching the file name:
 ```bash
 # Form: python manage.py load_data {file_name}
-uv run python manage.py load_data plan --settings=config.settings.local
+uv run python manage.py load_data language --settings=config.settings.local
 ```
+
+> **Plans are not seeded.** Plans, their rate cards and their entitlements are created only
+> from the super admin panel — there is no `plan` fixture to load.
 
 ### 2. Seeding All Fixtures at Once
 Loads the index configuration file `json_files/all.json` and runs all declared configs sequentially:
@@ -37,7 +40,7 @@ uv run python manage.py load_data all --settings=config.settings.local
 ```
 
 ### 3. Execution inside Docker Containers
-To seed plans inside a running Docker Daphne container, invoke:
+To seed reference data inside a running Docker Daphne container, invoke:
 ```bash
 docker compose exec backend python manage.py load_data all
 ```
@@ -53,37 +56,32 @@ Declares the order in which data models should be seeded (crucial for maintainin
 ```json
 {
   "all_file_name": [
-    "plan"
+    "timezone",
+    "language"
   ]
 }
 ```
 
-### 2. A Core Seed File (`json_files/plan.json`)
+### 2. A Core Seed File (`json_files/language.json`)
 Below is an annotated definition of a seed configuration file illustrating field syntax:
 ```json
 {
   "app_label": "onboard",
-  "model": "plan",
+  "model": "language",
   "unique_fields": [
     "code"
   ],
   "data": [
     {
-      "code": "free_plan",
-      "name": "Free Tier",
-      "description": "Standard free plan for trial users.",
-      "base_price": "0.00",
-      "discount_percentage": "0.00",
-      "tax_percentage": "0.00",
-      "currency": "INR",
-      "billing_cycle": "monthly",
-      "plan_type": "free",
-      "sort_order": 1,
-      "is_active": true
+      "name": "English (US)",
+      "code": "en-US"
     }
   ]
 }
 ```
+
+* **`unique_fields`**: The fields that identify an existing row. A row matching them is updated in place rather than duplicated, which is what makes re-running the command safe.
+* **`data`**: Every key other than a relation is passed straight to the model, so each key must be a real field on it — a stale key fails the whole file.
 
 ---
 

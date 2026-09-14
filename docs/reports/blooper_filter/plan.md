@@ -1,5 +1,11 @@
 # Technical Blueprint: Redis-Backed Bloom Filter for Onboarding Email Checks
 
+> **Status: removed (2026-09-14). Kept as a historical record.** Both lookups it guarded
+> are indexed unique columns, so it saved little. Meanwhile its signals added a query and
+> eight Redis calls to every user save, and its startup rebuild ran in every Django process
+> (4 gunicorn workers, Daphne, the Celery worker and beat), wiping the filter each time.
+> `check-email` now asks the database directly and is rate-limited instead.
+
 This document provides a complete technical blueprint and implementation plan for introducing a **Bloom Filter** ("blooper filter") to optimize the email uniqueness checks performed during the onboarding registration flow.
 
 ---

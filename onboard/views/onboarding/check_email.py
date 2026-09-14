@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import get_user_model
 
 from utils.views.base_model_viewset import ResponseMixin
@@ -12,17 +13,30 @@ from drf_spectacular.utils import extend_schema
 User = get_user_model()
 
 
+class CheckEmailThrottle(AnonRateThrottle):
+    """Rate limit on an unauthenticated "is this address registered" lookup.
+
+    Without one the endpoint is an account-enumeration oracle. Keyed on client IP,
+    which is all an anonymous caller has. The rate is ``check_email`` in
+    ``DEFAULT_THROTTLE_RATES``.
+    """
+
+    scope = "check_email"
+
+
 @extend_schema(
     tags=["Onboarding - Signup Flow"],
     summary="Check Email Availability (Unique Check)",
-    description="Asynchronously checks if an email address already exists in either the active CustomUser or pending TempUser tables. Returns availability status with zero latency for interactive typing feedback.",
+    description="Checks whether an email address already exists in either the active CustomUser or pending TempUser tables, for interactive signup-form feedback. Two indexed lookups; rate-limited per client IP, so debounce the calls.",
     responses={
         200: CheckEmailResponseSerializer,
-        400: GeneralResponseSerializer
+        400: GeneralResponseSerializer,
+        429: GeneralResponseSerializer,
     }
 )
 class CheckEmailView(ResponseMixin, APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [CheckEmailThrottle]
     serializer_class = CheckEmailSerializer
 
     def post(self, request):
@@ -37,7 +51,7 @@ class CheckEmailView(ResponseMixin, APIView):
         email = serializer.validated_data["email"].strip().lower()
 
         # A throwaway address is unavailable whatever the uniqueness lookups would
-        # say, so it answers here — ahead of the Redis round trip and the database.
+        # say, so it answers here — ahead of the database.
         #
         # Reported as `available: false` with a reason flag rather than as a 400:
         # this endpoint's contract is a 200 carrying booleans, and "already taken" is
@@ -56,23 +70,9 @@ class CheckEmailView(ResponseMixin, APIView):
                 status_code=status.HTTP_200_OK
             )
 
-        # Step 1: Query Bloom Filter (Fast Path)
-        from utils.bloom_filter import RedisBloomFilter
-        bf = RedisBloomFilter()
-        if not bf.exists(email):
-            return self.success(
-                data={
-                    "email": email,
-                    "available": True,
-                    "exists_in_active_users": False,
-                    "exists_in_pending_registrations": False,
-                    "is_disposable": False
-                },
-                message="Email availability checked (fast-path).",
-                status_code=status.HTTP_200_OK
-            )
-
-        # Database index-optimized queries (Slow Path - handles potential false positives)
+        # Both columns carry a unique index, so this is two index lookups — cheap
+        # enough that nothing needs to sit in front of them. Soft-deleted accounts
+        # still reserve their address, hence all_objects.
         exists_in_active = User.all_objects.filter(email=email).exists()
         exists_in_pending = TempUser.objects.filter(email=email).exists()
 
@@ -86,7 +86,6 @@ class CheckEmailView(ResponseMixin, APIView):
                 "exists_in_pending_registrations": exists_in_pending,
                 "is_disposable": False
             },
-            message="Email availability checked (slow-path).",
+            message="Email availability checked.",
             status_code=status.HTTP_200_OK
         )
-
