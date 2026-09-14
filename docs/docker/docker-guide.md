@@ -33,7 +33,7 @@ Instead of multiple overridden files, the project uses a single `docker-compose.
 8.  **`redis-insight`**: Runs RedisInsight web UI.
 9.  **`redis-exporter`**: Runs Redis metrics exporter.
 10. **`grafana`**: Runs Grafana dashboards.
-11. **`logs-monitoring`**: Runs Loki and Promtail collectors.
+11. **`logs-monitoring`**: Runs Loki and the Grafana Alloy log collector.
 12. **`matrics-monitoring`**: Runs Prometheus metrics database.
 13. **`emulators`**: Runs Azurite (local Azure storage emulator).
 14. **`gateway`**: Runs Caddy as the central reverse proxy.

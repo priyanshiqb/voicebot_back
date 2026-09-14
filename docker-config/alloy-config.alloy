@@ -1,0 +1,77 @@
+// Grafana Alloy — container log collection, shipped to Loki.
+//
+// Replaced Promtail, which reached end of life on 2026-03-02. Generated with Grafana's
+// own converter rather than written by hand, then annotated:
+//
+//   alloy convert --source-format=promtail docker-config/promtail-config.yml
+//
+// So the labels Loki queries depend on — `container`, `job`, `service_name` — and the
+// PgBouncer healthcheck drop are exactly what Promtail produced.
+//
+// Pipeline, in the order a log line travels:
+//   discovery.docker  ->  loki.source.docker (relabel)  ->  loki.process (drop)  ->  loki.write
+
+// The one Promtail setting the converter reports it cannot carry over: `log_level`.
+logging {
+	level  = "warn"
+	format = "logfmt"
+}
+
+// Which containers exist. Polls the Docker API every 5s, same as Promtail did.
+discovery.docker "docker_containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+}
+
+// Label rules only. `targets = []` is deliberate, not a bug: nothing flows through this
+// component. `loki.source.docker` below reads its `.rules` export and applies them to
+// every stream itself, which is how Alloy expresses Promtail's per-job relabel_configs.
+discovery.relabel "docker_containers" {
+	targets = []
+
+	// Docker reports names with a leading slash; strip it.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	// Job mirrors the container name, so existing `{job="..."}` queries keep working.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "job"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service_name"
+	}
+}
+
+// Tails each discovered container's stdout/stderr. Read positions persist under
+// --storage.path (mounted at .data/alloy), so a recreate resumes where it left off.
+loki.source.docker "docker_containers" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.docker_containers.targets
+	forward_to       = [loki.process.docker_containers.receiver]
+	relabel_rules    = discovery.relabel.docker_containers.rules
+	refresh_interval = "5s"
+}
+
+loki.process "docker_containers" {
+	forward_to = [loki.write.default.receiver]
+
+	// PgBouncer's healthcheck logs a login line every few seconds; dropped here so it
+	// neither fills Loki nor buries real connection problems.
+	stage.drop {
+		expression = ".*login attempt: db=postgres user=postgres.*"
+	}
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+	external_labels = {}
+}

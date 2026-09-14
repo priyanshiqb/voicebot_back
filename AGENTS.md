@@ -164,7 +164,7 @@ Each `.md` document must cover all HTTP methods exposed by the API and explicitl
 
 ## 🪵 7. Logging Standards
 
-To ensure full compatibility with Promtail/Loki log aggregation and consistent namespace identification:
+To ensure full compatibility with Alloy/Loki log aggregation and consistent namespace identification:
 * **Per-File Logger Initialization**: Do **NOT** create a centralized logger utility or import a global logger instance. If a Python file requires logging, **ALWAYS** initialize a logger instance at the top of that specific file:
   ```python
   import logging

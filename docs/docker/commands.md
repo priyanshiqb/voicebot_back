@@ -17,7 +17,7 @@ This cheatsheet provides all standard developer commands in a quick-copy format.
   - `redis-insight`: Runs RedisInsight web GUI.
   - `redis-exporter`: Runs Redis caching metrics exporter.
   - `grafana`: Runs Grafana visualization dashboard.
-  - `logs-monitoring`: Runs Loki and Promtail collectors.
+  - `logs-monitoring`: Runs Loki and the Grafana Alloy log collector.
   - `matrics-monitoring`: Runs Prometheus metrics aggregator.
   - `emulators`: Runs Azurite.
   - `gateway`: Runs Caddy reverse proxy for subdomain/domain routing.

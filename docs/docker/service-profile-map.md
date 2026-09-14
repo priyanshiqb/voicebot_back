@@ -20,7 +20,7 @@ This document lists each Docker container service configured in the project alon
 | **`redis-exporter`** | `redis-exporter` | Metrics exporter for Redis caching instance |
 | **`grafana`** | `grafana` | Grafana visual observability dashboards |
 | **`loki`** | `logs-monitoring` | Loki log aggregator |
-| **`promtail`** | `logs-monitoring` | Promtail log shipper and scraper |
+| **`alloy`** | `logs-monitoring` | Grafana Alloy log collector (replaced Promtail, EOL 2026-03-02) |
 | **`prometheus`** | `matrics-monitoring` | Prometheus metrics and time-series DB |
 | **`azurite`** | `emulators` | Azure Blob, Queue, and Table storage emulator |
 | **`caddy`** | `gateway` | Caddy reverse proxy and SSL gateway |

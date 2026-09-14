@@ -34,7 +34,7 @@ flowchart TB
     end
 
     subgraph ObservabilityStack ["Observability & Monitoring Stack"]
-        Promtail["promtail Log Shipper (Internal Daemon)"]
+        Alloy["alloy Log Collector (Internal Daemon)"]
         Loki["loki Log Aggregator (Port 3100)"]
         Prometheus["prometheus Metrics TSDB (Port 9090)"]
         Grafana["grafana UI Visualization (Port 3099)"]
@@ -69,8 +69,8 @@ flowchart TB
     WSGI & ASGI & DEV -->|Object Storage / Blobs| Azurite
 
     %% Observability Loop
-    Promtail -->|Scrape Container Logs| WSGI & ASGI & DEV
-    Promtail -->|Push Logs| Loki
+    Alloy -->|Scrape Container Logs| WSGI & ASGI & DEV
+    Alloy -->|Push Logs| Loki
     
     PgExporter -->|Scrape Database Metrics| Postgres
     RedisExporter -->|Scrape Cache Metrics| Redis
@@ -102,7 +102,7 @@ flowchart TB
 | **Storage** | `azurite` | Azure storage emulator providing offline blob storage, queue tracking, and table indexing for asset processing. |
 | **Database** | `pgbouncer` | Postgres connection pooler. Saves server CPU overhead by maintaining warm database sockets. |
 | | `postgres` | Hardened transactional database holding application configurations, auditing logs, and tenant parameters. |
-| **Observability** | `promtail` | Log daemon. Reads the Docker socket logs, tags them with service labels, and streams them to Loki. |
+| **Observability** | `alloy` | Log daemon (Grafana Alloy; replaced Promtail, EOL 2026-03-02). Reads the Docker socket logs, tags them with service labels, and streams them to Loki. |
 | | `loki` | Index-free log data store. Automatically deletes logs after 30 days via its compacting agent. |
 | | `prometheus` | Scraping collector. Regularly polls Django endpoints and database/cache exporters to record timeseries health graphs. |
 | | `grafana` | Single pane of glass UI. Pre-loaded with custom system dashboards to visualize logs and metrics. |
@@ -115,7 +115,7 @@ flowchart TB
 
 ## 3. Telemetry and Scrape Patterns
 1. **Pull Metrics Model:** Prometheus regularly pulls timeseries variables from the WSGI/ASGI endpoints and exporters.
-2. **Push Logs Model:** Promtail reads raw stderr/stdout containers streams and actively pushes formatted JSON lines up to Loki.
+2. **Push Logs Model:** Alloy reads raw stderr/stdout containers streams and actively pushes formatted JSON lines up to Loki.
 3. **Grafana Dashboards:** Queries Loki and Prometheus using LogQL and PromQL to render the system overview.
 
 ---

@@ -50,16 +50,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 9b. Promtail (Log Collector & Shipper)
-  promtail:
-    image: grafana/promtail:latest
-    container_name: promtail-voicebot
+  # 9b. Grafana Alloy (Log Collector & Shipper)
+  #
+  # Replaced Promtail, which reached end of life on 2026-03-02 and gets no further
+  # fixes — its `:latest` tag stopped moving at 3.6.8. Pinned rather than :latest for
+  # the same reason: a tag that silently stops updating looks current and is not.
+  alloy:
+    image: grafana/alloy:v1.19.2
+    container_name: alloy-voicebot
     profiles:
       - logs-monitoring
+    # The image CMD is `run /etc/alloy/config.alloy --storage.path=/var/lib/alloy/data`,
+    # restated here only to add the listen address. Alloy binds its HTTP server to
+    # 127.0.0.1 by default, which inside a container means nothing else can reach its
+    # UI or /metrics. Still not published to the host.
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
     volumes:
-      - ../docker-config/promtail-config.yml:/etc/promtail/config.yml:ro
+      - ../docker-config/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      # Read positions live here. Promtail kept them in /tmp, so every container
+      # recreate lost its place in each log stream.
+      - ../.data/alloy:/var/lib/alloy/data
+      # Needed for container discovery and log tailing. `:ro` protects only the socket
+      # file — the Docker API behind it stays fully usable, so this container is
+      # root-equivalent on the host. Keep the image patched.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
     restart: always

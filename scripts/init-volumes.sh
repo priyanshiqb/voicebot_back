@@ -22,6 +22,7 @@ mkdir -p "$BASE_DIR/.data/prometheus"
 mkdir -p "$BASE_DIR/.data/caddy/data"
 mkdir -p "$BASE_DIR/.data/caddy/config"
 mkdir -p "$BASE_DIR/.data/azurite"
+mkdir -p "$BASE_DIR/.data/alloy"
 
 echo "Setting ownership..."
 

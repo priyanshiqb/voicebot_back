@@ -68,7 +68,7 @@ flowchart TB
     class StatefulLayer statefulset;
 
     subgraph TelemetryLayer ["Telemetry & Exporters (DaemonSets / Sidecars)"]
-        DsPromtail["DaemonSet: promtail<br/>(Log Collector)"]
+        DsAlloy["DaemonSet: alloy<br/>(Log Collector)"]
         DepPgExporter["Deployment: postgres-exporter<br/>(PG Metrics)"]
         DepRedisExporter["Deployment: redis-exporter<br/>(Redis Metrics)"]
     end
@@ -130,8 +130,8 @@ flowchart TB
     DepGrafana ==> PVCGrafana
 
     %% Observability Scrape Loops
-    DsPromtail -->|Scrape Node Pod Logs| DepWSGI & DepASGI
-    DsPromtail -->|Push Logs| SvcLoki
+    DsAlloy -->|Scrape Node Pod Logs| DepWSGI & DepASGI
+    DsAlloy -->|Push Logs| SvcLoki
     
     DepPgExporter -->|Scrape DB| SvcPostgres
     DepRedisExporter -->|Scrape Cache| SvcRedis
@@ -176,7 +176,7 @@ The table below maps each service defined in `docker-compose.yml` to its corresp
 | **`redis-insight`** | `Deployment` | `apps/v1` | PVC (for saved connections) | Single replica (1 pod) |
 | **`prometheus`** | `StatefulSet` / Operator | `monitoring.coreos.com/v1` | PVC (TSDB block storage) | Stateful replication or managed Prometheus |
 | **`loki`** | `StatefulSet` or Microservices | `loki.grafana.com/v1` | PVC / Object Storage | Scale read/write paths independently (if clustered) |
-| **`promtail`** | `DaemonSet` | `apps/v1` | HostPath (reads `/var/log/pods`) | Runs exactly 1 pod per Kubernetes Node |
+| **`alloy`** | `DaemonSet` | `apps/v1` | HostPath (reads `/var/log/pods`) | Runs exactly 1 pod per Kubernetes Node |
 | **`postgres-exporter`**| `Deployment` or Sidecar | `apps/v1` | None | Run as a sidecar container inside PostgreSQL Pod |
 | **`redis-exporter`** | `Deployment` or Sidecar | `apps/v1` | None | Run as a sidecar container inside Redis Pod |
 | **`grafana`** | `Deployment` | `apps/v1` | PVC (for dashboards database) | Single replica (1 pod) or horizontal with shared DB |
@@ -563,7 +563,7 @@ spec:
 
 The Docker Compose monitoring stack is converted into Kubernetes resources to establish a complete telemetry loop:
 
-1. **Promtail DaemonSet:** Runs on every node in the cluster. It mounts the node's `/var/log/pods` path using a `hostPath` volume, reads container logs, enriches them with Kubernetes metadata (namespace, pod name, container name), and streams them to the Loki service.
+1. **Alloy DaemonSet:** Runs on every node in the cluster. It mounts the node's `/var/log/pods` path using a `hostPath` volume, reads container logs, enriches them with Kubernetes metadata (namespace, pod name, container name), and streams them to the Loki service.
 2. **Loki StatefulSet:** Aggregates logs. Scaled with persistent block storage or configured to dump historical chunks into cloud object storage (e.g., GCS, AWS S3) for long-term retention.
 3. **Prometheus Operator / StatefulSet:** Discovers scrapable targets dynamically using `ServiceMonitor` custom resources. It regularly polls:
    * `backend-wsgi-service` and `backend-asgi-service` at `/prom-metrics/`
