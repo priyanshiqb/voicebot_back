@@ -14,8 +14,9 @@ import logging
 
 from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from rest_framework import filters, status
 from rest_framework.decorators import action
 from rest_framework.viewsets import GenericViewSet
 
@@ -33,7 +34,8 @@ from ops.services.plan import clone as clone_service
 from ops.services.plan import config, lifecycle, readiness
 from user.models import OperatorAuditLog
 from user.services import operator_audit
-from utils.views.base_model_viewset import ResponseMixin
+from utils.views.base_model_viewset import ResponseMixin, SetPagination
+from utils.views.ordering import MappedOrderingFilter
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,25 @@ class PlanConfigurationViewSet(ResponseMixin, GenericViewSet):
 
     permission_classes = (HasConsolePermission,)
     serializer_class = PlanConfigurationSerializer
+    pagination_class = SetPagination
+
+    # Spelled out only to swap the stock OrderingFilter for MappedOrderingFilter,
+    # which is what honours `ordering_tiebreaker`. A GenericViewSet would otherwise
+    # pick the same three backends up from DEFAULT_FILTER_BACKENDS.
+    filter_backends = (DjangoFilterBackend, filters.SearchFilter, MappedOrderingFilter)
+    # Plain columns with choices, so django-filter builds a strict ChoiceFilter for
+    # each: an unknown or wrong-case value is a 400 naming the field, not an
+    # unfiltered list that looks like a real answer.
+    filterset_fields = ["status", "billing_cycle"]
+    search_fields = ["name", "code"]
+    # `subscriber_count` is an annotation from `config.annotated_queryset`, which is
+    # why it can be sorted on without being a column.
+    ordering_fields = ["sort_order", "created_at", "name", "subscriber_count"]
+    ordering = ["sort_order", "-created_at"]
+    # `sort_order` and `subscriber_count` are mostly ties, and SQL promises nothing
+    # about tied rows between two queries — without a unique final key, page 2 can
+    # repeat a plan from page 1.
+    ordering_tiebreaker = ("-created_at", "id")
 
     #: Everything that changes the catalogue. Anything not named here is a read.
     WRITE_ACTIONS = frozenset({
@@ -110,11 +131,14 @@ class PlanConfigurationViewSet(ResponseMixin, GenericViewSet):
 
     @extend_schema(summary="Every plan, with what is configured on it")
     def list(self, request):
-        plans = self.get_queryset()
-        return self.success(
-            data=PlanListSerializer(plans, many=True).data,
-            message="Plans retrieved",
-        )
+        # This used to serialise `get_queryset()` whole and never call
+        # `filter_queryset`, so every filter, `page` and `page_size` were accepted and
+        # silently ignored. Filtering stays in `list` only: detail routes resolve
+        # through `get_plan()`, so a stray `?status=` cannot 400 a retrieve.
+        page = self.paginate_queryset(self.filter_queryset(self.get_queryset()))
+        # `SetPagination` already emits the project envelope, so its response is
+        # returned directly rather than wrapped in a second one.
+        return self.get_paginated_response(PlanListSerializer(page, many=True).data)
 
     @extend_schema(summary="One plan, whole — the editor loads this once")
     def retrieve(self, request, pk=None):

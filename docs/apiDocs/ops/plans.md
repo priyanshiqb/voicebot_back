@@ -89,6 +89,31 @@ completeness gate, because a resource may have been added to the system since.
 Every plan including drafts and retired ones, with the counts that make one safe to
 judge.
 
+### Query parameters
+
+| Param | Values | Notes |
+|---|---|---|
+| `status` | `draft` `active` `retired` | exact and lower-case; anything else is a **400** |
+| `billing_cycle` | `monthly` `yearly` | same |
+| `search` | free text | partial, case-insensitive match on `name` and `code` |
+| `ordering` | `sort_order` `created_at` `name` `subscriber_count`, each optionally `-` prefixed | default `sort_order` then newest first; anything else falls back to the default |
+| `page`, `page_size` | | default `page_size` 10, capped at 100 |
+
+Filters and search combine with **AND** — `?status=retired&billing_cycle=yearly` is
+retired yearly plans only.
+
+> **A wrong filter value is a `400`, not an unfiltered list.** `?status=RETIRED` and
+> `?status=retird` both fail validation naming the field. This differs from
+> [the tenant list](./tenants.md), which ignores unrecognised values.
+
+> **Paginated.** `data` is one page and the response carries `meta` (`count`, `next`,
+> `previous`, `page`, `page_size`). Every sort is tie-broken by newest first then `id`,
+> so paging a `sort_order` sort — where most plans tie — never repeats a row. Before
+> this, the whole catalogue came back in one response and `status`, `billing_cycle`,
+> `page` and `page_size` were all accepted and silently ignored.
+
+Each row:
+
 ```json
 {
   "id": "c3e19c1d-…", "code": "starter", "name": "Starter",
