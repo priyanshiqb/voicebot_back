@@ -28,7 +28,7 @@ class Command(BaseCommand):
 
     Usage:
         python manage.py load_data all
-        python manage.py load_data plan
+        python manage.py load_data language
     """
 
     help = "Load data from JSON files into the current database idempotently"

@@ -542,7 +542,7 @@ created a wallet for each. It must stay safe to re-run.
 
 The concrete numbers migrations `0003` and the `onboard` plan migration write. Anchored at
 **1 credit ≈ ₹1 of usage value**, against the six plans already in
-[json_files/plan.json](../../json_files/plan.json).
+`json_files/plan.json` (since removed — plans are now created only from the super admin panel).
 
 These are a *starting position*, not final pricing. W5 (§12) exists precisely to correct
 them against real traffic before enforcement blocks anyone.

@@ -65,7 +65,7 @@ uv run python manage.py load_data all
 
 ### Seed Specific Model Fixture Locally
 ```bash
-uv run python manage.py load_data plan
+uv run python manage.py load_data language
 ```
 
 ### Generate Secure Production Credentials & Hashes
@@ -150,7 +150,7 @@ docker compose exec backend-dev python manage.py load_data all
 
 ### Seed Specific Model Fixture inside Container
 ```bash
-docker compose exec backend-dev python manage.py load_data plan
+docker compose exec backend-dev python manage.py load_data language
 ```
 
 

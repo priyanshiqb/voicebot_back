@@ -114,12 +114,13 @@ class Plan(BaseModelCore):
         """
         PAID = "paid", "Paid"
         FREE = "free", "Free"
-        # No plan currently uses this. Retained deliberately: pay-as-you-go is
-        # expressible entirely as field values — allocated_credits=0, top-ups
-        # enabled, allow_use_after_expiry=True, renews_without_payment=True — so
-        # reinstating it is a data change. Its configuration is preserved in
-        # json_files/plan_pay_as_you_go.json. Nothing branches on this member, and
-        # nothing should: see renews_without_payment below.
+        # No plan uses this; it is retained so the stored choice set does not change.
+        # Pay-as-you-go cannot be a minutes-based plan -- its grant is minutes x
+        # credits-per-minute, which is never zero -- so "include nothing, buy what you
+        # need" is now an activation decision instead: `credit_grant=0` on
+        # `subscriptions.activate()`, the same override a negotiated contract uses.
+        # Nothing branches on this member, and nothing should: see
+        # renews_without_payment below.
         PAY_AS_YOU_GO = "pay_as_you_go", "Pay As You Go"
 
     class CurrencyChoices(models.TextChoices):

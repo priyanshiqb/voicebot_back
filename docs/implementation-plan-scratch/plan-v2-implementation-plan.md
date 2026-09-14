@@ -775,9 +775,10 @@ frontend ships, because a plan is only reachable through a client that asks for 
 **Rollback** is retiring the v2 plans. Subscriptions already sold on them keep working —
 their terms are in their own snapshots, and `Plan.on_delete=PROTECT` keeps the rows.
 
-**Seed data:** add v2 plans as a new file under `json_files/` rather than editing
-`plan.json` and `credit_rate.json`, so the existing seed keeps reproducing today's
-catalogue.
+**No seed data.** Plans are created only from the super admin panel, and `json_files/`
+carries no plan, rate or entitlement rows. A placeholder v2 seed existed briefly during
+development and was removed: seeded plans would sit active beside the real catalogue, and a
+seeded band can overlap a real one, which the activation gate would then refuse.
 
 ---
 
