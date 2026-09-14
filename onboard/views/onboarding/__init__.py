@@ -4,6 +4,7 @@ from .verify_otp import VerifyOTPView
 from .resend_otp import ResendOTPView
 from .resume_session import ResumeSessionView
 from .resume_session_token import ResumeSessionWithTokenView
+from .billing_breakdown import BillingBreakdownView
 from .update_plan import UpdatePlanView
 from .create_order import CreateOrderJustInTimeView
 from .verify_payment import VerifyPaymentView
@@ -25,6 +26,7 @@ __all__ = [
     "ResendOTPView",
     "ResumeSessionView",
     "ResumeSessionWithTokenView",
+    "BillingBreakdownView",
     "UpdatePlanView",
     "CreateOrderJustInTimeView",
     "VerifyPaymentView",

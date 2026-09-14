@@ -606,6 +606,7 @@ A renewal order is still the plan price plus whatever capacity is still held.
 | `POST /onboard/create-order-just-in-time/` | Amount from the quantity; breakdown frozen; new `400 MINUTES_NOT_SELLABLE` |
 | `POST /onboard/resume-session/` | 🆕 `selected_minutes`; breakdown gains three fields |
 | `POST /onboard/resume-session-token/` | Same |
+| `GET /onboard/billing-breakdown/` | 🆕 **New.** Read-only for a temp token: plan with band, `selected_minutes`, breakdown, and `sellable` — whether checkout would accept it |
 | `POST /onboard/verify/` | Unchanged contract; subscription now records the quantity |
 | `POST /onboard/webhook/` | Unchanged contract; same |
 | `GET /billing/subscription/` | 🆕 `selected_minutes`, `allocated_credits`; `scheduled_change.selected_minutes` |
@@ -677,6 +678,9 @@ lives in the activation gate as `RENEWS_FREE_BUT_PRICED`. Creating such a plan s
 - [ ] Show the three new `billing_breakdown` fields at OTP and on resume
 - [ ] Send `minutes` with `update-plan/` when the customer changes their mind; handle
       `MINUTES_OUT_OF_BAND` by offering the band in the error `data`
+- [ ] On page refresh, restore the pricing summary from `GET /onboard/billing-breakdown/`
+      (read-only, safe on every render); use `resume-session-token/` only when you also
+      need `step`. Treat `sellable: false` as "ask for a new quantity" before checkout
 
 **Subscription screen**
 

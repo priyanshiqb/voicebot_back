@@ -32,6 +32,11 @@ class BillingBreakdownResponseSerializer(serializers.Serializer):
     tax_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
     total_price = serializers.DecimalField(max_digits=12, decimal_places=2)
     currency = serializers.CharField()
+    selected_minutes = serializers.IntegerField(allow_null=True)
+    price_per_minute_inr = serializers.DecimalField(
+        max_digits=10, decimal_places=4, allow_null=True
+    )
+    allocated_credits = serializers.IntegerField()
 
 
 class VerifyOTPResponseDataSerializer(serializers.Serializer):
@@ -53,11 +58,37 @@ class ResumeSessionResponseDataSerializer(serializers.Serializer):
     step = serializers.CharField(required=True)
     temporary_token = serializers.CharField(required=False, allow_null=True)
     plan = PlanResponseSerializer(required=False, allow_null=True)
+    selected_minutes = serializers.IntegerField(required=False, allow_null=True)
     billing_breakdown = BillingBreakdownResponseSerializer(required=False, allow_null=True)
 
 
 class ResumeSessionResponseSerializer(BaseEnvelopeSerializer):
     data = ResumeSessionResponseDataSerializer(allow_null=True)
+
+
+# --- Billing Breakdown ---
+class PlanBandResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    code = serializers.CharField()
+    billing_cycle = serializers.CharField()
+    currency = serializers.CharField()
+    min_minutes = serializers.IntegerField(allow_null=True)
+    max_minutes = serializers.IntegerField(allow_null=True)
+    is_fixed_quantity = serializers.BooleanField()
+    is_minutes_based = serializers.BooleanField()
+
+
+class BillingBreakdownDataSerializer(serializers.Serializer):
+    plan = PlanBandResponseSerializer()
+    selected_minutes = serializers.IntegerField(allow_null=True)
+    billing_breakdown = BillingBreakdownResponseSerializer()
+    sellable = serializers.BooleanField()
+    reason = serializers.CharField(allow_null=True)
+
+
+class BillingBreakdownEnvelopeSerializer(BaseEnvelopeSerializer):
+    data = BillingBreakdownDataSerializer(allow_null=True)
 
 
 # --- Update Plan ---

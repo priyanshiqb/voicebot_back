@@ -56,6 +56,7 @@ Resuming: `POST /resume-session/` (email + password) or `POST /resume-session-to
 | `POST` | `/onboard/change-email/` | Fix a mistyped email, re-send OTP | None |
 | `POST` | `/onboard/resume-session/` | Resume with email + password | None |
 | `POST` | `/onboard/resume-session-token/` | Resume with a temp token | Temp token |
+| `GET` | `/onboard/billing-breakdown/` | 🆕 Re-fetch the price for the chosen plan and minutes — read-only | Temp token |
 | `PATCH` | `/onboard/update-plan/` | Switch plan before paying | Temp token |
 | `POST` | `/onboard/create-order-just-in-time/` | Save billing, create the order | Temp token |
 | `POST` | `/onboard/verify/` | Verify payment, finish onboarding | Temp token |
@@ -441,6 +442,74 @@ Use this when you still hold a valid token; it skips the password check.
 
 > **`USER_ALREADY_ONBOARDED` only appears when you resume by `email`.** Resuming by
 > `temp_registration_id` cannot detect it, and returns `SESSION_NOT_FOUND` instead.
+
+---
+
+### 7b. Fetch the Billing Breakdown
+
+The registrant's price for the plan and minutes they have chosen, fetched again on demand
+— for a page that has been refreshed, or a pricing summary that re-renders. Returns the
+same `billing_breakdown` that [verify-otp](#4-verify-the-otp) did.
+
+- **Path**: `GET /api/v1/onboard/billing-breakdown/`
+- **Auth**: temp token. No body, no query parameters.
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": true,
+    "message": "Billing breakdown retrieved",
+    "data": {
+      "plan": {
+        "id": "1a2b…", "name": "Growth", "code": "growth",
+        "billing_cycle": "monthly", "currency": "INR",
+        "min_minutes": 501, "max_minutes": 2000,
+        "is_fixed_quantity": false, "is_minutes_based": true
+      },
+      "selected_minutes": 1200,
+      "billing_breakdown": {
+        "base_price": "2160.00",
+        "discount_amount": "0.00",
+        "net_base_price": "2160.00",
+        "tax_percentage": "18.00",
+        "tax_amount": "388.80",
+        "total_price": "2548.80",
+        "currency": "INR",
+        "selected_minutes": 1200,
+        "price_per_minute_inr": "1.8000",
+        "allocated_credits": 4800
+      },
+      "sellable": true,
+      "reason": null
+    },
+    "errors": null
+  }
+  ```
+
+| Status | When | `message` | `errors` |
+|---|---|---|---|
+| **200** | Breakdown returned. | `Billing breakdown retrieved` | `null` |
+| **400** | The registration has no plan. | `No plan selected` | `["PLAN_SELECTION_REQUIRED"]` |
+| **401** / **403** | Missing, expired, or non-temp token. | see [The temporary token](#the-temporary-token) | — |
+
+| Field | Meaning |
+|---|---|
+| `plan` | The selected plan **with its band**, so a refreshed page can re-render the minutes selector without a second request |
+| `selected_minutes` | The quantity chosen. `null` on a plan not sold by the minute |
+| `billing_breakdown` | Identical to `verify-otp`'s — the same helper builds both |
+| `sellable` | Whether [create-order](#10-create-the-order) would accept this selection right now |
+| `reason` | Why not, when `sellable` is `false`. `null` otherwise |
+
+> **Read-only, with no side effects.** Unlike `resume-session-token/` it does not reissue
+> the token or work out the next step, so it is safe to call on every render.
+
+> **`sellable: false` means checkout will refuse.** It runs the same check create-order
+> does. It happens when a plan's band is edited after the registrant chose their minutes:
+> create-order would return `400 MINUTES_NOT_SELLABLE`. The breakdown is still returned,
+> so the page can show the price and ask them to pick a quantity the plan still sells.
+
+> **Which to call on refresh.** Use `resume-session-token/` when you need to know *where*
+> the registrant is (`step`, billing address, pending order). Use this when you only need
+> the price.
 
 ---
 
