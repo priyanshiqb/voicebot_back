@@ -105,6 +105,18 @@ class AgentCallLog(TenantBaseModelCore):
             "configured tier."
         ),
     )
+    credits_charged = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_(
+            "Credits this call was charged, as rated: the full total, even when the "
+            "charge drew on both wallet buckets. Null means never charged (not yet "
+            "rated, unpriceable, or the wallet was short); 0 means a free call. What "
+            "was charged, not net of refunds. The wallet ledger remains the record "
+            "of money; this copy exists so a report never has to join the ledger on "
+            "a string that a two-bucket charge splits in two."
+        ),
+    )
     outcome = models.CharField(
         max_length=255,
         blank=True,
@@ -231,6 +243,28 @@ class AgentCallLog(TenantBaseModelCore):
         if self.direction == self.CallDirection.OUTBOUND:
             return self.callee_number or self.caller_number
         return self.caller_number
+
+    def record_credits_charged(self, credits):
+        """Store what this call was charged, as rated.
+
+        Pass the rated total, never a ledger row's ``amount``: a charge that spans both
+        wallet buckets writes two rows and the first carries only the allocated share,
+        so reading it back undercounts by exactly the purchased part.
+
+        A queryset update rather than ``save()``, so the pre_save contact resolution
+        does not run again for a row it has already handled, and this cannot overwrite
+        a field some other writer changed in the meantime.
+
+        Raises on failure. Whether that reaches anyone is the caller's decision: the
+        call-log endpoint must never fail the runner's POST, while an operator charging
+        from the admin should be told.
+        """
+        from django.utils import timezone
+
+        type(self).objects.filter(pk=self.pk).update(
+            credits_charged=credits, updated_at=timezone.now()
+        )
+        self.credits_charged = credits
 
     def __str__(self):
         return f"{self.provider_call_id} - {self.customer_number}"

@@ -66,6 +66,8 @@
 * **📣 Campaigns**
   * [Overview & Complete Flow](campaigns/README.md)
   * [Campaigns API](apiDocs/core/campaign.md)
+  * [Campaign Reports — Flow & Lifecycle](campaigns/reports.md)
+  * [Campaign Reports API](apiDocs/core/campaign_report.md)
   * [Campaign Runner - Machine API](apiDocs/core/campaign_runner.md)
 
 * **📅 Scheduling & Booking APIs**

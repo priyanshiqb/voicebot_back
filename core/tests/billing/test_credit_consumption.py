@@ -219,8 +219,10 @@ class CallChargeTests(ConsumptionTestCase):
 
     def test_cc08_a_wallet_failure_does_not_fail_the_request(self):
         """CC-08: **anything unexpected is logged and swallowed.**"""
+        # consume_detailed, not consume: it is what the call-log endpoint calls. Patching
+        # the wrapper would intercept nothing, and this would pass while testing nothing.
         with patch.object(
-            wallet_service, "consume", side_effect=RuntimeError("wallet down")
+            wallet_service, "consume_detailed", side_effect=RuntimeError("wallet down")
         ):
             with self.assertLogs("core.views.agent_call_log", level="ERROR"):
                 response = self.post_call(provider_call_id="call_cc08")

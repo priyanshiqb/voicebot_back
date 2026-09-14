@@ -54,5 +54,9 @@ dependencies = [
     # ETL trigger and the campaign runner handoff. A dependency that disappears when
     # an unrelated package is dropped is not a dependency we have.
     "requests>=2.32",
+    # Campaign PDF reports. Chosen over WeasyPrint because it is pure Python: the image
+    # is python:3.13-slim with a deliberately thin apt layer, and WeasyPrint would add
+    # Pango, Cairo and a font stack to it.
+    "reportlab>=4.2",
 ]
 

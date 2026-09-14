@@ -202,6 +202,25 @@ class SasContractTests(SimpleTestCase):
 
         self.assertEqual(self._query(url)["sp"], ["r"])
 
+    def test_a_plain_download_sas_overrides_no_headers(self):
+        """The ETL service reads these URLs as plain GETs; an attachment disposition it
+        never asked for has no business on them."""
+        url = self._service().get_presigned_url_for_object("t-1/kb_files/x.pdf")
+
+        self.assertNotIn("rscd", self._query(url))
+
+    def test_a_named_download_sas_is_read_only_and_names_the_file(self):
+        """Without the signed Content-Disposition a browser saves a report under its blob
+        key — tenant prefix, report id and all. A quote in the name would end the filename
+        parameter early, so it is dropped."""
+        url = self._service().get_presigned_download_url(
+            "t-1/campaign-reports/r-1_campaign-q1.xlsx", 'campaign-"q1".xlsx'
+        )
+
+        query = self._query(url)
+        self.assertEqual(query["sp"], ["r"])
+        self.assertEqual(query["rscd"], ['attachment; filename="campaign-q1.xlsx"'])
+
     def test_every_sas_is_signed_and_expires(self):
         url = self._service().get_presigned_put_url(
             "t-1/catalog/x.jpg", "image/jpeg", 1024

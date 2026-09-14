@@ -333,7 +333,7 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                 return
 
             operation, quantity = billable
-            wallet_service.consume(
+            result = wallet_service.consume_detailed(
                 call_log.tenant_id,
                 operation=operation,
                 quantity=quantity,
@@ -348,6 +348,25 @@ class AgentCallLogViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
                 "failed to charge credits for call %s (tenant %s)",
                 call_log.provider_call_id,
                 call_log.tenant_id,
+            )
+            return
+
+        # None means nothing was charged now: a replay, or a wallet too short to cover
+        # it. The field stays null, which is what keeps the call visible as unrated.
+        if result is None:
+            return
+
+        # A separate `try`, because by this point the charge has landed. A failure here
+        # logged as "failed to charge" would send someone to refund a call that was
+        # billed correctly.
+        try:
+            call_log.record_credits_charged(result.credits)
+        except Exception:
+            logger.exception(
+                "call %s was charged %s credits, but the total could not be recorded "
+                "on the log",
+                call_log.provider_call_id,
+                result.credits,
             )
 
     @extend_schema(exclude=True)

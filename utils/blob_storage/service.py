@@ -148,8 +148,12 @@ class AzureBlobStorageService:
         if not self.container_name:
             raise ValueError("AZURE_CONTAINER is not configured.")
 
-    def _sign(self, object_key, permission, expires_in):
-        """Sign a service SAS for one blob. Local, offline, no client involved."""
+    def _sign(self, object_key, permission, expires_in, content_disposition=None):
+        """Sign a service SAS for one blob. Local, offline, no client involved.
+
+        ``content_disposition`` becomes the signed ``rscd`` override: storage answers the
+        read with that header, whatever the blob was stored with.
+        """
         self._require_container()
         if not self.account_key:
             raise ValueError(
@@ -166,6 +170,7 @@ class AzureBlobStorageService:
             # No `start`: Azure treats an absent start as "valid on arrival", which
             # sidesteps clock skew between this host and the storage account entirely.
             expiry=datetime.now(timezone.utc) + expires_in,
+            content_disposition=content_disposition,
         )
 
     def _format_file_size(self, size, unit="GB"):
@@ -340,6 +345,49 @@ class AzureBlobStorageService:
             or "application/octet-stream",
             "last_modified": getattr(props, "last_modified", None),
         }
+
+    # --- writing (server-side) ----------------------------------------------
+
+    def upload_file(self, object_key, file_obj, content_type=None):
+        """Write a file this server generated into a blob. Returns the key.
+
+        Everything above exists for *browser* uploads, which go straight to storage on a
+        signed PUT and never pass through a worker. A generated report travels the other
+        way — its bytes are already on this machine — so it is written with the client.
+
+        ``overwrite=True`` so a retried job lands on the key its first attempt used,
+        instead of failing on the blob that attempt left behind.
+        """
+        from azure.storage.blob import ContentSettings
+
+        self._require_container()
+        self._blob(object_key).upload_blob(
+            file_obj,
+            overwrite=True,
+            content_settings=(
+                ContentSettings(content_type=content_type) if content_type else None
+            ),
+        )
+        return object_key
+
+    def get_presigned_download_url(self, object_key, file_name, expiry_hours=1):
+        """A read-only SAS URL that downloads as ``file_name``.
+
+        A blob key carries a tenant prefix and a unique id, and left alone that is what a
+        browser names the file. The SAS sets Content-Disposition on the response instead,
+        so the download is called what the user expects without renaming the blob.
+        """
+        # Quotes would end the filename parameter early; nothing legitimate needs one.
+        safe_name = str(file_name).replace('"', "")
+        return self._with_public_endpoint(
+            f"{self._blob_url(object_key)}?"
+            + self._sign(
+                object_key,
+                BlobSasPermissions(read=True),
+                timedelta(hours=expiry_hours),
+                content_disposition=f'attachment; filename="{safe_name}"',
+            )
+        )
 
     # --- deleting ------------------------------------------------------------
 

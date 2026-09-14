@@ -18,6 +18,7 @@ around the ordinary case of Razorpay delivering the same event twice.
 """
 
 import logging
+from dataclasses import dataclass
 
 from django.db import transaction as db_transaction
 from django.utils import timezone
@@ -219,12 +220,36 @@ def _post_debit(wallet, split, *, entry_type, reference_id, rating_result=None,
     return entries
 
 
+@dataclass(frozen=True)
+class ConsumeResult:
+    """What a charge did, in full.
+
+    ``consume()`` returns only the primary ledger row, and for a charge that drew on both
+    buckets that row's ``amount`` is the allocated share alone — so a caller cannot learn
+    the total from it. ``credits`` is that total.
+
+    ``entries`` is empty for a charge rated at zero: the call was priced and nothing
+    moved. A caller that must tell "free" from "never charged" needs exactly that
+    distinction, which is why this is returned for a free call rather than ``None``.
+    """
+
+    credits: int
+    entries: tuple = ()
+
+    @property
+    def entry(self):
+        """The primary ledger row, the one carrying the bare reference, or ``None``."""
+        return self.entries[0] if self.entries else None
+
+
 @db_transaction.atomic
-def consume(tenant, *, operation, quantity, reference_id, subscription=None, metadata=None):
-    """Rate a quantity and deduct it. Returns the primary ledger row, or ``None``.
+def consume_detailed(tenant, *, operation, quantity, reference_id, subscription=None,
+                     metadata=None):
+    """Rate a quantity and deduct it. Returns a :class:`ConsumeResult`, or ``None``.
 
     ``None`` means one of two harmless things: this reference was already charged, or
-    the wallet could not cover it while enforcement is off. Both are logged.
+    the wallet could not cover it while enforcement is off. Both are logged. A charge
+    rated at zero is *not* ``None`` — see :class:`ConsumeResult`.
 
     Deliberately separate from :func:`assert_can_consume`, which runs *before* the
     work starts. Authorising and charging are different questions, and conflating
@@ -240,7 +265,7 @@ def consume(tenant, *, operation, quantity, reference_id, subscription=None, met
 
     if result.credits <= 0:
         logger.info("consume of 0 credits skipped: %s (%s)", reference_id, operation)
-        return None
+        return ConsumeResult(credits=0)
 
     if wallet.balance < result.credits:
         # Metering still records what happened elsewhere; here there is nothing to
@@ -261,7 +286,25 @@ def consume(tenant, *, operation, quantity, reference_id, subscription=None, met
         subscription=subscription,
         metadata=metadata,
     )
-    return entries[0] if entries else None
+    return ConsumeResult(credits=result.credits, entries=tuple(entries))
+
+
+def consume(tenant, *, operation, quantity, reference_id, subscription=None, metadata=None):
+    """Rate a quantity and deduct it. Returns the primary ledger row, or ``None``.
+
+    ``None`` means nothing was deducted: a replay, a wallet too short to cover it, or a
+    charge that rated at zero. The row returned carries only its own bucket's share, so
+    for the full total of a charge that spans both buckets use :func:`consume_detailed`.
+
+    **Not itself atomic, on purpose.** ``consume_detailed`` already is; a second
+    transaction here would add a savepoint to every charge for nothing, and the
+    query-budget tests count those statements.
+    """
+    result = consume_detailed(
+        tenant, operation=operation, quantity=quantity, reference_id=reference_id,
+        subscription=subscription, metadata=metadata,
+    )
+    return result.entry if result else None
 
 
 @db_transaction.atomic

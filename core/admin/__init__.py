@@ -42,6 +42,7 @@ from core.admin.contact_import_admin import (
 # Campaigns
 from core.admin.campaign_admin import CampaignAdmin
 from core.admin.campaign_member_admin import CampaignMemberAdmin
+from core.admin.campaign_report_admin import CampaignReportAdmin
 
 # Product & Service Catalog
 from core.admin.catalog_category_admin import CatalogCategoryAdmin

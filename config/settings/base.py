@@ -366,6 +366,7 @@ SPECTACULAR_SETTINGS = {
         # reports. One name, describing what both mean.
         "DeliveryStatusEnum": "core.models.notification_log.NotificationLog.Status",
         "CampaignStatusEnum": "core.models.campaign.Campaign.Status",
+        "CampaignReportStatusEnum": "core.models.campaign_report.CampaignReport.Status",
         "TenantEmailConfigurationStatusEnum": "tenant.models.TenantEmailConfiguration.TenantEmailConfiguration.Status",
         "PlanStatusEnum": "onboard.models.plan.Plan.Status",
         "BookingParticipantResponseStatusEnum": "core.models.booking_participant.BookingParticipant.ResponseStatus",
@@ -768,6 +769,26 @@ CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES = env.int(
     "CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES", default=20
 )
 
+# Campaign reports
+# Built in the background by core.services.campaign_reports and kept for a retention
+# window, after which the file is deleted and the row kept as EXPIRED.
+CAMPAIGN_REPORT_RETENTION_DAYS = env.int("CAMPAIGN_REPORT_RETENTION_DAYS", default=7)
+# Rows between progress writes. One UPDATE per member would be a hundred thousand writes
+# to move a progress bar.
+CAMPAIGN_REPORT_PROGRESS_EVERY = env.int("CAMPAIGN_REPORT_PROGRESS_EVERY", default=500)
+# The PDF carries the overview in full and at most this many members; the workbook always
+# carries everyone. At roughly 35 rows per landscape page, 2,000 is about 60 pages.
+CAMPAIGN_REPORT_PDF_MAX_ROWS = env.int("CAMPAIGN_REPORT_PDF_MAX_ROWS", default=2000)
+# A RUNNING or PENDING report with no progress for this long (worker killed, task never
+# delivered) is failed by the sweep. Measured from its last write, so a long build still
+# writing rows is safe; it must exceed the longest silent stretch of one — the overview
+# aggregates, the final save and the upload.
+CAMPAIGN_REPORT_STALL_MINUTES = env.int("CAMPAIGN_REPORT_STALL_MINUTES", default=120)
+# Lifetime of a download link. Minted per request and never stored.
+CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS = env.int(
+    "CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS", default=1
+)
+
 # Availability materialization
 # How many days of UTC availability windows to keep materialized ahead of today.
 # A tenant whose event templates advertise a longer booking horizon raises this
@@ -835,6 +856,17 @@ CELERY_BEAT_SCHEDULE = {
     "campaigns-retry-stale-handoffs": {
         "task": "core.tasks.retry_stale_handoffs",
         "schedule": 300.0,  # every 5 minutes
+    },
+    # Retention is measured in days, so an hour's lag in deleting a file costs nothing.
+    "campaign-reports-expire": {
+        "task": "core.tasks.expire_campaign_reports",
+        "schedule": 3600.0,  # hourly
+    },
+    # Against a 120-minute stall window, 15 minutes means a dead report is reported
+    # within about two and a quarter hours of its worker dying, not a day later.
+    "campaign-reports-fail-stalled": {
+        "task": "core.tasks.fail_stalled_campaign_reports",
+        "schedule": 900.0,  # every 15 minutes
     },
 
     # --- Billing -----------------------------------------------------------

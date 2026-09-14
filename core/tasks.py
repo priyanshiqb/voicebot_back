@@ -915,3 +915,53 @@ def retry_stale_handoffs():
             extra={"campaign_ids": [str(cid) for cid in campaign_ids]},
         )
     return len(campaign_ids)
+
+
+@shared_task(base=ReportedTask, bind=True, max_retries=3, default_retry_delay=60)
+def generate_campaign_report(self, report_id):
+    """Build a requested campaign report, upload it, and notify the requester.
+
+    Retries only what is worth retrying. A deleted campaign fails identically every time,
+    so it is recorded at once rather than proven three more times. Anything else — storage
+    unavailable, a database hiccup — backs off 60s / 120s / 240s.
+
+    The last attempt records the failure *before* returning, or the report would sit in
+    PENDING with nothing to say why. The detail goes to the failure log; the user sees a
+    message they can act on, not a stack trace.
+    """
+    from core.services import campaign_reports as report_service
+
+    try:
+        return report_service.build_report(report_id)
+    except report_service.PermanentReportError as exc:
+        report_service.mark_failed(report_id, str(exc))
+        return None
+    except Exception as exc:
+        if self.request.retries >= self.max_retries:
+            failure_logger.error(
+                "generate_campaign_report gave up on %s after %s retries: %s",
+                report_id,
+                self.request.retries,
+                exc,
+                exc_info=True,
+                extra={"task_name": self.name, "report_id": str(report_id)},
+            )
+            report_service.mark_failed(report_id, report_service.GENERIC_FAILURE_MESSAGE)
+            return None
+        raise self.retry(exc=exc, countdown=60 * 2 ** self.request.retries)
+
+
+@shared_task(base=ReportedTask)
+def expire_campaign_reports():
+    """Beat task: delete report files past retention and mark their rows EXPIRED."""
+    from core.services import campaign_reports as report_service
+
+    return report_service.expire_reports()
+
+
+@shared_task(base=ReportedTask)
+def fail_stalled_campaign_reports():
+    """Beat task: fail reports stuck RUNNING or PENDING that nothing else will ever move."""
+    from core.services import campaign_reports as report_service
+
+    return report_service.fail_stalled_reports()

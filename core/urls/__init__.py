@@ -31,6 +31,7 @@ urlpatterns = [
     path("", include("core.urls.dashboard")),
     path("", include("core.urls.campaign")),
     path("", include("core.urls.campaign_runner")),
+    path("", include("core.urls.campaign_report")),
     # Product & Service Catalog
     path("", include("core.urls.catalog")),
 ]

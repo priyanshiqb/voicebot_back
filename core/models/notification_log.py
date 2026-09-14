@@ -38,6 +38,10 @@ class NotificationLog(TenantBaseModelCore):
         # about running out of something mid-campaign.
         BILLING = "BILLING", "Billing"
         CREDITS = "CREDITS", "Credits"
+        # A generated report is ready, or could not be produced. One type for both
+        # outcomes: the title says which, and a type per outcome would be a choices
+        # migration every time a new kind of report is added.
+        REPORTS = "REPORTS", "Reports"
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"

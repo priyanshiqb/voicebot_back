@@ -4,7 +4,10 @@ Everything about how campaigns work: the architecture, the end-to-end flow, ever
 and how data moves between this backend and the external voice runner.
 
 **API references:** [Campaigns API](../apiDocs/core/campaign.md) ·
+[Campaign Reports API](../apiDocs/core/campaign_report.md) ·
 [Campaign Runner API](../apiDocs/core/campaign_runner.md)
+
+**Reports:** [Campaign Reports — Overview & Complete Flow](reports.md)
 
 ---
 

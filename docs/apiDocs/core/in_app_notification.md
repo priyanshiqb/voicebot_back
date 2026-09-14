@@ -36,7 +36,7 @@ Every notification the authenticated user has received, newest first. Used to po
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
 | `search` | string | Full-text search term. | Matches against `title` and `body`. |
 | `is_read` | boolean | Filter by read status. | `true` or `false`. Non-boolean → **400**. |
-| `notification_type` | string | Filter by event type. | E.g. `CONFIRMATION`, `CANCELED`, `REMINDER`. |
+| `notification_type` | string | Filter by event type. | E.g. `CONFIRMATION`, `CANCELED`, `REMINDER`, or `REPORTS` — a [campaign report](campaign_report.md) is ready or has failed. |
 | `ordering` | string | Sort field. Default `-created_at`. | Allowed: `created_at`, `read_at` (prefix `-` for desc). |
 
 - **Success Response (200 OK)**:

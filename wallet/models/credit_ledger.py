@@ -168,6 +168,11 @@ class CreditLedger(TenantBaseModelCore):
     )
 
     # --- provenance -----------------------------------------------------------
+    # Not a clean join key for usage. A debit that spans both buckets writes two rows,
+    # and the second is keyed "{reference}#purchased" (see `_post_debit`). Joining
+    # ledger rows to calls on `reference_id = provider_call_id` silently drops that
+    # row and undercounts for any tenant holding purchased credits. Match both keys,
+    # as `refund()` does, or read `AgentCallLog.credits_charged`, which has the total.
     reference_id = models.CharField(
         max_length=255,
         blank=True,

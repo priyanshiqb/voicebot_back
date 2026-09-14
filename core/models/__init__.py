@@ -44,6 +44,7 @@ from core.models.contact_import import (
 # Campaigns
 from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember
+from core.models.campaign_report import CampaignReport
 
 # Product & Service Catalog
 from core.models.catalog_category import CatalogCategory

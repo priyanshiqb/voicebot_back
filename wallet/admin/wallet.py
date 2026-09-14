@@ -510,7 +510,7 @@ class WalletAdmin(TenantBaseAdminCore):
 
                 operation, quantity = billable
                 try:
-                    entry = svc.consume(
+                    result = svc.consume_detailed(
                         wallet.tenant_id,
                         operation=operation,
                         quantity=quantity,
@@ -548,11 +548,32 @@ class WalletAdmin(TenantBaseAdminCore):
                     )
                     continue
 
-                # None means already charged, or nothing owed while enforcement is off.
-                if entry is None:
+                # None means already charged, or the wallet could not cover it.
+                if result is None:
                     skipped += 1
-                else:
+                    continue
+
+                # A free call moved nothing, so it is not "charged", but it was rated —
+                # recording its 0 below is what stops it reading as never billed.
+                if result.entries:
                     charged += 1
+                else:
+                    skipped += 1
+
+                # Recorded exactly as a call-time charge is, or a retro-charged call sits
+                # in every report as "never charged". Surfaced rather than swallowed:
+                # the credits have moved, and the operator should know the log does not
+                # say so yet.
+                try:
+                    log.record_credits_charged(result.credits)
+                except Exception as exc:  # noqa: BLE001 — surfaced to the operator
+                    self.message_user(
+                        request,
+                        f"{wallet.tenant}: {provider_call_id} was charged "
+                        f"{result.credits} credits, but its call log could not record "
+                        f"it: {exc}",
+                        level="WARNING",
+                    )
 
         if not (charged or skipped or failed):
             self.message_user(

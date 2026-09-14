@@ -8,7 +8,12 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Value
 from django.db.models.functions import Concat, Lower, Trim
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle
@@ -23,6 +28,11 @@ from core.serializers.campaign import (
     CampaignSerializer,
     PreviewAudienceSerializer,
 )
+from core.serializers.campaign_report import (
+    CampaignReportRequestSerializer,
+    CampaignReportSerializer,
+)
+from core.services import campaign_reports as report_service
 from core.services import campaigns as campaign_service
 from core.tasks import materialize_campaign
 from tenant.common.views.agent_tenant_scope import VBAgentTenantScopedMixin
@@ -34,10 +44,11 @@ logger = logging.getLogger(__name__)
 
 class CampaignActionThrottle(UserRateThrottle):
     """
-    Launch, cancel, and audience preview are the expensive endpoints.
+    Launch, cancel, audience preview and report requests are the expensive endpoints.
 
     Preview is included because it counts across the whole selected audience, and an
-    under-debounced wizard will call it on every keystroke.
+    under-debounced wizard will call it on every keystroke. A report request queues a scan
+    of the whole campaign in a worker, and a double-clicked button queues two.
     """
 
     scope = "campaign_action"
@@ -136,7 +147,7 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
         return queryset
 
     def get_throttles(self):
-        if self.action in {"launch", "cancel", "preview_audience"}:
+        if self.action in {"launch", "cancel", "preview_audience", "reports"}:
             return [CampaignActionThrottle()]
         return super().get_throttles()
 
@@ -553,6 +564,44 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
                 "suppressed_by_reason": by_reason,
             },
             message="Retrieved successfully",
+        )
+
+    @extend_schema(
+        summary="Request a Campaign Report",
+        description=(
+            "Queues an XLSX or PDF report on this campaign and returns **202** at once with "
+            "the report row. The file is built in the background: poll "
+            "`GET /campaign-reports/{id}/` until `status` is `COMPLETED`, then call its "
+            "`download` action. The requester also gets an in-app notification."
+        ),
+        request=CampaignReportRequestSerializer,
+        responses={
+            202: CampaignReportSerializer,
+            400: OpenApiResponse(description="Unknown `report_format`."),
+            404: OpenApiResponse(description="No such campaign in your organisation."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="reports")
+    def reports(self, request, *args, **kwargs):
+        """Nothing expensive happens here: one row is written and a task is scheduled.
+
+        Allowed in any campaign status. A draft's report is mostly empty, which is itself a
+        true answer, and refusing it would make the button depend on state the user may not
+        be looking at.
+        """
+        campaign = self._get_campaign()
+        serializer = CampaignReportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        report = report_service.request_report(
+            campaign, request.user, serializer.validated_data["report_format"]
+        )
+        return self.success(
+            data=CampaignReportSerializer(
+                report, context=self.get_serializer_context()
+            ).data,
+            message="Report requested",
+            status_code=status.HTTP_202_ACCEPTED,
         )
 
     @extend_schema(

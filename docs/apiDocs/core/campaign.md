@@ -36,6 +36,7 @@ For architecture, flow diagrams, and how the statuses fit together, see the
 - [`POST /{id}/cancel/`](#post-idcancel)
 - [`GET /{id}/members/`](#get-idmembers)
 - [`GET /{id}/stats/`](#get-idstats)
+- [`POST /{id}/reports/`](#post-idreports)
 - [`POST /preview-audience/`](#post-preview-audience)
 - [Error reference](#error-reference)
 - [Configuration](#configuration)
@@ -119,6 +120,7 @@ reporting a problem — it is what correlates your request with the server logs.
 | `POST` | `/{id}/cancel/` | Terminate | 200 |
 | `GET` | `/{id}/members/` | Frozen audience | 200 |
 | `GET` | `/{id}/stats/` | Counters | 200 |
+| `POST` | `/{id}/reports/` | Request an XLSX or PDF report | 202 |
 | `POST` | `/preview-audience/` | Callable preview | 200 |
 
 ---
@@ -806,6 +808,37 @@ Keys are **omitted when zero**, so treat a missing key as `0`.
 
 ---
 
+## `POST /{id}/reports/`
+
+Request an **XLSX or PDF report** on this campaign. Returns **202** immediately with a report in
+`PENDING`; the file is built in the background. Polling and downloading are in the
+[Campaign Reports API](campaign_report.md), which documents this endpoint in full.
+
+### Request
+
+```json
+{ "report_format": "XLSX" }
+```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `report_format` | enum | Which file to produce. | Optional, default `XLSX`. `XLSX` or `PDF` only. |
+
+### Responses
+
+| Code | When | `message` |
+|---|---|---|
+| **202** | Queued. `data` is the report; poll `GET /api/v1/core/campaign-reports/{data.id}/`. | `Report requested` |
+| **400** | Unknown `report_format`. | `"CSV" is not a valid choice.` |
+| **401** / **403** | As elsewhere. `VB_AGENT` tokens are refused. | — |
+| **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` |
+| **429** | Throttled. Shares the 30/min budget with `launch`, `cancel` and `preview-audience`. | `Request was throttled. Expected available in N seconds.` |
+
+> **Every request builds a new report**, in any campaign status — `DRAFT` included. Disable the
+> button while the request is in flight, or a double click builds the file twice.
+
+---
+
 ## `POST /preview-audience/`
 
 How many of these contacts can actually be called, and why the rest cannot. **Detail-free**, so
@@ -859,7 +892,7 @@ tenant's** — those are silently ignored rather than erroring.
 | **400** | An entry is not a valid UUID. | `"abc" is not a valid UUID.` | `{"contact_ids": {...}}` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
 | **403** | No active tenant mapping, or a `VB_AGENT` token. | `Your user account is not associated with any active tenant.` | `{"detail": …}` |
-| **429** | Throttled. Shares one 30/min budget with `launch` and `cancel`. | `Request was throttled. Expected available in N seconds.` | `{"detail": …}` |
+| **429** | Throttled. Shares one 30/min budget with `launch`, `cancel` and `reports`. | `Request was throttled. Expected available in N seconds.` | `{"detail": …}` |
 
 > **Debounce this.** It scans every selected contact, and it draws from the same 30/min budget as
 > `launch` — a wizard that previews on each keystroke will lock the user out of launching.
@@ -896,10 +929,11 @@ often succeeds.
 
 ### Throttling
 
-`launch`, `cancel`, and `preview-audience` share **one 30/min budget per user** — the scope is
-shared, not per-endpoint, so 30 preview calls exhaust your launch allowance too. Preview is
-included because it counts across the whole selected audience, and an under-debounced wizard will
-call it on every keystroke.
+`launch`, `cancel`, `preview-audience` and `reports` share **one 30/min budget per user** — the
+scope is shared, not per-endpoint, so 30 preview calls exhaust your launch allowance too. Preview
+is included because it counts across the whole selected audience, and an under-debounced wizard
+will call it on every keystroke; `reports` because each request queues a scan of the whole
+campaign in a worker.
 
 Everything else on this API is unthrottled.
 
@@ -918,6 +952,7 @@ guarantee rather than an exact firing time.
 ## Related
 
 - [Campaign Runner API](campaign_runner.md) — the machine-facing side that pulls context and reports outcomes
+- [Campaign Reports API](campaign_report.md) — poll and download the reports requested with `POST /{id}/reports/`
 - [Campaign Overview](../../campaigns/README.md) — architecture and status diagrams
 - [Contacts API](./contact.md) — where the audience comes from, and where `do_not_call` is set
 - [Agent API](./agent.md) — the bot that places the calls
