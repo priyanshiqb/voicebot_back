@@ -76,7 +76,7 @@ no summary, no probing questions.
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
 | `search` | string | Partial, case-insensitive match on `provider_call_id`, `caller_number`, `callee_number`, `caller_name`. | Words split on spaces and **AND**ed. Both number columns are searched, so a customer's number finds their inbound *and* outbound calls. |
 | `ordering` | string | Sort. Default `-started_at`. | Only `started_at` and `duration_seconds`, optionally `-` prefixed. Anything else is ignored. |
-| `direction` | enum | Inbound vs outbound. | `inbound` or `outbound` — **lowercase**. |
+| `direction` | string | Inbound vs outbound. Supports multiple comma-separated values (e.g. `?direction=inbound,outbound`). | `inbound` or `outbound` — **lowercase**. |
 | `outcome` | string | **Exact** match on the disposition string. Supports multiple comma-separated values (e.g. `?outcome=success,failed`). | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
 | `agent` | UUID | Filter to one bot. | Must be a valid UUID. |
 | `campaign_id` | string | **Exact** match on the free-text campaign tag. | A string, not a foreign key — see §3. |
@@ -181,6 +181,7 @@ The full record, including the transcript and probing-question answers.
         "file_size_in_bytes": 2411008,
         "file": "https://<acct>.blob.core.windows.net/<container>/…?sv=…&sp=r&se=…&sig=…"
       },
+      "external_recording_url": null,
       "started_at": "2026-06-23T17:33:31.671Z",
       "ended_at": "2026-06-23T17:38:57.671Z",
       "tags": ["urgent"],
@@ -199,6 +200,12 @@ The full record, including the transcript and probing-question answers.
 
 > **`recording_file.file` is a presigned URL valid for 24 hours.** Generated per request — do not
 > cache or persist it. Without blob storage configured, the raw storage path is returned instead.
+
+> **A recording arrives one of two ways.** Either it was uploaded, so `recording_file` is set and we
+> hold a copy, or the SIP provider hosts it and `external_recording_url` is their link. We never
+> fetch, check or copy that link, so it plays only while the provider keeps the file and lets a
+> browser load it: a link that expires or needs the provider's login will stop playing, and this
+> API cannot tell. If both are set, play `recording_file`, since that copy is ours.
 
 | Status | When | `message` |
 |---|---|---|
@@ -241,6 +248,7 @@ The full record, including the transcript and probing-question answers.
 | `probing_questions` | JSON array | The questions asked and what was learned. Stored verbatim — no schema enforced. | Optional, default `[]`. Conventionally `{question, answerSummary, isPositive}` per entry. |
 | `transcript` | JSON array | The full conversation. Stored verbatim — no schema enforced. | Optional, default `[]`. Conventionally `{id, speaker, text, timestamp, isRedacted}` per line. |
 | `recording_file` | UUID | The recording, uploaded beforehand — see [Agent Call Recordings](./agent_call_recording.md). | Optional, nullable. Must be an existing recording id. |
+| `external_recording_url` | URL | A recording your SIP/telephony provider already hosts. Send their link instead of uploading a copy. | Optional, nullable. `http` or `https` only, max **2000**. Must not contain a username or password. `""` is stored as `null`. |
 | `follow_up_detail` | string | What follow-up is needed. | Optional, nullable. No length limit. |
 | `human_transfer_detail` | string | Why and how the call was handed to a human. | Optional, nullable. No length limit. |
 | `started_at` | datetime | When the call began, ISO-8601. | Optional, nullable — but the default list ordering uses it, so **send it**. |
@@ -325,6 +333,10 @@ The short version:
 3. `confirm-upload` with `file_id` → verifies it landed and marks it `CONFIRMED`.
 4. Pass that `file_id` as `recording_file` when creating the call log (§3).
 
+If the SIP provider already hosts the recording, skip all four steps and send their link as
+`external_recording_url` in the create payload instead. It has to be in that payload: call logs
+are append-only, so a link cannot be added to a log that already exists.
+
 ---
 
 ## What this API does not expose
@@ -375,6 +387,8 @@ sends it, it can be made required and the fallback retired.
 | 3 | `mood_confidence` has no range validation. | Out-of-range values are stored and surface in reporting. |
 | 4 | `probing_questions_count` is independent of `probing_questions`. | The two can disagree; trust the array's length. |
 | 5 | `ended_at` is not checked against `started_at`. | A negative call duration is representable. |
+| 6 | `external_recording_url` can only be set when the log is created. | If the provider reports the recording after the call log is posted, there is no way to attach it. |
+| 7 | `external_recording_url` is stored, not verified. | An expired or login-protected provider link is accepted and simply fails to play. |
 
 ## Related
 

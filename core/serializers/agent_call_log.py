@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from rest_framework import serializers
 from tenant.common.serializers.tenant_base_model_core_serializer import TenantBaseModelCoreSerializer
 from core.models.agent_call_log import AgentCallLog
@@ -68,6 +70,9 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "ai_summary",
             "transcript",
             "recording_file",
+            # For when the SIP provider already hosts the recording: the runner passes
+            # their link instead of uploading a copy through request-upload-url.
+            "external_recording_url",
             "started_at",
             "ended_at",
             "tags",
@@ -77,6 +82,30 @@ class AgentCallLogSerializer(TenantBaseModelCoreSerializer):
             "follow_up_detail",
             "human_transfer_detail",
         ]
+
+    def validate_external_recording_url(self, value):
+        """Accept a provider's recording link only if it is safe to show every user.
+
+        Checked here rather than left to the model's validator, because DRF replaces a
+        URLField's own URLValidator with its default one, which also allows ftp.
+
+        Credentials in the link are refused: the URL is returned to everyone in the
+        tenant, so `user:pass@` would publish the provider account's login — and
+        browsers will not send embedded credentials for an audio source anyway, so the
+        link would not play either.
+        """
+        if not value:
+            # One "no link" value, so `external_recording_url__isnull` finds them all.
+            return None
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https"):
+            raise serializers.ValidationError("Enter an http or https link.")
+        if parts.username or parts.password:
+            raise serializers.ValidationError(
+                "Remove the username and password from the link; it is shown to "
+                "everyone in the tenant."
+            )
+        return value
 
 class AgentCallLogListSerializer(TenantBaseModelCoreSerializer):
     """Optimized serializer for list views."""

@@ -1,3 +1,4 @@
+from django.core.validators import URLValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
@@ -155,6 +156,18 @@ class AgentCallLog(TenantBaseModelCore):
         blank=True,
         related_name="call_logs",
         help_text=_("The MP3 recording file uploaded directly to blob storage.")
+    )
+    external_recording_url = models.URLField(
+        max_length=2000,
+        blank=True,
+        null=True,
+        validators=[URLValidator(schemes=["http", "https"])],
+        help_text=_(
+            "A recording the SIP/telephony provider hosts, stored as the link they "
+            "gave. Never fetched or copied, so it plays only while the provider keeps "
+            "the file and lets a browser load it. When recording_file is also set, "
+            "that is our own copy and takes precedence."
+        ),
     )
     started_at = models.DateTimeField(
         blank=True,
