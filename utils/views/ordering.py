@@ -84,14 +84,22 @@ def resolve_ordering(
     paginating an unordered queryset repeats and skips rows.
     """
     field_map = field_map or {}
-    raw = request.query_params.get(param) or ""
+    
+    raw_list = request.query_params.getlist(param)
+    if not raw_list:
+        raw_list = request.query_params.getlist(f"{param}[]")
+        
+    # Also support fallback 'sort' or 'sortBy' params if needed
+    if not raw_list:
+        raw_list = request.query_params.getlist("sort") or request.query_params.getlist("sortBy")
 
     resolved = []
-    for term in (part.strip() for part in raw.split(",")):
-        if not term:
-            continue
-        if term.lstrip("-") not in allowed:
-            continue
-        resolved.extend(_expand(term, field_map))
+    for raw in raw_list:
+        for term in (part.strip() for part in raw.split(",")):
+            if not term:
+                continue
+            if term.lstrip("-") not in allowed:
+                continue
+            resolved.extend(_expand(term, field_map))
 
     return _with_tiebreaker(resolved or list(default), tiebreaker)
