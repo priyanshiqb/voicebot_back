@@ -5,7 +5,7 @@ import logging
 import django_filters
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Value
+from django.db.models import Count, OuterRef, Subquery, Value
 from django.db.models.functions import Concat, Lower, Trim
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -19,6 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle
 
 from core.models.agent import Agent
+from core.models.agent_call_log import AgentCallLog
 from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember
 from core.serializers.campaign import (
@@ -489,10 +490,21 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
     @action(detail=True, methods=["get"])
     def members(self, request, *args, **kwargs):
         campaign = self._get_campaign()
+        # The member's newest call log, so a row can link to its call analytics
+        # (GET /agent-call-logs/{id}/). Newest by created_at, the same "latest call" the
+        # campaign report reads, so the report and this screen name the same call.
+        # Soft-deleted logs are skipped because their detail endpoint 404s. A subquery
+        # rather than a prefetch keeps it to the one query per page.
+        latest_call = AgentCallLog.objects.filter(
+            campaign_member=OuterRef("pk"), is_deleted=False
+        ).order_by("-created_at")
         queryset = (
             CampaignMember.objects.filter(campaign=campaign)
             .select_related("contact")
-            .annotate(_full_name=self.MEMBER_FULL_NAME_EXPR)
+            .annotate(
+                _full_name=self.MEMBER_FULL_NAME_EXPR,
+                analytics_id=Subquery(latest_call.values("id")[:1]),
+            )
         )
 
         member_status = request.query_params.get("status")

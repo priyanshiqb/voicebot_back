@@ -335,6 +335,10 @@ class CampaignMemberSerializer(serializers.ModelSerializer):
 
     contact_id = serializers.UUIDField(source="contact.id", read_only=True)
     full_name = serializers.CharField(source="contact.full_name", read_only=True)
+    # The member's newest call log, i.e. the id GET /agent-call-logs/{id}/ opens. An
+    # annotation the members action adds, so null both when nothing is linked and when
+    # a caller serializes a member without it.
+    analytics_id = serializers.UUIDField(read_only=True, allow_null=True)
 
     class Meta:
         model = CampaignMember
@@ -349,6 +353,7 @@ class CampaignMemberSerializer(serializers.ModelSerializer):
             "last_call_at",
             "outcome",
             "error_message",
+            "analytics_id",
             "created_at",
         ]
         read_only_fields = fields

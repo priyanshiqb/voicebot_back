@@ -726,6 +726,21 @@ The frozen audience. Empty until materialisation completes.
       "last_call_at": null,
       "outcome": "",
       "error_message": "",
+      "analytics_id": null,
+      "created_at": "2027-02-15T04:00:03Z"
+    },
+    {
+      "id": "5e8a…",
+      "contact_id": "a7b9…",
+      "full_name": "Grace Hopper",
+      "phone_e164": "+14155552672",
+      "status": "COMPLETED",
+      "suppression_reason": "",
+      "attempt_count": 2,
+      "last_call_at": "2027-02-16T09:12:40Z",
+      "outcome": "meeting_booked",
+      "error_message": "",
+      "analytics_id": "7a1c…",
       "created_at": "2027-02-15T04:00:03Z"
     },
     {
@@ -739,6 +754,7 @@ The frozen audience. Empty until materialisation completes.
       "last_call_at": null,
       "outcome": "",
       "error_message": "",
+      "analytics_id": null,
       "created_at": "2027-02-15T04:00:03Z"
     }
   ],
@@ -762,6 +778,17 @@ not widen the PII surface. Use `/contacts/{contact_id}/` for the rest.
 > **`attempt_count`, `last_call_at`, `outcome`, and `error_message` are mirrored from the runner**,
 > not authoritative. They stay at their defaults until the runner reports, so zeros on a freshly
 > materialised campaign mean "nothing reported yet", not "tried and got nowhere".
+
+> **`analytics_id` opens the member's call.** It is the id of the member's most recent call log:
+> pass it to `GET /agent-call-logs/{id}/` for the transcript, summary and recording. If the member
+> was called more than once it is the newest call, and `attempt_count` says how many there were.
+> It is the same call the campaign report's "Provider call ID" column names, unless that call log
+> was deleted: this skips deleted logs, because their detail endpoint returns 404.
+>
+> It is `null` when no call log is linked to the member. That covers members never called
+> (`PENDING`, `SUPPRESSED`, `CANCELLED`), and also calls whose log was posted *after* the runner
+> reported the outcome: the link is made only when the outcome arrives and that call log already
+> exists, and it is not retried later.
 
 ---
 
