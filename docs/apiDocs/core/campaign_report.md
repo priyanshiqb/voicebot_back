@@ -237,6 +237,7 @@ This tenant's reports, newest first.
 
 | Parameter | Type | Description | Validation |
 |---|---|---|---|
+| `search` | string | Search by file name or campaign name. | Optional. |
 | `campaign` | UUID | Only this campaign's reports. | Must be a campaign id; an unknown one is **400**. |
 | `status` | enum | Only reports in this status. | One of the [`status` values](#status). |
 | `report_format` | enum | Only this format. | `XLSX` or `PDF`. |

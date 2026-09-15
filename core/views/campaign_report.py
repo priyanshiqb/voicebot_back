@@ -65,6 +65,7 @@ class CampaignReportViewSet(TenantBaseViewSet):
     bulk_delete = None
 
     filterset_fields = ["campaign", "status", "report_format"]
+    search_fields = ["file_name", "campaign__name"]
     ordering_fields = ["created_at", "completed_at"]
     ordering = ["-created_at"]
     select_related_fields = ["tenant", "campaign", "created_by", "updated_by", "deleted_by"]
