@@ -42,3 +42,18 @@ class CustomVoiceViewSet(TenantBaseViewSet):
 
     # Limit to List, Retrieve, Create, Destroy
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
+
+    def perform_destroy(self, instance):
+        from core.models.agent import Agent
+        from rest_framework.exceptions import ValidationError
+
+        agents_using_voice = Agent.objects.filter(
+            voice_name=str(instance.id),
+            is_deleted=False
+        ).count()
+        if agents_using_voice > 0:
+            raise ValidationError(
+                f"This custom voice is used by {agents_using_voice} bot(s). "
+                "Please assign a different voice to those bots before deleting."
+            )
+        super().perform_destroy(instance)
