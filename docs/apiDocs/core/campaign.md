@@ -682,7 +682,7 @@ The frozen audience. Empty until materialisation completes.
 
 | Param | Type | Description | Validation |
 |---|---|---|---|
-| `status` | enum | Narrow to one member state. | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`. **Not validated** — see below. |
+| `status` | enum | Narrow to one or more member states. Comma-separated (`?status=PENDING,IN_PROGRESS`) or the key repeated (`?status=PENDING&status=IN_PROGRESS`); a member matching any of them is returned. | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, uppercase. Spaces around commas are ignored. **Not validated** — see below. |
 | `suppression_reason` | enum | Narrow to one exclusion reason. Pair with `status=SUPPRESSED` for a compliance list. | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED`. **Not validated.** |
 | `search` | string | Substring match on `phone_e164` **only**. | Case-insensitive. Does **not** search names — the audience is keyed by number here. |
 | `outcome` | string | Exact match on `outcome`. Supports multiple values (comma-separated or multiple query params). | Matches the outcome text. |

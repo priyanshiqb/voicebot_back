@@ -490,7 +490,11 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
                 name="status",
                 required=False,
                 type=str,
-                description="Filter by exact member status (e.g. PENDING, COMPLETED, FAILED).",
+                description=(
+                    "Filter by member status: one or more of PENDING, SUPPRESSED, CANCELLED, "
+                    "IN_PROGRESS, COMPLETED, FAILED. Comma-separated values or multiple query "
+                    "parameters for multi-select; a member matching any of them is returned."
+                ),
             ),
             OpenApiParameter(
                 name="suppression_reason",
@@ -547,9 +551,17 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
             )
         )
 
-        member_status = request.query_params.get("status")
-        if member_status:
-            queryset = queryset.filter(status=member_status)
+        # One status or several: `?status=PENDING,IN_PROGRESS`, or the key repeated.
+        # Not `get()`: on a repeated key it keeps only the last value, which silently
+        # narrowed a multi-select to whichever status happened to be sent last.
+        statuses = [
+            value.strip()
+            for param in request.query_params.getlist("status")
+            for value in param.split(",")
+            if value.strip()
+        ]
+        if statuses:
+            queryset = queryset.filter(status__in=statuses)
 
         reason = request.query_params.get("suppression_reason")
         if reason:

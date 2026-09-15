@@ -532,6 +532,30 @@ class CampaignAudienceViewTests(CampaignAPITestCase):
             response.data["data"][0]["suppression_reason"], "DO_NOT_CALL"
         )
 
+    def test_members_filter_by_comma_separated_statuses(self):
+        response = self.client_alex.get(
+            f"{BASE}{self.campaign.id}/members/?status=PENDING, SUPPRESSED"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["status"] for row in response.data["data"]}, {"PENDING", "SUPPRESSED"}
+        )
+
+    def test_members_filter_by_repeated_status(self):
+        """The key repeated must not collapse to its last value."""
+        response = self.client_alex.get(
+            f"{BASE}{self.campaign.id}/members/?status=PENDING&status=SUPPRESSED"
+        )
+        self.assertEqual(len(response.data["data"]), 2)
+
+    def test_several_statuses_still_exclude_the_rest(self):
+        response = self.client_alex.get(
+            f"{BASE}{self.campaign.id}/members/?status=COMPLETED,SUPPRESSED"
+        )
+        self.assertEqual(
+            [row["status"] for row in response.data["data"]], ["SUPPRESSED"]
+        )
+
     def test_stats_breaks_down_suppression(self):
         response = self.client_alex.get(f"{BASE}{self.campaign.id}/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
