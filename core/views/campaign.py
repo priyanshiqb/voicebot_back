@@ -25,6 +25,7 @@ from core.models.campaign_member import CampaignMember
 from core.serializers.campaign import (
     CampaignDropdownSerializer,
     CampaignListSerializer,
+    CampaignMemberFilterSerializer,
     CampaignMemberSerializer,
     CampaignSerializer,
     PreviewAudienceSerializer,
@@ -454,8 +455,16 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
     # never runs filter_queryset, so the viewset's ordering_fields do not reach it —
     # they describe campaigns, not members. `full_name` lives on the joined contact and
     # spans two columns, so it resolves to the annotation added below.
+    # `duration_seconds` is the latest call's length, annotated in the action below.
     MEMBER_ORDERING_FIELDS = frozenset(
-        {"attempt_count", "full_name", "status", "last_call_at", "created_at"}
+        {
+            "attempt_count",
+            "full_name",
+            "status",
+            "last_call_at",
+            "duration_seconds",
+            "created_at",
+        }
     )
     MEMBER_ORDERING_MAP = {"full_name": "_full_name"}
     MEMBER_ORDERING_DEFAULT = ("created_at",)
@@ -473,7 +482,8 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
         description=(
             "The frozen audience: who is queued, and who was suppressed and why.\n\n"
             "Sortable with `?ordering=` on `full_name`, `status`, `attempt_count`, "
-            "`last_call_at` or `created_at`; prefix with `-` for descending."
+            "`last_call_at`, `duration_seconds` or `created_at`; prefix with `-` for "
+            "descending."
         ),
         parameters=[
             OpenApiParameter(
@@ -481,9 +491,28 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
                 required=False,
                 type=str,
                 description=(
-                    "full_name, status, attempt_count, last_call_at, created_at. "
-                    "Prefix with '-' for descending. Supports arrays (e.g. `ordering[]=-status`) "
-                    "and fallback names `sort` and `sortBy`."
+                    "full_name, status, attempt_count, last_call_at, duration_seconds, "
+                    "created_at. Prefix with '-' for descending. Supports arrays (e.g. "
+                    "`ordering[]=-status`) and fallback names `sort` and `sortBy`."
+                ),
+            ),
+            OpenApiParameter(
+                name="min_duration",
+                required=False,
+                type=int,
+                description=(
+                    "Latest call at least this many seconds long, inclusive. Leaves out "
+                    "members with no linked call. 400 if not a whole number >= 0."
+                ),
+            ),
+            OpenApiParameter(
+                name="max_duration",
+                required=False,
+                type=int,
+                description=(
+                    "Latest call at most this many seconds long, inclusive. Leaves out "
+                    "members with no linked call. 400 if not a whole number >= 0, or if "
+                    "below min_duration."
                 ),
             ),
             OpenApiParameter(
@@ -548,8 +577,24 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
             .annotate(
                 _full_name=self.MEMBER_FULL_NAME_EXPR,
                 analytics_id=Subquery(latest_call.values("id")[:1]),
+                # The same call's length, so the row, the duration filters and the
+                # duration sort all describe the call analytics_id opens.
+                duration_seconds=Subquery(latest_call.values("duration_seconds")[:1]),
             )
         )
+
+        # Checked before use: a non-integer bound or an upside-down range is a 400, not
+        # a filter that silently matches nobody.
+        member_filters = CampaignMemberFilterSerializer(data=request.query_params)
+        member_filters.is_valid(raise_exception=True)
+        # A member with no linked call has a null duration, which neither bound matches,
+        # so setting either one leaves never-called members out.
+        min_duration = member_filters.validated_data.get("min_duration")
+        if min_duration is not None:
+            queryset = queryset.filter(duration_seconds__gte=min_duration)
+        max_duration = member_filters.validated_data.get("max_duration")
+        if max_duration is not None:
+            queryset = queryset.filter(duration_seconds__lte=max_duration)
 
         # One status or several: `?status=PENDING,IN_PROGRESS`, or the key repeated.
         # Not `get()`: on a repeated key it keeps only the last value, which silently

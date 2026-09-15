@@ -686,9 +686,9 @@ The frozen audience. Empty until materialisation completes.
 | `suppression_reason` | enum | Narrow to one exclusion reason. Pair with `status=SUPPRESSED` for a compliance list. | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED`. **Not validated.** |
 | `search` | string | Substring match on `phone_e164` **only**. | Case-insensitive. Does **not** search names — the audience is keyed by number here. |
 | `outcome` | string | Exact match on `outcome`. Supports multiple values (comma-separated or multiple query params). | Matches the outcome text. |
-
 | `start_date` / `end_date` | datetime | Filter by `last_call_at` time range. | Standard ISO datetime formats. |
-| `ordering` | string | Sort. Default `created_at` (oldest first). | `full_name`, `status`, `attempt_count`, `last_call_at`, `created_at`; prefix `-` to reverse, comma-separate for multiple keys. Unrecognised keys are dropped silently. |
+| `min_duration` / `max_duration` | int | Length of the member's **latest call** in seconds, both inclusive: `?min_duration=30&max_duration=300`. Either can be sent alone. | Whole numbers, `0` or more, and `min_duration` no greater than `max_duration`, else **400**. Sent empty (`?min_duration=`) counts as not sent. Setting either leaves out members with no linked call. |
+| `ordering` | string | Sort. Default `created_at` (oldest first). | `full_name`, `status`, `attempt_count`, `last_call_at`, `duration_seconds`, `created_at`; prefix `-` to reverse, comma-separate for multiple keys. Unrecognised keys are dropped silently. |
 | `page`, `page_size` | int | Pagination. | Default page size 10, max 100. |
 
 > **`ordering=full_name` sorts on the contact's current name**, not a frozen copy — unlike
@@ -699,7 +699,8 @@ The frozen audience. Empty until materialisation completes.
 > a status and an attempt count, and an unordered tie lets Postgres return page 2 overlapping
 > page 1.
 
-> **These filters are not validated against their choices.** Unlike the campaign list, a
+> **`status`, `suppression_reason` and `outcome` are not validated against their choices.**
+> (`min_duration` / `max_duration` are: a bad value there is a **`400`**.) Unlike the campaign list, a
 > misspelled value such as `?status=PENDNIG` returns **`200` with an empty list**, not a `400`.
 > An empty result therefore means either "none match" or "you typed it wrong", and the response
 > cannot tell you which — check the spelling before concluding the audience is empty.
@@ -727,6 +728,7 @@ The frozen audience. Empty until materialisation completes.
       "outcome": "",
       "error_message": "",
       "analytics_id": null,
+      "duration_seconds": null,
       "created_at": "2027-02-15T04:00:03Z"
     },
     {
@@ -741,6 +743,7 @@ The frozen audience. Empty until materialisation completes.
       "outcome": "meeting_booked",
       "error_message": "",
       "analytics_id": "7a1c…",
+      "duration_seconds": 312,
       "created_at": "2027-02-15T04:00:03Z"
     },
     {
@@ -755,6 +758,7 @@ The frozen audience. Empty until materialisation completes.
       "outcome": "",
       "error_message": "",
       "analytics_id": null,
+      "duration_seconds": null,
       "created_at": "2027-02-15T04:00:03Z"
     }
   ],
@@ -769,8 +773,18 @@ not widen the PII surface. Use `/contacts/{contact_id}/` for the rest.
 | Code | When | `message` |
 |---|---|---|
 | **200** | Members returned. **Empty until materialisation completes** — a `DRAFT` or `SCHEDULED` campaign has no members yet, and that is not an error. | `success` |
+| **400** | `min_duration` or `max_duration` is not a whole number `0` or more, or `min_duration` is greater than `max_duration`. The field is named under `errors`. | the first error |
 | **401** / **403** | As elsewhere. | — |
 | **404** | No such campaign, soft-deleted, or another tenant's. | `Not found.` |
+
+> **`duration_seconds` is the length of the call `analytics_id` opens**, the member's latest
+> call, not the sum of all attempts and not the longest one. A member whose first call ran ten
+> minutes and whose latest ran ten seconds shows, filters and sorts as `10`. It is `null` whenever
+> `analytics_id` is `null` (see below).
+>
+> Because it is null for members with no linked call, `min_duration` or `max_duration` leaves
+> those members out, even `?min_duration=0`. Sorting by it puts them **last** ascending and
+> **first** descending, the same as `ordering=last_call_at`.
 
 > **`suppression_reason` is `""`, not `null`, for members that were not suppressed.** Test for
 > truthiness rather than `!== null`.

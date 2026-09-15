@@ -339,6 +339,9 @@ class CampaignMemberSerializer(serializers.ModelSerializer):
     # annotation the members action adds, so null both when nothing is linked and when
     # a caller serializes a member without it.
     analytics_id = serializers.UUIDField(read_only=True, allow_null=True)
+    # Length of that same latest call, in seconds. Also an annotation; null when no call
+    # is linked.
+    duration_seconds = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = CampaignMember
@@ -354,9 +357,39 @@ class CampaignMemberSerializer(serializers.ModelSerializer):
             "outcome",
             "error_message",
             "analytics_id",
+            "duration_seconds",
             "created_at",
         ]
         read_only_fields = fields
+
+
+class CampaignMemberFilterSerializer(serializers.Serializer):
+    """
+    The query parameters of GET /campaigns/{id}/members/ that need checking.
+
+    A duration that is not a whole number, or a range the wrong way round, would
+    otherwise become a filter that silently matches nobody, and an empty audience reads
+    as a real answer. A parameter sent empty (`?min_duration=`) counts as not sent.
+    """
+
+    min_duration = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Latest call at least this many seconds long, inclusive.",
+    )
+    max_duration = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Latest call at most this many seconds long, inclusive.",
+    )
+
+    def validate(self, attrs):
+        low, high = attrs.get("min_duration"), attrs.get("max_duration")
+        if low is not None and high is not None and low > high:
+            raise serializers.ValidationError(
+                {"max_duration": "max_duration must be greater than or equal to min_duration."}
+            )
+        return attrs
 
 
 class PreviewAudienceSerializer(serializers.Serializer):
