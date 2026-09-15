@@ -117,6 +117,7 @@ class AgentCallLogFilterForm(forms.Form):
 
 class AgentCallLogFilter(django_filters.FilterSet):
     outcome = CharInFilter(field_name="outcome", lookup_expr="in")
+    direction = CharInFilter(field_name="direction", lookup_expr="in")
     start_date = django_filters.DateFilter(
         method="filter_from_date",
         label="Calls logged on or after this UTC date, inclusive (YYYY-MM-DD).",

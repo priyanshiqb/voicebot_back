@@ -507,6 +507,22 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
         if search:
             queryset = queryset.filter(phone_e164__icontains=search)
 
+        outcomes = request.query_params.getlist("outcome")
+        if outcomes:
+            if len(outcomes) == 1 and "," in outcomes[0]:
+                outcomes = [x.strip() for x in outcomes[0].split(",")]
+            queryset = queryset.filter(outcome__in=outcomes)
+
+
+
+        start_date = request.query_params.get("start_date")
+        if start_date:
+            queryset = queryset.filter(last_call_at__gte=start_date)
+
+        end_date = request.query_params.get("end_date")
+        if end_date:
+            queryset = queryset.filter(last_call_at__lte=end_date)
+
         queryset = queryset.order_by(
             *resolve_ordering(
                 request,
