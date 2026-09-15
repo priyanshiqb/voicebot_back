@@ -482,8 +482,48 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
                 type=str,
                 description=(
                     "full_name, status, attempt_count, last_call_at, created_at. "
-                    "Prefix with '-' for descending."
+                    "Prefix with '-' for descending. Supports arrays (e.g. `ordering[]=-status`) "
+                    "and fallback names `sort` and `sortBy`."
                 ),
+            ),
+            OpenApiParameter(
+                name="status",
+                required=False,
+                type=str,
+                description="Filter by exact member status (e.g. PENDING, COMPLETED, FAILED).",
+            ),
+            OpenApiParameter(
+                name="suppression_reason",
+                required=False,
+                type=str,
+                description="Filter by suppression reason.",
+            ),
+            OpenApiParameter(
+                name="search",
+                required=False,
+                type=str,
+                description="Search by phone number.",
+            ),
+            OpenApiParameter(
+                name="outcome",
+                required=False,
+                type=str,
+                description=(
+                    "Filter by exact call outcome. Supports comma-separated values "
+                    "or multiple query parameters for multi-select."
+                ),
+            ),
+            OpenApiParameter(
+                name="start_date",
+                required=False,
+                type=str,
+                description="Filter by last_call_at greater than or equal to this date (ISO 8601).",
+            ),
+            OpenApiParameter(
+                name="end_date",
+                required=False,
+                type=str,
+                description="Filter by last_call_at less than or equal to this date (ISO 8601).",
             ),
         ],
     )
