@@ -18,6 +18,7 @@ from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember, suppression_reason_for
 from core.models.contact import Contact
 from core.services import campaign_handoff as handoff_service
+from utils.querysets import batched_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,10 @@ def resolve_audience(campaign):
     """
     The contacts this campaign would target, as a queryset.
 
-    Ordered by pk because `.iterator()` over an unordered queryset can repeat or skip
-    rows. Soft-deleted contacts are excluded here rather than suppressed, since a
-    deleted contact was never really part of the audience.
+    Ordered by pk because every consumer walks it with `batched_queryset`, which pages
+    on the primary key: over an unordered queryset that can repeat or skip rows.
+    Soft-deleted contacts are excluded here rather than suppressed, since a deleted
+    contact was never really part of the audience.
     """
     return (
         Contact.objects.filter(
@@ -55,7 +57,7 @@ def preview_audience(tenant, contact_ids):
     callable_count = 0
     matched = 0
 
-    for contact in contacts.iterator(chunk_size=1000):
+    for contact in batched_queryset(contacts, batch_size=1000):
         matched += 1
         reason = suppression_reason_for(contact)
         if reason is None:
@@ -75,7 +77,7 @@ def preview_audience(tenant, contact_ids):
 def count_callable(campaign):
     """How many of this campaign's contacts may actually be called."""
     callable_count = 0
-    for contact in resolve_audience(campaign).iterator(chunk_size=1000):
+    for contact in batched_queryset(resolve_audience(campaign), batch_size=1000):
         if suppression_reason_for(contact) is None:
             callable_count += 1
     return callable_count
@@ -161,7 +163,10 @@ def materialize_campaign(campaign_id):
 
     batch = []
     try:
-        for contact in audience.iterator(chunk_size=batch_size):
+        # Not `.iterator()`: it opens a named Postgres cursor, and pgbouncer runs in
+        # transaction pooling, so the cursor is gone by the next fetch — the whole
+        # materialisation died with InvalidCursorName. Keyset paging holds no cursor.
+        for contact in batched_queryset(audience, batch_size=batch_size):
             batch.append(contact)
             if len(batch) >= batch_size:
                 _write_batch(campaign, batch)
