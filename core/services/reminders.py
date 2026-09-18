@@ -12,6 +12,7 @@ from django.conf import settings
 from core.models.booking import Booking
 from core.services import notifications
 from core.services.time_utils import utcnow
+from utils.querysets import batched_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +24,20 @@ def send_due_reminders(now=None):
         return 0
 
     max_offset = offsets[-1]
-    upcoming = (
-        Booking.objects.filter(
-            is_deleted=False,
-            status__in=[Booking.Status.SCHEDULED, Booking.Status.CONFIRMED],
-            start_time__gt=now,
-            start_time__lte=now + timedelta(minutes=max_offset),
-        )
-        .order_by("start_time")
-        # Streamed, not materialized: this is every booking in the next 24h across
-        # every tenant, and the previous version pulled them all into memory.
-        .iterator(chunk_size=500)
+    upcoming = Booking.objects.filter(
+        is_deleted=False,
+        status__in=[Booking.Status.SCHEDULED, Booking.Status.CONFIRMED],
+        start_time__gt=now,
+        start_time__lte=now + timedelta(minutes=max_offset),
     )
 
     sent = 0
-    for booking in upcoming:
+    # Paged, not materialized: this is every booking in the next 24h across every
+    # tenant, and an earlier version pulled them all into memory. Paged on the primary
+    # key rather than streamed with `.iterator()`, whose named cursor does not survive
+    # pgbouncer's transaction pooling. Order is irrelevant: each booking is decided on
+    # its own.
+    for booking in batched_queryset(upcoming, batch_size=500):
         minutes_until = (booking.start_time - now).total_seconds() / 60.0
         # Nearest offset whose window we've entered (ascending offsets).
         for offset in offsets:

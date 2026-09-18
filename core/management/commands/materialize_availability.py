@@ -15,6 +15,7 @@ from django.core.management.base import BaseCommand, CommandError
 from core.models.availability_profile import AvailabilityProfile
 from core.services import availability_materializer as materializer
 from tenant.models.Tenant import Tenant
+from utils.querysets import batched_queryset
 
 
 class Command(BaseCommand):
@@ -74,7 +75,7 @@ class Command(BaseCommand):
                 raise CommandError(f"No tenant with id {tenant_id}.")
 
         total_profiles = total_windows = 0
-        for tenant in tenants.iterator(chunk_size=100):
+        for tenant in batched_queryset(tenants, batch_size=100):
             if dry_run:
                 count = AvailabilityProfile.objects.filter(
                     tenant=tenant, is_deleted=False, is_active=True

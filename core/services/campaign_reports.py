@@ -17,6 +17,7 @@ import logging
 import os
 import tempfile
 from datetime import timedelta
+from itertools import islice
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -35,6 +36,7 @@ from core.models.notification_log import NotificationLog
 from core.services.report_writers import DATETIME, NUMBER, Column, ReportContent
 from utils.blob_storage.keys import build_tenant_object_key
 from utils.blob_storage.service import AzureBlobStorageService
+from utils.querysets import batched_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -273,11 +275,18 @@ def member_rows(campaign, zone, limit=None):
     never told they exist. A tenant asking what happened to their campaign is owed "these
     people were not called, and here is why", which is the point of recording a reason.
     """
-    queryset = member_queryset(campaign)
+    # Paged on (created_at, id), the order member_queryset already sorts by, so the file
+    # lists people exactly as before. Not `.iterator()`: its named cursor does not survive
+    # pgbouncer's transaction pooling. `limit` is applied by counting rows, because a
+    # sliced queryset cannot be paged.
+    batch_size = 2000 if limit is None else max(1, min(2000, limit))
+    members = batched_queryset(
+        member_queryset(campaign), batch_size=batch_size, order_by=("created_at", "id")
+    )
     if limit is not None:
-        queryset = queryset[:limit]
+        members = islice(members, limit)
 
-    for member in queryset.iterator(chunk_size=2000):
+    for member in members:
         contact = member.contact
         yield (
             str(member.pk),
@@ -659,9 +668,9 @@ def expire_reports(now=None):
     storage = None
     expired = 0
 
-    for report in CampaignReport.objects.filter(
-        status=Status.COMPLETED, expires_at__lte=now
-    ).iterator():
+    expiring = CampaignReport.objects.filter(status=Status.COMPLETED, expires_at__lte=now)
+    # Paged on the pk, so rows this loop moves to EXPIRED cannot shift the next page.
+    for report in batched_queryset(expiring):
         if report.file_key:
             storage = storage or AzureBlobStorageService()
             try:

@@ -19,6 +19,7 @@ from django.utils import timezone as dj_tz
 from core.models.availability_profile import AvailabilityProfile
 from core.models.availability_window import AvailabilityWindow
 from core.models.event_template import MAX_HORIZON_DAYS, EventTemplate
+from utils.querysets import batched_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ def materialize_tenant(tenant, days=None):
         .prefetch_related("rules")
     )
     seen = written = 0
-    for profile in profiles.iterator(chunk_size=200):
+    for profile in batched_queryset(profiles, batch_size=200):
         seen += 1
         try:
             written += materialize_profile_from_today(profile, days=days)

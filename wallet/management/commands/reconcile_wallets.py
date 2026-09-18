@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from utils.querysets import batched_queryset
 from wallet.models import Wallet
 from wallet.services import reconciliation
 
@@ -40,7 +41,7 @@ class Command(BaseCommand):
         # answer. Passing `sums` in is what preserves the two-query property.
         totals = reconciliation.bulk_ledger_sums()
 
-        for wallet in Wallet.objects.select_related("tenant").iterator():
+        for wallet in batched_queryset(Wallet.objects.select_related("tenant")):
             checked += 1
             sums = totals.get(wallet.pk, {})
             total = reconciliation.ledger_total(wallet, sums=sums)

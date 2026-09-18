@@ -24,6 +24,7 @@ from core.models.booking import HELD_STATUS, Booking
 from core.models.booking_participant import BookingParticipant
 from core.models.notification_log import NotificationLog
 from tenant.models.Tenant import Tenant
+from utils.querysets import batched_queryset, batched_values
 
 # How long past its expiry a HELD booking may sit before it counts as stranded.
 # The release task runs every 60s; this is generous enough that a slow run or a
@@ -248,7 +249,11 @@ def check_unmaterialized_profiles(scope, limit):
         .annotate(n=Count("rules", filter=Q(rules__is_deleted=False)))
         .filter(n__gt=0)
     )
-    stale = [p.id for p in profiles.iterator(chunk_size=500) if p.id not in materialized]
+    stale = [
+        p.id
+        for p in batched_queryset(profiles, batch_size=500)
+        if p.id not in materialized
+    ]
     if not stale:
         return []
     return [
@@ -293,9 +298,10 @@ def check_window_horizon(scope, limit):
     findings = []
     profiles = AvailabilityProfile.objects.filter(
         is_deleted=False, is_active=True, **scope
-    ).values_list("id", flat=True)
+    )
     at_risk = []
-    for profile_id in profiles.iterator(chunk_size=500):
+    # batched_values appends the pk to each tuple, which here is the id itself.
+    for profile_id, _pk in batched_values(profiles, ["id"], batch_size=500):
         last = (
             AvailabilityWindow.objects.filter(profile_id=profile_id)
             .order_by("-end_utc")

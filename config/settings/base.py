@@ -187,6 +187,14 @@ DATABASES = {
         "PASSWORD": env("POSTGRES_PASSWORD"),
         "HOST": env("POSTGRES_HOST"),
         "PORT": env("POSTGRES_PORT"),
+        # Required behind pgbouncer in transaction pooling mode, which is how the stack
+        # connects. A server-side cursor lives on one server connection, and transaction
+        # pooling hands that connection to another client between statements, so
+        # `.iterator()` fails with InvalidCursorName. Our own loops page with
+        # utils.querysets, which keeps memory bounded; this setting is what stops code
+        # we do not control (django-import-export's exports) and anything added later
+        # from failing the same way.
+        "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 }
 

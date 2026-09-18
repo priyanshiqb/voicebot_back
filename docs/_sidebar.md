@@ -147,6 +147,9 @@
   * [Knowledge Base Files Cleanup](commands/cleanup_orphaned_kb_files.md)
   * [Device Token Sweep](commands/purge_device_tokens.md)
 
+* **🗄 Database Patterns**
+  * [Iterating Large Querysets behind PgBouncer](architecture/queryset-iteration-and-pgbouncer.md)
+
 <!-- * **📐 Architecture**
   * [Azure Blob Storage Service](architecture/azure-blob-storage-service.md) -->
 

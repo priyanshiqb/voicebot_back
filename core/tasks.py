@@ -4,6 +4,8 @@ from celery import Task, shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
+from utils.querysets import batched_queryset
+
 logger = logging.getLogger(__name__)
 
 # Dedicated logger so terminal task failures can be alerted on without matching
@@ -356,7 +358,7 @@ def materialize_availability_horizon():
 
     purged = materializer.purge_past_windows()
     profiles = windows = 0
-    for tenant in Tenant.objects.filter(is_deleted=False).iterator(chunk_size=100):
+    for tenant in batched_queryset(Tenant.objects.filter(is_deleted=False), batch_size=100):
         try:
             seen, written = materializer.materialize_tenant(tenant)
         except Exception:  # noqa: BLE001
@@ -598,7 +600,7 @@ def refresh_calendar_tokens():
         token_expires_at__lt=soon,
     )
     refreshed = 0
-    for integration in integrations.iterator(chunk_size=200):
+    for integration in batched_queryset(integrations, batch_size=200):
         try:
             calendars.get_provider_for(integration).refresh_access_token(integration)
             integration.save(
@@ -687,7 +689,7 @@ def renew_calendar_watches():
         watch_expires_at__lt=soon,
     )
     renewed = 0
-    for integration in integrations.iterator(chunk_size=200):
+    for integration in batched_queryset(integrations, batch_size=200):
         try:
             if calendar_sync.setup_watch(integration):
                 renewed += 1
