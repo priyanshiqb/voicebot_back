@@ -2,7 +2,8 @@ global:
   # 15s, not 60s. Prometheus needs at least two samples inside a rate() window to
   # produce a value, so a 60s interval made every `rate(...[1m])` panel render
   # "No data" — the dashboard's 5m-window panels were the only ones that worked.
-  # Dashboard queries use $__rate_interval, which Grafana derives from this value.
+  # Dashboard rate() windows are literal (2m/5m) and assume this value; the Grafana
+  # datasource pins the same number as jsonData.timeInterval.
   scrape_interval: 15s
   evaluation_interval: 15s
 

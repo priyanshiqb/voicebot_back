@@ -6,6 +6,12 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      # Must match global.scrape_interval in docker-config/prometheus.yml. Without it
+      # Grafana assumes a default and can pick a query step finer than the real scrape
+      # rate, which yields gappy graphs and makes $__rate_interval resolve to a window
+      # too short for rate() to return anything.
+      timeInterval: 15s
   - name: Loki
     type: loki
     access: proxy

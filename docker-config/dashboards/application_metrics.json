@@ -163,7 +163,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(django_http_requests_before_middlewares_total[$__rate_interval])) by (job)",
+          "expr": "sum(rate(django_http_requests_before_middlewares_total[2m])) by (job)",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
@@ -204,7 +204,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(django_http_responses_total_by_status[$__rate_interval])) by (status)",
+          "expr": "sum(rate(django_http_responses_total_by_status_total[2m])) by (status)",
           "legendFormat": "HTTP Status {{status}}",
           "refId": "A"
         }
@@ -330,7 +330,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"voicebot_db\"}[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_xact_commit{datname=\"voicebot_db\"}[2m]))",
           "legendFormat": "Commits",
           "refId": "A"
         },
@@ -339,7 +339,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"voicebot_db\"}[$__rate_interval]))",
+          "expr": "sum(rate(pg_stat_database_xact_rollback{datname=\"voicebot_db\"}[2m]))",
           "legendFormat": "Rollbacks",
           "refId": "B"
         }
