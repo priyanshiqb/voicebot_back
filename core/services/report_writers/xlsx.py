@@ -26,7 +26,9 @@ OVERVIEW_SHEET = "Campaign Overview"
 MEMBERS_SHEET = "Members"
 
 #: A real datetime cell, sortable and groupable by month, not an ISO string.
-DATETIME_FORMAT = "dd mmm yyyy hh:mm"
+#: The colon is escaped on purpose. Unescaped, Excel substitutes the viewer's regional
+#: time separator, so the same file reads "09:02" on one machine and "09.02" on another.
+DATETIME_FORMAT = "dd mmm yyyy hh\\:mm"
 
 TITLE_FONT = Font(bold=True, size=16)
 SECTION_FONT = Font(bold=True, size=12, color="1F2937")
