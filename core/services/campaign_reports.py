@@ -15,14 +15,16 @@ lays it out, which is what keeps the workbook and the PDF in agreement.
 import datetime as dt
 import logging
 import os
+import re
 import tempfile
+from dataclasses import dataclass
 from datetime import timedelta
 from itertools import islice
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.db import transaction
-from django.db.models import Avg, Count, OuterRef, Q, Subquery, Sum
+from django.db import connection, transaction
+from django.db.models import Avg, Count, Max, Q, Sum
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -44,6 +46,18 @@ Status = CampaignReport.Status
 Format = CampaignReport.Format
 
 REPORT_FOLDER = "campaign-reports"
+
+#: Members per page while streaming. Each page costs one query for the members and one or
+#: two for their call data, so the page is small enough to keep those joins cheap and
+#: large enough that the per-page cost disappears against the row count.
+PAGE_SIZE = 500
+
+#: Excel refuses a cell over 32,767 characters, and a long call's transcript passes that.
+TRANSCRIPT_LIMIT = 32000
+
+#: Dispositions listed in the overview. They are free text, so a runner that varies its
+#: wording can produce hundreds; the tail is the long one nobody reads.
+OVERVIEW_DISPOSITION_LIMIT = 15
 
 CONTENT_TYPES = {
     Format.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -87,6 +101,19 @@ def stall_minutes():
 
 def download_url_hours():
     return int(getattr(settings, "CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS", 1))
+
+
+def max_probing_questions():
+    return max(0, int(getattr(settings, "CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS", 25)))
+
+
+def recording_link_hours():
+    """How long a recording link inside a report stays valid: the report's own lifetime.
+
+    Anything shorter and the links die while the workbook carrying them is still
+    downloadable, which reads as a broken report.
+    """
+    return max(1, retention_days() * 24)
 
 
 # --------------------------------------------------------------------------- #
@@ -208,9 +235,316 @@ def _tier_label(tier):
         return tier
 
 
-def member_columns(zone_name):
-    """The member sheet, in order. The time column's header names its zone."""
+# --------------------------------------------------------------------------- #
+# Probing questions
+# --------------------------------------------------------------------------- #
+
+#: Keys the runner writes into each ``AgentCallLog.probing_questions`` entry. Mirrored as
+#: literals in the SQL below, which cannot take them as parameters without confusing
+#: Postgres about the operand type of ``->>``.
+QUESTION_KEY = "question"
+POSITIVE_KEY = "isPositive"
+SUMMARY_KEY = "answerSummary"
+
+#: Long questions are cut in the header only. The answer cell keeps whatever was said.
+PROBING_HEADER_LIMIT = 60
+
+_WHITESPACE = re.compile(r"\s+")
+
+
+@dataclass(frozen=True)
+class ProbingColumn:
+    """One question, and the pair of member columns it produces.
+
+    ``key`` matches a call's answers to this column; ``text`` is what the header shows;
+    ``number`` keeps the header short and stable when the question is a paragraph long.
+    """
+
+    key: str
+    text: str
+    number: int
+
+
+def _normalise_question(text):
+    """A question's matching key: trimmed, inner whitespace collapsed, case-folded.
+
+    Matching is by text because text is all the runner sends — there is no question id in
+    the payload. Normalising is what stops "How do you manage leads?" and "how do you
+    manage leads?" claiming two columns for one question.
+    """
+    if not text:
+        return ""
+    return _WHITESPACE.sub(" ", str(text)).strip().casefold()
+
+
+def _logged_questions(campaign):
+    """Every distinct probing question in this campaign's call logs, first seen first.
+
+    One aggregate query rather than a scan in Python: the column is ``jsonb``, so Postgres
+    unnests it. ``jsonb_typeof`` guards the row whose value is not an array — a single one
+    of those would otherwise fail the whole query, and the payload is runner-written.
+    """
+    sql = """
+        SELECT elem->>'question' AS question, MIN(log.created_at) AS first_seen
+        FROM core_agent_call_log log
+        JOIN core_campaign_member member ON member.id = log.campaign_member_id
+        CROSS JOIN LATERAL jsonb_array_elements(log.probing_questions) elem
+        WHERE member.campaign_id = %s
+          AND log.is_deleted = false
+          AND member.is_deleted = false
+          AND jsonb_typeof(log.probing_questions) = 'array'
+          AND COALESCE(elem->>'question', '') <> ''
+        GROUP BY 1
+        ORDER BY first_seen, question
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(sql, [str(campaign.pk)])
+        return [row[0] for row in cursor.fetchall()]
+
+
+def probing_columns_for(campaign):
+    """The question columns for one campaign, in the order they will appear.
+
+    Two sources, in this order:
+
+    1. **The bot's configured questions**, by ``ProbingQuestion.priority`` — the set the
+       agent was meant to ask. Taking these first means the columns are in a deliberate
+       order, and a question nobody ever reached still gets a column, which is itself the
+       answer: the conversation never got that far.
+    2. **Anything else the call logs contain**, appended in first-seen order — a question
+       edited on the bot after a call was made, or one asked ad hoc. Appending rather than
+       dropping is why no answer goes missing from the file.
+
+    Discovered **before** the member pass. The workbook is written append-only: once the
+    header row is out, no column can be added. Two queries per report, none per row.
+    """
+    texts = []
+    if campaign.agent_id:
+        texts.extend(
+            campaign.agent.probing_questions.order_by("priority", "created_at")
+            .values_list("question", flat=True)
+        )
+    texts.extend(_logged_questions(campaign))
+
+    unique = {}
+    for text in texts:
+        key = _normalise_question(text)
+        if key and key not in unique:
+            unique[key] = str(text).strip()
+
+    limit = max_probing_questions()
+    # Zero is "turn the columns off", a deliberate setting rather than a campaign that
+    # outgrew the ceiling, so it is not worth a warning.
+    if limit and len(unique) > limit:
+        logger.warning(
+            "campaign %s has %s probing questions; the report lists the first %s",
+            campaign.pk, len(unique), limit,
+        )
+
     return [
+        ProbingColumn(key=key, text=text, number=number)
+        for number, (key, text) in enumerate(islice(unique.items(), limit), start=1)
+    ]
+
+
+def probing_member_columns(probing):
+    """Two columns per question: the answer summary, then whether it was positive."""
+    columns = []
+    for question in probing:
+        label = question.text
+        if len(label) > PROBING_HEADER_LIMIT:
+            label = label[: PROBING_HEADER_LIMIT - 1].rstrip() + "…"
+        columns.append(
+            Column(f"probing_{question.number}_answer", f"Q{question.number} — {label}", 40)
+        )
+        columns.append(
+            Column(f"probing_{question.number}_positive", f"Q{question.number} positive?", 14)
+        )
+    return columns
+
+
+def _probing_answers(raw):
+    """A call's probing payload as ``{normalised question: entry}``.
+
+    Deliberately defensive: this is runner-written JSON, and a report must not fail
+    because one call recorded a string where a list belongs. First entry wins when a
+    question repeats within a call.
+    """
+    answers = {}
+    if not isinstance(raw, list):
+        return answers
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        key = _normalise_question(entry.get(QUESTION_KEY))
+        if key and key not in answers:
+            answers[key] = entry
+    return answers
+
+
+def _probing_values(raw, probing):
+    """The two values per question column, in column order.
+
+    Both blank when the call did not carry that question at all: "not asked" and "asked
+    but unanswered" are different answers, and only the first should be silent.
+
+    ``isPositive`` is written as sent, not reinterpreted. The runner writes ``false`` both
+    for a negative answer and for a question that went unanswered, so the summary text is
+    the only thing separating them — guessing here would invent a distinction the payload
+    does not carry.
+    """
+    answers = _probing_answers(raw)
+    values = []
+    for question in probing:
+        entry = answers.get(question.key)
+        if entry is None:
+            values.extend(("", ""))
+            continue
+        values.append(entry.get(SUMMARY_KEY) or "")
+        positive = entry.get(POSITIVE_KEY)
+        values.append("" if positive is None else ("Yes" if positive else "No"))
+    return values
+
+
+# --------------------------------------------------------------------------- #
+# The call's own record
+# --------------------------------------------------------------------------- #
+
+def call_detail_columns(zone_name):
+    """Everything the call log holds about the conversation. Workbook only.
+
+    These are the columns a standalone call-analytics export carries and this report did
+    not: who dialled whom, when it started and ended, how it went, and the artefacts —
+    recording, summary, transcript.
+    """
+    return [
+        Column("call_from", "Call from", 18),
+        Column("call_to", "Call to", 18),
+        Column("bot", "Bot", 20),
+        Column("call_started_at", f"Call started at ({zone_name})", 24, DATETIME),
+        Column("call_ended_at", f"Call ended at ({zone_name})", 24, DATETIME),
+        Column("attended_by", "Attended by", 14),
+        Column("mood", "Sentiment", 16),
+        Column("mood_confidence", "Sentiment confidence", 18, NUMBER),
+        Column("language", "Detected language", 18),
+        Column("demo_at", f"Appointment booked for ({zone_name})", 26, DATETIME),
+        Column("follow_up", "Follow-up note", 34),
+        Column("recording", "Recording", 60),
+        Column("summary", "AI summary", 70),
+        Column("transcript", "Transcript", 80),
+        Column("logged_at", f"Call logged at ({zone_name})", 24, DATETIME),
+    ]
+
+
+def _attended_by(log):
+    """Who finished the call. Derived, because nothing records it directly.
+
+    A transfer note is written only when the bot handed over, so its presence is the
+    signal. Blank when there was no call at all — "nobody" is not "AI".
+    """
+    if log is None:
+        return ""
+    return "Human" if (log.human_transfer_detail or "").strip() else "AI"
+
+
+def _transcript_text(raw):
+    """The transcript as ``speaker: text`` lines, cut to what one cell can hold.
+
+    Read defensively: this is runner-written JSON whose entries have carried different
+    keys over time, and a report must not fail over one odd turn. The tail is dropped
+    rather than the cell rejected — Excel refuses anything past its limit outright.
+    """
+    if not isinstance(raw, list):
+        return ""
+
+    lines = []
+    for turn in raw:
+        if not isinstance(turn, dict):
+            lines.append(str(turn))
+            continue
+        speaker = str(turn.get("speaker") or turn.get("role") or "").strip()
+        text = str(turn.get("text") or turn.get("content") or "").strip()
+        if not text:
+            continue
+        lines.append(f"{speaker}: {text}" if speaker else text)
+
+    joined = "\n".join(lines)
+    if len(joined) > TRANSCRIPT_LIMIT:
+        return joined[: TRANSCRIPT_LIMIT - 1].rstrip() + "…"
+    return joined
+
+
+def _storage_factory(storage=None):
+    """One storage client per report, built only when a recording link is actually needed.
+
+    Signing is local crypto with no network call, but constructing the client reads
+    settings and opens a service client — not worth doing for a campaign whose calls were
+    never recorded.
+    """
+    holder = {"service": storage}
+
+    def get_storage():
+        if holder["service"] is None:
+            holder["service"] = AzureBlobStorageService()
+        return holder["service"]
+
+    return get_storage
+
+
+def _recording_link(log, get_storage, hours):
+    """A link to the recording: the runner's own URL when it sent one, else our copy signed.
+
+    Signed for as long as the report itself lives, so links do not die while the workbook
+    carrying them is still downloadable. **That makes a downloaded workbook a bearer of
+    recording links for its retention window** — which is why reports are tenant-scoped,
+    expire, and record who asked for them.
+    """
+    if log is None:
+        return ""
+    if log.external_recording_url:
+        return log.external_recording_url
+
+    name = getattr(getattr(log.recording_file, "file", None), "name", "")
+    if not name:
+        return ""
+    try:
+        return get_storage().get_presigned_url_for_object(name, expiry_hours=hours)
+    except Exception:
+        logger.warning(
+            "could not sign a recording link for call %s", log.pk, exc_info=True
+        )
+        return ""
+
+
+def _detail_values(member, log, demos, zone, get_storage, hours):
+    """The call-detail values for one member, in ``call_detail_columns`` order."""
+    return [
+        log.caller_number if log else "",
+        (log.callee_number or log.customer_number) if log else "",
+        log.agent.bot_name if log and log.agent_id else "",
+        _local(log.started_at, zone) if log else None,
+        _local(log.ended_at, zone) if log else None,
+        _attended_by(log),
+        log.mood if log else "",
+        log.mood_confidence if log else None,
+        log.preferred_language if log else "",
+        _local(demos.get(member.contact_id), zone),
+        log.follow_up_detail if log else "",
+        _recording_link(log, get_storage, hours),
+        log.ai_summary if log else "",
+        _transcript_text(log.transcript) if log else "",
+        _local(log.created_at, zone) if log else None,
+    ]
+
+
+def member_columns(zone_name, probing=(), detailed=False):
+    """The member sheet, in order. The time column's header names its zone.
+
+    Three bands, and the order matters: the fixed columns first, so a client reading column
+    K keeps reading the same thing; then the call's own record; then two columns per
+    probing question, the band that varies from campaign to campaign.
+    """
+    columns = [
         Column("member_id", "Member ID", 38),
         Column("name", "Name", 24),
         Column("company", "Company", 22),
@@ -224,37 +558,114 @@ def member_columns(zone_name):
         Column("credits_charged", "Credits charged", 14, NUMBER),
         Column("error_message", "Error", 32),
         Column("provider_call_id", "Provider call ID", 38),
+        Column("probing_count", "Probing questions asked", 16, NUMBER),
     ]
+    if detailed:
+        columns += call_detail_columns(zone_name)
+    return columns + probing_member_columns(probing)
 
 
 def member_queryset(campaign):
-    """Every member, with its latest call's figures annotated in the same scan.
+    """Every member of a campaign, in the order the report lists them.
 
-    ``AgentCallLog`` points *at* ``CampaignMember``, so there is no ``select_related`` for
-    it, and prefetching call logs for 100k members would defeat the streaming. A
-    correlated subquery per column runs inside the one query instead, against the
-    ``campaign_member`` index.
-
-    The *latest* call when a member was dialled more than once; ``attempts`` says how
-    many there were. ``credits_charged`` being a column on the log is what makes credits
-    an ordinary annotation here rather than a suffix-aware ledger lookup.
+    Call figures are **not** annotated here. They were one correlated subquery per column,
+    which is fine for three; the detailed workbook needs fifteen, and fifteen correlated
+    lookups per member across a six-figure audience is a different proposition.
+    ``member_rows`` joins each page's call logs in one query instead.
 
     Same order as the members endpoint's default plus its tiebreaker, so a report and the
     screen it was requested from list people identically.
     """
-    latest_call = AgentCallLog.objects.filter(
-        campaign_member=OuterRef("pk")
-    ).order_by("-created_at")
-
     return (
         CampaignMember.objects.filter(campaign=campaign)
         .select_related("contact")
-        .annotate(
-            call_duration=Subquery(latest_call.values("duration_seconds")[:1]),
-            call_credits=Subquery(latest_call.values("credits_charged")[:1]),
-            call_reference=Subquery(latest_call.values("provider_call_id")[:1]),
-        )
         .order_by("created_at", "id")
+    )
+
+
+def _pages(rows, size):
+    """Chunk an iterator into lists, so each page's extras can be fetched in one query."""
+    rows = iter(rows)
+    while True:
+        page = list(islice(rows, size))
+        if not page:
+            return
+        yield page
+
+
+def _latest_logs(members):
+    """``{member id: newest AgentCallLog}`` for one page, in a single query.
+
+    A member normally has one call; nothing enforces it, and a retried runner can post
+    several. Newest wins, which is what the rest of the row describes too.
+    """
+    ids = [member.pk for member in members]
+    if not ids:
+        return {}
+
+    logs = {}
+    for log in (
+        AgentCallLog.objects.filter(campaign_member_id__in=ids)
+        .select_related("agent", "recording_file")
+        .order_by("campaign_member_id", "-created_at")
+    ):
+        logs.setdefault(log.campaign_member_id, log)
+    return logs
+
+
+def _demo_times(campaign, members):
+    """``{contact id: earliest appointment}`` booked since this campaign started.
+
+    A booking is tied to a person through ``BookingParticipant.contact``, never to a call,
+    so this answers "did an appointment appear for this person after the campaign began" —
+    reportable, but not proof the bot booked it. Anything stronger needs the runner to
+    report the booking it made.
+    """
+    from core.models.booking import ACTIVE_BOOKING_STATUSES
+    from core.models.booking_participant import BookingParticipant
+
+    contact_ids = [member.contact_id for member in members if member.contact_id]
+    if not contact_ids:
+        return {}
+
+    since = campaign.started_at or campaign.created_at
+    demos = {}
+    rows = BookingParticipant.objects.filter(
+        contact_id__in=contact_ids,
+        booking__status__in=ACTIVE_BOOKING_STATUSES,
+        booking__is_deleted=False,
+        booking__created_at__gte=since,
+    ).values_list("contact_id", "booking__start_time")
+
+    for contact_id, start_time in rows:
+        if start_time is None:
+            continue
+        earliest = demos.get(contact_id)
+        if earliest is None or start_time < earliest:
+            demos[contact_id] = start_time
+    return demos
+
+
+def _demo_count(campaign):
+    """How many of this campaign's people have an appointment booked since it started.
+
+    Distinct people, not bookings: someone who rebooked twice is one result, which is what
+    "appointments booked" means to whoever reads it.
+    """
+    from core.models.booking import ACTIVE_BOOKING_STATUSES
+    from core.models.booking_participant import BookingParticipant
+
+    since = campaign.started_at or campaign.created_at
+    return (
+        BookingParticipant.objects.filter(
+            contact__campaign_memberships__campaign=campaign,
+            booking__status__in=ACTIVE_BOOKING_STATUSES,
+            booking__is_deleted=False,
+            booking__created_at__gte=since,
+        )
+        .values("contact_id")
+        .distinct()
+        .count()
     )
 
 
@@ -268,43 +679,64 @@ def _status_label(code):
     return str(code or "").replace("_", " ").capitalize()
 
 
-def member_rows(campaign, zone, limit=None):
+def member_rows(campaign, zone, limit=None, probing=(), detailed=False, storage=None):
     """One tuple per member, streamed. Suppressed members included, deliberately.
 
     Everywhere else in the campaign module suppressed people are hidden — the runner is
     never told they exist. A tenant asking what happened to their campaign is owed "these
     people were not called, and here is why", which is the point of recording a reason.
+
+    ``probing`` must be the same list the columns were built from, and ``detailed`` the
+    same flag, or values land under the wrong headers.
+
+    Paged on (created_at, id), the order ``member_queryset`` sorts by. Not ``.iterator()``:
+    its named cursor does not survive pgbouncer's transaction pooling. Each page costs one
+    query for the members and one for their call logs, plus one for appointments when the
+    detailed columns are on.
     """
-    # Paged on (created_at, id), the order member_queryset already sorts by, so the file
-    # lists people exactly as before. Not `.iterator()`: its named cursor does not survive
-    # pgbouncer's transaction pooling. `limit` is applied by counting rows, because a
-    # sliced queryset cannot be paged.
-    batch_size = 2000 if limit is None else max(1, min(2000, limit))
+    page_size = PAGE_SIZE if limit is None else max(1, min(PAGE_SIZE, limit))
     members = batched_queryset(
-        member_queryset(campaign), batch_size=batch_size, order_by=("created_at", "id")
+        member_queryset(campaign), batch_size=page_size, order_by=("created_at", "id")
     )
     if limit is not None:
         members = islice(members, limit)
 
-    for member in members:
-        contact = member.contact
-        yield (
-            str(member.pk),
-            contact.full_name if contact else "",
-            contact.company if contact else "",
-            # The number as frozen at materialisation — what was actually dialled, not
-            # whatever the contact's number has been edited to since.
-            member.phone_e164,
-            _status_label(member.status),
-            member.get_suppression_reason_display() if member.suppression_reason else "",
-            member.outcome,
-            member.attempt_count,
-            _local(member.last_call_at, zone),
-            member.call_duration,
-            member.call_credits,
-            member.error_message,
-            member.call_reference,
-        )
+    get_storage = _storage_factory(storage)
+    link_hours = recording_link_hours()
+
+    for page in _pages(members, page_size):
+        logs = _latest_logs(page)
+        demos = _demo_times(campaign, page) if detailed else {}
+
+        for member in page:
+            log = logs.get(member.pk)
+            contact = member.contact
+            row = [
+                str(member.pk),
+                contact.full_name if contact else "",
+                contact.company if contact else "",
+                # The number as frozen at materialisation — what was actually dialled, not
+                # whatever the contact's number has been edited to since.
+                member.phone_e164,
+                _status_label(member.status),
+                member.get_suppression_reason_display() if member.suppression_reason else "",
+                member.outcome,
+                member.attempt_count,
+                _local(member.last_call_at, zone),
+                log.duration_seconds if log else None,
+                log.credits_charged if log else None,
+                member.error_message,
+                log.provider_call_id if log else "",
+                log.probing_questions_count if log else None,
+            ]
+            if detailed:
+                row += _detail_values(member, log, demos, zone, get_storage, link_hours)
+            if probing:
+                # From the same latest call as the figures above, so one row never mixes
+                # answers from one attempt with a duration from another.
+                row += _probing_values(log.probing_questions if log else None, probing)
+            yield tuple(row)
+
 
 
 def build_overview(campaign, zone, zone_name, report, generated_at, included):
@@ -334,14 +766,38 @@ def build_overview(campaign, zone, zone_name, report, generated_at, included):
     failed = by_status.get(member_status.FAILED, 0)
 
     calls = AgentCallLog.objects.filter(campaign_member__campaign=campaign)
+    was_transferred = Q(human_transfer_detail__isnull=False) & ~Q(human_transfer_detail="")
     stats = calls.aggregate(
         total=Count("id"),
         connected=Count("id", filter=Q(duration_seconds__gt=0)),
+        not_picked=Count("id", filter=Q(duration_seconds=0)),
+        longest=Max("duration_seconds"),
         talk=Sum("duration_seconds"),
         average=Avg("duration_seconds", filter=Q(duration_seconds__gt=0)),
         credits=Sum("credits_charged"),
         charged=Count("id", filter=Q(credits_charged__isnull=False)),
+        transferred=Count("id", filter=was_transferred),
+        under_30=Count("id", filter=Q(duration_seconds__gt=0, duration_seconds__lt=30)),
+        under_60=Count("id", filter=Q(duration_seconds__gte=30, duration_seconds__lt=60)),
+        under_120=Count("id", filter=Q(duration_seconds__gte=60, duration_seconds__lt=120)),
+        over_120=Count("id", filter=Q(duration_seconds__gte=120)),
     )
+    attempts = members.aggregate(total=Sum("attempt_count"))["total"] or 0
+    moods = list(
+        calls.exclude(mood__isnull=True)
+        .exclude(mood="")
+        .values_list("mood")
+        .annotate(n=Count("id"))
+        .order_by("-n", "mood")
+    )
+    dispositions = list(
+        calls.exclude(outcome__isnull=True)
+        .exclude(outcome="")
+        .values_list("outcome")
+        .annotate(n=Count("id"))
+        .order_by("-n", "outcome")[:OVERVIEW_DISPOSITION_LIMIT]
+    )
+    demos = _demo_count(campaign)
     by_tier = (
         calls.filter(credits_charged__isnull=False)
         .values_list("service_tier")
@@ -389,11 +845,34 @@ def build_overview(campaign, zone, zone_name, report, generated_at, included):
             ("Failure rate", _pct(failed, callable_members)),
         ]),
         ("Calls", [
+            ("Direction", "Outbound"),
             ("Total calls", stats["total"]),
             ("Connected", stats["connected"]),
             ("Connect rate", _pct(stats["connected"], stats["total"])),
+            ("Not picked up", stats["not_picked"]),
+            ("Not picked up rate", _pct(stats["not_picked"], stats["total"])),
+            ("Attempts reported", attempts),
             ("Total talk time", _duration(stats["talk"])),
             ("Average duration", _duration(stats["average"])),
+            ("Longest call", _duration(stats["longest"])),
+        ]),
+        ("Call length", [
+            ("Under 30 seconds", stats["under_30"]),
+            ("30 to 60 seconds", stats["under_60"]),
+            ("60 to 120 seconds", stats["under_120"]),
+            ("Over 120 seconds", stats["over_120"]),
+            ("Note", "Connected calls only — a call that never connected is counted under Not picked up."),
+        ]),
+        ("Attendance", [
+            ("Handled by the bot", max(0, stats["connected"] - stats["transferred"])),
+            ("Transferred to a human", stats["transferred"]),
+            ("Appointments booked", demos),
+            ("Note", "A transfer counts when the call recorded one. Appointments are bookings made for these people since the campaign started, not proof the bot booked them."),
+        ]),
+        ("Sentiment", moods or [("None recorded", 0)]),
+        ("Dispositions", [
+            *(dispositions or [("None recorded", 0)]),
+            ("Note", "The runner's own labels, counted as sent. They are free text, so two spellings of one outcome count separately."),
         ]),
         ("Credits", [
             ("Credits charged", credits_total),
@@ -526,6 +1005,12 @@ def _generate(report):
     included = report.total_rows if limit is None else min(report.total_rows, limit)
     generated_at = timezone.now()
 
+    # Workbook only, both of them. The PDF is the summary format: its landscape table is
+    # already at its width limit with the fixed columns, and fifteen call columns plus two
+    # per probing question would make it unreadable rather than more informative.
+    detailed = report.report_format == Format.XLSX
+    probing = probing_columns_for(campaign) if detailed else ()
+
     content = ReportContent(
         title=f"Campaign report: {campaign.name}",
         subtitle=(
@@ -536,8 +1021,10 @@ def _generate(report):
         overview=build_overview(
             campaign, zone, zone_name, report, generated_at, included
         ),
-        columns=member_columns(zone_name),
-        rows=member_rows(campaign, zone, limit=limit),
+        columns=member_columns(zone_name, probing, detailed=detailed),
+        rows=member_rows(
+            campaign, zone, limit=limit, probing=probing, detailed=detailed
+        ),
         total_rows=report.total_rows,
     )
 

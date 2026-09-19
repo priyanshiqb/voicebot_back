@@ -801,6 +801,12 @@ CAMPAIGN_REPORT_STALL_MINUTES = env.int("CAMPAIGN_REPORT_STALL_MINUTES", default
 CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS = env.int(
     "CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS", default=1
 )
+# Most probing questions the workbook lists, each as two columns (answer, positive?).
+# A ceiling rather than a limit anyone should reach: it stops one oddly configured bot
+# turning the member sheet into hundreds of columns.
+CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS = env.int(
+    "CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS", default=25
+)
 
 # Availability materialization
 # How many days of UTC availability windows to keep materialized ahead of today.
