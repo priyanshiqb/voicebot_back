@@ -12,6 +12,7 @@ from core.models.agent_call_log import AgentCallLog
 from core.models.campaign import Campaign
 from core.models.campaign_member import CampaignMember
 from core.serializers.campaign_runner import (
+    RunnerCampaignCompleteSerializer,
     RunnerCampaignContextSerializer,
     RunnerMemberSerializer,
     RunnerMemberUpdateBatchSerializer,
@@ -62,7 +63,9 @@ class CampaignRunnerViewSet(
     # Everything this viewset exposes. There is no destroy action and none should be
     # added: a runner reports outcomes, it does not remove campaigns. Listing the
     # actions explicitly means a future @action is denied until deliberately added.
-    vb_agent_allowed_actions = frozenset({"context", "update_members"})
+    vb_agent_allowed_actions = frozenset(
+        {"context", "update_members", "complete"}
+    )
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
@@ -199,6 +202,95 @@ class CampaignRunnerViewSet(
                 "results": results,
             },
             message="Updates processed",
+        )
+
+    @extend_schema(
+        summary="Report a campaign as finished",
+        description=(
+            "The runner has stopped working this campaign: no more calls, no more "
+            "member updates. Moves it to COMPLETED and stamps `completed_at`.\n\n"
+            "Safe to retry, like every other runner endpoint: a campaign already "
+            "COMPLETED answers 200 with `already_completed: true` and keeps its "
+            "original `completed_at`."
+        ),
+        request=RunnerCampaignCompleteSerializer,
+    )
+    @action(detail=True, methods=["post"])
+    def complete(self, request, *args, **kwargs):
+        """Nothing else in this service moves a campaign to COMPLETED.
+
+        Without this call a finished campaign sits in RUNNING for ever and
+        `completed_at` stays empty — which the campaign report prints, and measures the
+        campaign's duration from.
+        """
+        campaign = self._get_campaign()
+
+        serializer = RunnerCampaignCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        finished_at = serializer.validated_data.get("completed_at") or timezone.now()
+
+        with transaction.atomic():
+            # Locked for the reason launch and cancel are: two deliveries of the same
+            # callback must not both move the campaign, and a cancel arriving at the
+            # same moment must settle one way or the other rather than interleaving.
+            locked = (
+                Campaign.objects.select_for_update().filter(pk=campaign.pk).first()
+            )
+            if locked is None:
+                return self.error(
+                    message="Campaign not found.",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                )
+
+            already_completed = locked.status == Campaign.Status.COMPLETED
+            if not already_completed:
+                if locked.status not in WORKABLE_STATUSES:
+                    # CANCELLED and FAILED are an operator's decision, not the
+                    # runner's to overwrite. Anything earlier means the runner was
+                    # never handed this campaign in the first place.
+                    return self.error(
+                        message=f"A campaign in {locked.status} cannot be completed.",
+                        status_code=status.HTTP_409_CONFLICT,
+                    )
+                locked.status = Campaign.Status.COMPLETED
+                locked.completed_at = finished_at
+                locked.save(
+                    update_fields=["status", "completed_at", "updated_at"]
+                )
+
+            # The counters are denormalised and the last member updates may have
+            # arrived moments ago, so settle them here rather than leaving a finished
+            # campaign reporting stale numbers.
+            locked.recompute_counts()
+
+            # Work the runner never reported an outcome for. Left exactly as it is:
+            # turning a PENDING member into FAILED here would invent an outcome nobody
+            # reported. The count is what makes them findable.
+            members_left_open = CampaignMember.objects.filter(
+                campaign=locked,
+                status__in=[
+                    CampaignMember.Status.PENDING,
+                    CampaignMember.Status.IN_PROGRESS,
+                ],
+            ).count()
+
+        return self.success(
+            data={
+                "campaign_id": str(locked.pk),
+                "status": locked.status,
+                "completed_at": locked.completed_at,
+                "already_completed": already_completed,
+                "total_members": locked.total_members,
+                "completed_count": locked.completed_count,
+                "failed_count": locked.failed_count,
+                "suppressed_count": locked.suppressed_count,
+                "members_left_open": members_left_open,
+            },
+            message=(
+                "Campaign was already completed"
+                if already_completed
+                else "Campaign completed"
+            ),
         )
 
     def _apply_update(self, campaign, item):

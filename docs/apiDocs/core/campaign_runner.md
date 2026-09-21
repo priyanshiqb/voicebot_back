@@ -22,6 +22,7 @@ the human-facing side, see the [Campaigns API](campaign.md).
 - [Endpoint index](#endpoint-index)
 - [`GET /{id}/context/`](#get-idcontext)
 - [`POST /{id}/members/update/`](#post-idmembersupdate)
+- [`POST /{id}/complete/`](#post-idcomplete)
 - [Retry semantics](#retry-semantics)
 - [Integration walkthrough](#integration-walkthrough)
 - [Error reference](#error-reference)
@@ -175,6 +176,7 @@ the caller, which is the caller naming its own scope. Full rationale:
 |---|---|---|---|
 | `GET` | `/{campaign_id}/context/` | Campaign, bot config, members to call | 200 |
 | `POST` | `/{campaign_id}/members/update/` | Batch member outcomes | 200 |
+| `POST` | `/{campaign_id}/complete/` | Declare the campaign finished | 200 |
 
 Both use the standard envelope: `{status, message, data, errors}`, plus `meta` when paginated.
 
@@ -481,6 +483,80 @@ The `errors` column shows the map nested under `errors` in the envelope — see
 > `400`; well-formed input that cannot be applied comes back as `200` with `not_found` or `ignored`
 > in `results`. Those are different failure classes and want different handling — a `400` is a bug
 > in your payload, a `not_found` is stale state.
+
+---
+
+## `POST /{id}/complete/`
+
+The runner has finished with this campaign: no more calls, no more member updates. Moves the
+campaign to `COMPLETED` and stamps `completed_at`.
+
+**Nothing else sets a campaign to `COMPLETED`.** Without this call a finished campaign sits in
+`RUNNING` for ever, and `completed_at` — which the campaign report prints, and measures the
+campaign's duration from — stays empty.
+
+### Request
+
+```json
+{ "completed_at": "2027-02-16T09:12:40Z" }
+```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `completed_at` | datetime | When the runner actually finished, if that is not now. Use it when a callback is delivered late, so the record shows when the work ended rather than when the message arrived. | Optional. ISO-8601. Not more than **5 minutes** in the future — beyond that is a wrong clock, not a late callback, and is a **400**. |
+
+An empty body (`{}`) is valid and means "finished, now".
+
+### Response `200`
+
+```json
+{
+  "status": true,
+  "message": "Campaign completed",
+  "data": {
+    "campaign_id": "3f2a…",
+    "status": "COMPLETED",
+    "completed_at": "2027-02-16T09:12:40Z",
+    "already_completed": false,
+    "total_members": 500,
+    "completed_count": 468,
+    "failed_count": 2,
+    "suppressed_count": 30,
+    "members_left_open": 0
+  },
+  "errors": null
+}
+```
+
+### Which statuses may be completed
+
+| Campaign status | Result |
+|---|---|
+| `RUNNING`, `HANDING_OFF` | Completed. **200** |
+| `COMPLETED` | Nothing changes. `already_completed: true`, and the original `completed_at` is kept. **200** |
+| `CANCELLED`, `FAILED` | **409.** Terminal, and an operator's decision — not the runner's to overwrite. |
+| `DRAFT`, `SCHEDULED`, `MATERIALIZING`, `PAUSED` | **409.** The runner was never handed a campaign in these states. |
+
+### `members_left_open`
+
+Members still `PENDING` or `IN_PROGRESS` when this call arrives: work the runner never reported an
+outcome for. **They are left exactly as they are.** Marking them `FAILED` here would invent an
+outcome nobody reported; the count is what makes them findable, through
+`GET /campaigns/{id}/members/?status=PENDING,IN_PROGRESS`.
+
+A non-zero value is worth an alert on the runner side — the campaign was declared finished with
+work outstanding.
+
+### Responses
+
+| Status | When | `message` |
+|---|---|---|
+| **200** | Completed, or already completed. | `Campaign completed` / `Campaign was already completed` |
+| **400** | `completed_at` malformed, or too far in the future. | the field error, under `errors` |
+| **400** | Agent token without `X-Tenant-ID`. | `This header is required for agent tokens.` |
+| **401** | Missing or invalid token. | `Authentication credentials were not provided.` |
+| **403** | A human JWT. Runner endpoints are `VB_AGENT` only. | `You do not have permission to perform this action.` |
+| **404** | No such campaign in the tenant named by `X-Tenant-ID`. | `Not found.` |
 
 ---
 

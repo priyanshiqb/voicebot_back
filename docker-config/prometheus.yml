@@ -7,6 +7,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
 scrape_configs:
   # Prometheus itself
   - job_name: prometheus
@@ -50,3 +53,13 @@ scrape_configs:
   - job_name: redis
     static_configs:
       - targets: ["redis-exporter:9121"]
+
+  # Per-container CPU / memory / network / disk
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Host CPU / memory / disk / load
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]

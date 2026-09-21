@@ -78,7 +78,7 @@ python docker-config/generate_secrets.py
 ## 🚢 2. Docker Compose Commands
 
 ### Boot Local Development (Backend + Local PostgreSQL + Caching + Monitoring + Emulators + Gateway)
-Ensure `COMPOSE_PROFILES=dev,database,pgbouncer,pgexporter,caches,redis-exporter,grafana,logs-monitoring,matrics-monitoring,emulators,backend-docs` is set in `.env`:
+Ensure `COMPOSE_PROFILES=dev,database,pgbouncer,pgexporter,caches,redis-exporter,grafana,logs-monitoring,matrics-monitoring,host-metrics,emulators,backend-docs` is set in `.env`:
 ```bash
 docker compose up --build
 ```
@@ -95,7 +95,7 @@ docker compose --profile dev up --build
 ```
 
 ### Boot Production Environment (Split WSGI Gunicorn + ASGI Daphne + Gateway)
-Change `COMPOSE_PROFILES` to `prod,database,pgbouncer,pgexporter,caches,redis-exporter,grafana,logs-monitoring,matrics-monitoring,gateway` (or omitting local DB profiles if using cloud DBs) and run:
+Change `COMPOSE_PROFILES` to `prod,database,pgbouncer,pgexporter,caches,redis-exporter,grafana,logs-monitoring,matrics-monitoring,host-metrics,gateway` (or omitting local DB profiles if using cloud DBs) and run:
 ```bash
 docker compose up --build
 ```

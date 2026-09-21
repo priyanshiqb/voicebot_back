@@ -97,10 +97,18 @@ services:
       - matrics-monitoring
     volumes:
       - ../docker-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../docker-config/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - ../.data/prometheus:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      # Explicit rather than relying on the 15d default, and size-capped so a busy
+      # period cannot fill the disk. Whichever limit is hit first wins.
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=8GB'
+      # Allows `curl -XPOST .../-/reload` instead of restarting the container to pick
+      # up prometheus.yml or alert-rules.yml changes.
+      - '--web.enable-lifecycle'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
@@ -108,6 +116,77 @@ services:
     restart: always
     networks:
       - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 11. cAdvisor - per-container CPU, memory, network and disk
+  #
+  # Privileged and mounting the Docker root: that is what reading every container's
+  # cgroup accounting requires, and it makes this container root-equivalent on the
+  # host, same caveat as alloy above. Not published to the host; Prometheus reaches
+  # it over the backend network.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor-voicebot
+    profiles:
+      - host-metrics
+    command:
+      # Ignore the host's own cgroups; this stack only cares about containers.
+      - '--docker_only=true'
+      # Matches prometheus.yml's scrape_interval. The 1s default burns noticeable CPU
+      # on a box this size for samples nothing reads.
+      - '--housekeeping_interval=15s'
+      # Container labels become metric labels otherwise, which on a compose project
+      # multiplies series count for no benefit.
+      - '--store_container_labels=false'
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 12. node-exporter - host CPU, memory, disk and network
+  #
+  # pid: host and the three read-only host mounts are the standard arrangement; without
+  # them the exporter reports the container's own namespace instead of the machine's.
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-voicebot
+    profiles:
+      - host-metrics
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      # Strips this prefix from reported mountpoints, so the host root shows up as "/"
+      # rather than "/host/root". Dashboard queries depend on that.
+      - '--path.rootfs=/host/root'
+      # Docker's overlay and container mounts otherwise appear as hundreds of
+      # near-duplicate filesystems.
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|securityfs|sysfs|tracefs)$$'
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    networks:
+      - backend
+    restart: always
     logging:
       driver: "json-file"
       options:

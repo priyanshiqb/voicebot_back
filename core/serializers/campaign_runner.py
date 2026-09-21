@@ -5,6 +5,9 @@ The runner receives a whole campaign, builds its own call queue, dials, and repo
 per-member outcomes back. These serializers are that contract's two halves.
 """
 
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import serializers
 
 from core.models.agent import Agent
@@ -113,3 +116,35 @@ class RunnerMemberUpdateBatchSerializer(serializers.Serializer):
     updates = serializers.ListField(
         child=RunnerMemberUpdateSerializer(), allow_empty=False, max_length=1000
     )
+
+
+class RunnerCampaignCompleteSerializer(serializers.Serializer):
+    """
+    The body of ``POST /campaign-runner/{id}/complete/``.
+
+    Everything is optional: a runner with nothing to add posts ``{}`` and means
+    "finished, now".
+    """
+
+    completed_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the runner actually finished, if that is not now. A callback "
+            "delivered late then records when the work ended rather than when the "
+            "message arrived."
+        ),
+    )
+
+    def validate_completed_at(self, value):
+        """Reject a time that has not happened yet.
+
+        Some skew between two machines is ordinary, so a few minutes is allowed. A
+        larger value is a wrong clock or a timezone mistake, and storing it would have
+        the campaign report a duration that never elapsed.
+        """
+        if value is not None and value > timezone.now() + timedelta(minutes=5):
+            raise serializers.ValidationError(
+                "completed_at cannot be in the future."
+            )
+        return value

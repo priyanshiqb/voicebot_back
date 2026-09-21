@@ -1,0 +1,254 @@
+# Prometheus alerting rules for the Voicebot stack.
+#
+# These evaluate and show up as firing in the Prometheus UI (/alerts) and in Grafana,
+# but nothing is notified anywhere: there is no Alertmanager in this compose stack yet.
+# Adding one is the only step between this file and alerts that actually page someone.
+#
+# Every expression here uses a metric name that exists on the wire, not the name a
+# library declares -- see the note in scripts/build_dashboard.py about prometheus_client
+# appending _total to counters. scripts/check_dashboard_metrics.py validates both this
+# file and the dashboard against a live Prometheus.
+#
+# Thresholds are starting points sized for this box, not universal truths. Tune them
+# once you have a few weeks of baseline rather than trusting the numbers below.
+
+groups:
+  # ------------------------------------------------------------------------- #
+  - name: availability
+    rules:
+      - alert: TargetDown
+        # django-dev is excluded on purpose: the dev backend does not exist whenever
+        # the prod compose profile is the one running, so it is down by design.
+        expr: up{job!="django-dev"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} is down"
+          description: "{{ $labels.job }} at {{ $labels.instance }} has failed every scrape for 3 minutes."
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unreachable"
+          description: "postgres-exporter cannot connect to the database."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"
+          description: "Redis backs both the cache and the Celery broker, so tasks stop flowing too."
+
+  # ------------------------------------------------------------------------- #
+  - name: django
+    rules:
+      - alert: DjangoHighErrorRate
+        expr: |
+          sum(rate(django_http_responses_total_by_status_total{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(django_http_responses_total_by_status_total[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over 5% of responses are 5xx"
+          description: "5xx ratio is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: DjangoCriticalErrorRate
+        expr: |
+          sum(rate(django_http_responses_total_by_status_total{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(django_http_responses_total_by_status_total[5m])), 0.001)
+          > 0.20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Over 20% of responses are 5xx"
+          description: "5xx ratio is {{ $value | humanizePercentage }}. Treat as an outage."
+
+      - alert: DjangoHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(
+            django_http_requests_latency_seconds_by_view_method_bucket{job=~"django-.*"}[5m]
+          )) by (job, le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency above 2s on {{ $labels.job }}"
+          description: "p95 is {{ $value | humanizeDuration }}. Check the slowest-views table on the dashboard."
+
+      - alert: DjangoUnhandledExceptions
+        expr: sum(rate(django_http_exceptions_total_by_type_total[5m])) by (type) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unhandled {{ $labels.type }} escaping views"
+          description: "These bypassed every exception handler in the chain."
+
+      - alert: DjangoDatabaseErrors
+        expr: sum(rate(django_db_errors_total[5m])) by (type) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Django database errors: {{ $labels.type }}"
+          description: "Raised by the instrumented postgresql backend, so this is the query layer, not the connection pool."
+
+      - alert: DjangoDatabaseConnectionErrors
+        expr: sum(rate(django_db_new_connection_errors_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Django cannot open new database connections"
+          description: "Usually PgBouncer saturation or Postgres refusing connections."
+
+  # ------------------------------------------------------------------------- #
+  - name: postgres
+    rules:
+      - alert: PostgresTooManyConnections
+        expr: sum(pg_stat_database_numbackends) / clamp_min(pg_settings_max_connections, 1) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres is above 80% of max_connections"
+          description: "At {{ $value | humanizePercentage }}. PgBouncer should be capping this -- check DEFAULT_POOL_SIZE."
+
+      - alert: PostgresDeadlocks
+        expr: sum(rate(pg_stat_database_deadlocks{datname="voicebot_db"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deadlocks detected in voicebot_db"
+          description: "Postgres killed a transaction to break a cycle. Two code paths are locking rows in opposite orders."
+
+      - alert: PostgresLowCacheHitRatio
+        expr: |
+          sum(rate(pg_stat_database_blks_hit{datname="voicebot_db"}[30m]))
+          / clamp_min(
+              sum(rate(pg_stat_database_blks_hit{datname="voicebot_db"}[30m]))
+              + sum(rate(pg_stat_database_blks_read{datname="voicebot_db"}[30m])), 0.001)
+          < 0.90
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres shared buffer hit ratio below 90%"
+          description: "At {{ $value | humanizePercentage }} over 30 minutes -- shared_buffers is likely too small for the working set."
+
+      - alert: PostgresHighRollbackRatio
+        expr: |
+          sum(rate(pg_stat_database_xact_rollback{datname="voicebot_db"}[15m]))
+          / clamp_min(
+              sum(rate(pg_stat_database_xact_commit{datname="voicebot_db"}[15m]))
+              + sum(rate(pg_stat_database_xact_rollback{datname="voicebot_db"}[15m])), 0.001)
+          > 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over 10% of transactions are rolling back"
+          description: "At {{ $value | humanizePercentage }}. Either real errors or transactions being abandoned."
+
+  # ------------------------------------------------------------------------- #
+  - name: redis
+    rules:
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / clamp_min(redis_memory_max_bytes, 1) > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis above 90% of its 256mb maxmemory"
+          description: "At {{ $value | humanizePercentage }}. volatile-lru eviction starts at the cap."
+
+      - alert: RedisEvictingKeys
+        expr: sum(rate(redis_evicted_keys_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is evicting keys"
+          description: "The working set no longer fits in 256mb, so cache entries are being discarded before they expire. Raise maxmemory in docker-compose/cache.yml."
+
+      - alert: RedisRejectingConnections
+        expr: sum(rate(redis_rejected_connections_total[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is rejecting connections"
+          description: "maxclients reached. Django and Celery will both start failing."
+
+  # ------------------------------------------------------------------------- #
+  - name: host
+    rules:
+      - alert: HostHighCPU
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host CPU above 85%"
+          description: "At {{ $value | printf \"%.1f\" }}% for 15 minutes."
+
+      - alert: HostHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / clamp_min(node_memory_MemTotal_bytes, 1)) * 100 > 90
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host memory above 90%"
+          description: "At {{ $value | printf \"%.1f\" }}%. The OOM killer picks a container next."
+
+      - alert: HostDiskSpaceLow
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+           / clamp_min(node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}, 1)) * 100 > 85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Root filesystem above 85% full"
+          description: "At {{ $value | printf \"%.1f\" }}%. scripts/clean_docker.sh reclaims build cache and dangling images."
+
+      - alert: HostDiskWillFillIn24h
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}[6h], 24 * 3600) < 0
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Root filesystem will be full within 24 hours"
+          description: "Extrapolated from the last 6 hours of growth. Prometheus retention and Docker build cache are the usual culprits."
+
+  # ------------------------------------------------------------------------- #
+  - name: containers
+    rules:
+      - alert: ContainerRestartLoop
+        expr: sum(changes(container_start_time_seconds{name!=""}[15m])) by (name) > 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.name }} is restarting repeatedly"
+          description: "Started more than twice in 15 minutes. restart: always is masking a crash -- check its logs."
+
+      - alert: ContainerHighCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{name!=""}[5m])) by (name) * 100 > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} is saturating a core"
+          description: "At {{ $value | printf \"%.0f\" }}% of one core for 15 minutes."
