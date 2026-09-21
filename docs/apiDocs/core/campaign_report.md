@@ -153,7 +153,7 @@ never stored, so none can leak through a cached list response.
 
 | Value | File | Contents |
 |---|---|---|
-| `XLSX` | Excel workbook | Sheet **Campaign Overview**, then sheet **Members** with every member, a frozen header and an autofilter. |
+| `XLSX` | Excel workbook | Sheet **Campaign Overview**, then sheet **Members** with every member, a frozen header and an autofilter. The member sheet also carries the call's own record — numbers, times, sentiment, recording, summary, transcript — and two columns per probing question. |
 | `PDF` | PDF document | The overview on portrait pages, then a landscape member table with its header repeated on every page — capped at the first **2,000** members, and it says so when it is. |
 
 ---
@@ -463,6 +463,7 @@ Picker options. Takes the same filters as the list, plus `?limit=` (at most `100
 | `CAMPAIGN_REPORT_RETENTION_DAYS` | `7` | Days a file stays downloadable. Sets `expires_at`. |
 | `CAMPAIGN_REPORT_PROGRESS_EVERY` | `500` | Rows between `processed_rows` updates. |
 | `CAMPAIGN_REPORT_PDF_MAX_ROWS` | `2000` | Most members a PDF lists. The workbook always has everyone. |
+| `CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS` | `25` | Most probing questions the workbook lists, as two columns each. `0` turns them off. |
 | `CAMPAIGN_REPORT_STALL_MINUTES` | `120` | How long a `RUNNING` or `PENDING` report may go without progress before it is failed. |
 | `CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS` | `1` | Lifetime of a download link — `expires_in_seconds`. |
 

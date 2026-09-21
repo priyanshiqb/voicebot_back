@@ -50,7 +50,23 @@
               }
             ]
           },
-          "mappings": []
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OFFLINE",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "ONLINE",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -74,14 +90,124 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up",
-          "legendFormat": "",
+          "expr": "up{job=\"django-prod-wsgi\"}",
+          "legendFormat": "Django API (WSGI)",
           "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"django-prod-asgi\"}",
+          "legendFormat": "Django WS (ASGI)",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"django-dev\"}",
+          "legendFormat": "Django Dev",
+          "refId": "C",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"postgres\"}",
+          "legendFormat": "PostgreSQL",
+          "refId": "D",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"redis\"}",
+          "legendFormat": "Redis",
+          "refId": "E",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"cadvisor\"}",
+          "legendFormat": "Containers",
+          "refId": "F",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"node\"}",
+          "legendFormat": "Host",
+          "refId": "G",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"loki\"}",
+          "legendFormat": "Loki",
+          "refId": "H",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"prometheus\"}",
+          "legendFormat": "Prometheus",
+          "refId": "I",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job=\"grafana\"}",
+          "legendFormat": "Grafana",
+          "refId": "J",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "up{job!~\"django-prod-wsgi|django-prod-asgi|django-dev|postgres|redis|cadvisor|node|loki|prometheus|grafana\"}",
+          "legendFormat": "{{job}}",
+          "refId": "K",
           "editorMode": "code",
           "range": true
         }
       ],
-      "description": "0 = Prometheus could not scrape the target. django-dev is expected to be offline whenever the prod compose profile is running.",
+      "description": "0 = Prometheus could not scrape the target. Django Dev is expected to be offline whenever the prod compose profile is running. A tile showing a raw job name is a scrape target with no friendly name yet.",
       "gridPos": {
         "h": 4,
         "w": 24,

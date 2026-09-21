@@ -124,8 +124,11 @@ def ts(title, specs, unit="short", description=None, stack=False,
 
 
 def stat(title, expr, unit="short", description=None, decimals=None,
-         thresholds=None, color_mode="value", graph="area"):
+         thresholds=None, color_mode="value", graph="area", mappings=None):
+    """Stat panel. `expr` is either a single expression or a list of
+    (expr, legend) pairs, in which case tiles render in that order."""
     steps = thresholds or [{"color": "text", "value": None}]
+    specs = expr if isinstance(expr, list) else [(expr, "")]
     p = {
         "type": "stat", "title": title, "datasource": PROM,
         "fieldConfig": {
@@ -134,7 +137,7 @@ def stat(title, expr, unit="short", description=None, decimals=None,
                 "color": {"mode": "thresholds" if thresholds else "fixed",
                           "fixedColor": "text"},
                 "thresholds": {"mode": "absolute", "steps": steps},
-                "mappings": [],
+                "mappings": mappings or [],
             },
             "overrides": [],
         },
@@ -143,7 +146,7 @@ def stat(title, expr, unit="short", description=None, decimals=None,
             "textMode": "auto", "wideLayout": True,
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         },
-        "targets": targets([(expr, "")]),
+        "targets": targets(specs),
     }
     if description:
         p["description"] = description
@@ -238,12 +241,41 @@ L = Layout()
 # --------------------------------------------------------------------------- #
 L.row("At a Glance")
 
+# Curated so the tiles read as service names and appear in a deliberate order --
+# application first, then its dependencies, then the observability stack -- rather
+# than Prometheus' alphabetical job names. The trailing catch-all means a job added
+# to prometheus.yml still shows up here (under its raw job name, which is the cue to
+# give it a proper one) instead of silently going unmonitored.
+SERVICES = [
+    ("django-prod-wsgi", "Django API (WSGI)"),
+    ("django-prod-asgi", "Django WS (ASGI)"),
+    ("django-dev", "Django Dev"),
+    ("postgres", "PostgreSQL"),
+    ("redis", "Redis"),
+    ("cadvisor", "Containers"),
+    ("node", "Host"),
+    ("loki", "Loki"),
+    ("prometheus", "Prometheus"),
+    ("grafana", "Grafana"),
+]
+
+UP_TARGETS = [('up{job="%s"}' % job, name) for job, name in SERVICES]
+UP_TARGETS.append(('up{job!~"%s"}' % "|".join(j for j, _ in SERVICES), "{{job}}"))
+
 L.add(stat(
-    "Target Services Online/Offline Status", "up",
-    description="0 = Prometheus could not scrape the target. django-dev is expected "
-                "to be offline whenever the prod compose profile is running.",
+    "Target Services Online/Offline Status", UP_TARGETS,
+    description="0 = Prometheus could not scrape the target. Django Dev is expected "
+                "to be offline whenever the prod compose profile is running. A tile "
+                "showing a raw job name is a scrape target with no friendly name yet.",
     color_mode="background", graph="none",
     thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
+    mappings=[{
+        "type": "value",
+        "options": {
+            "0": {"text": "OFFLINE", "color": "red", "index": 0},
+            "1": {"text": "ONLINE", "color": "green", "index": 1},
+        },
+    }],
 ), w=24, h=4)
 
 L.add(stat("Request Rate",

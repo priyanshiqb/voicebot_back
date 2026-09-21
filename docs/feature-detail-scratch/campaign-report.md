@@ -107,7 +107,11 @@ it reads as a report rather than a data dump.
 | Schedule | Scheduled start, schedule timezone, started, completed, elapsed |
 | Audience | Total members, callable, suppressed, and one line per suppression reason |
 | Outcomes | Completed, failed, pending, in progress, cancelled; reach rate and failure rate, both of callable members |
-| Calls | Total calls, connected, connect rate, total talk time, average duration of connected calls |
+| Calls | Direction, total calls, connected, connect rate, not picked up and its rate, attempts reported, total talk time, average duration, longest call |
+| Call length | The four duration buckets — under 30 seconds, 30 to 60, 60 to 120, over 120 — counting connected calls only |
+| Attendance | Handled by the bot, transferred to a human, appointments booked |
+| Sentiment | One line per mood recorded on the calls |
+| Dispositions | One line per outcome the runner sent, counted as sent |
 | Credits | Credits charged, calls charged, average per charged call, one line per service tier, and a note that the figure is as charged, not net of refunds |
 | Report | Report id, generated at, requested by, members in campaign, members included, and the timezone times are shown in |
 
@@ -128,8 +132,9 @@ overview's Report group.
 
 ### Sheet 2 — Members
 
-The thirteen columns below, header on row 1, **frozen top row and an autofilter** so a
-20,000-row sheet is usable the moment it opens rather than after somebody sets it up.
+The columns below — thirteen fixed, then the probing-question pairs — with the header on
+row 1, **frozen top row and an autofilter** so a 20,000-row sheet is usable the moment it
+opens rather than after somebody sets it up.
 
 ### The PDF
 
@@ -176,9 +181,25 @@ layout error that fails the whole document; the workbook keeps the text in full.
 | 11 | Credits charged | `949` | **What was charged, not net of refunds.** Blank when the call was never charged — which is different from `0` |
 | 12 | Error | `No answer after 3 attempts` | The only place a failed row explains itself |
 | 13 | Provider call ID | `da5ec994…` | Ties a row to the call log and the ledger entry |
+| 14 | Probing questions asked | `3` | How far the conversation got |
+| 15–29 | The call's own record | `+18005550100` · `Positive` · `bot: Good morning…` | **XLSX only.** Call from and to, bot, start and end, attended by, sentiment and its confidence, language, appointment booked, follow-up note, recording, AI summary, transcript, logged at |
+| 30+ | `Q1 — <question>` and `Q1 positive?` | `Not answered during the call.` · `No` | **XLSX only.** Two columns per probing question — see below |
 
 No `direction` column: every campaign call is outbound, so it would be one value repeated
 down the whole sheet.
+
+**Probing questions become columns.** Each question the bot asks gets a pair: the answer
+summary, then whether it was positive. The list is discovered per report — the bot's
+configured questions in priority order, then anything else the call logs contain, appended
+— because the workbook is written append-only and a column cannot be added once the header
+row is out. Questions are matched on normalised text, so editing one on the bot adds a
+column rather than rewriting what older calls recorded, and `CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS`
+caps how many pairs a sheet can grow. The PDF has none: its table is already at its width
+limit with the fixed columns.
+
+`isPositive` is written exactly as the runner sent it. It carries `false` both for a
+negative answer and for a question that went unanswered, so only the summary text tells
+them apart — inferring more would invent a distinction the payload does not have.
 
 **A member called more than once** has one row, and columns 10, 11 and 13 describe the
 **latest** call. `Attempts` says how many there were.
@@ -483,6 +504,7 @@ nobody can tell it is short.
 | `CAMPAIGN_REPORT_RETENTION_DAYS` | `7` | Days a file stays downloadable before the expiry sweep removes it |
 | `CAMPAIGN_REPORT_PROGRESS_EVERY` | `500` | Rows between progress writes |
 | `CAMPAIGN_REPORT_PDF_MAX_ROWS` | `2000` | Most members a PDF lists; the workbook always has everyone |
+| `CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS` | `25` | Most probing questions the workbook lists, two columns each; `0` turns them off |
 | `CAMPAIGN_REPORT_STALL_MINUTES` | `120` | How long a `RUNNING` or `PENDING` report may go without progress before it is failed. Measured from its last write, so a long build that is still writing rows is never failed, and neither is one waiting out a retry |
 | `CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS` | `1` | Lifetime of a download link |
 

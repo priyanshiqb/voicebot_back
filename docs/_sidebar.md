@@ -69,6 +69,7 @@
   * [Campaign Reports — Flow & Lifecycle](campaigns/reports.md)
   * [Campaign Reports API](apiDocs/core/campaign_report.md)
   * [Campaign Runner - Machine API](apiDocs/core/campaign_runner.md)
+  * [Campaign Report — Field Comparison](campaigns/report-field-comparison.md)
 
 * **📅 Scheduling & Booking APIs**
   * [Business Hours](apiDocs/core/business_hours.md)

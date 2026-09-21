@@ -7,7 +7,8 @@ drive it.
 **API reference:** [Campaign Reports API](../apiDocs/core/campaign_report.md) ·
 **Design reasoning:** [Feature Detail](../feature-detail-scratch/campaign-report.md) ·
 **Build notes:** [Implementation Plan](../implementation-plan-scratch/campaign-report-plan.md) ·
-**Parent module:** [Campaign Module](README.md)
+**Parent module:** [Campaign Module](README.md) ·
+**Field comparison:** [Our report vs the reference dashboard](report-field-comparison.md)
 
 ---
 
@@ -108,6 +109,7 @@ then one row per member of its frozen audience.
 | Members | **All** of them | The first **2,000**, and the page says how many were left out |
 | Text | Kept in full | Each cell cut at 300 characters |
 | Non-Latin names (e.g. Devanagari) | Correct | Do not render properly — standard PDF fonts are Latin-1 only |
+| Columns | The fixed columns, **the call's own record** (15 more), and two per probing question | The fixed columns only |
 | Extras | Frozen header row, autofilter, real date cells, numbers that sum | Header repeated on every page, zebra striping, page numbers |
 
 > **Key mental model:** the request owns *intent* (a row saying a report was asked for). The worker
@@ -290,7 +292,7 @@ sequenceDiagram
 | 6 | Campaign loaded | `_generate` | Soft-deleted campaign → `PermanentReportError` |
 | 7 | Timezone chosen | `report_timezone` | Campaign schedule zone, else tenant zone, else UTC |
 | 8 | Overview | `build_overview` | SQL aggregates, before any member is streamed |
-| 9 | Members streamed | `member_rows` | One query, `.iterator(chunk_size=2000)`, latest call per member as subqueries |
+| 9 | Members streamed | `member_rows` | Keyset paging, 500 at a time; each page joins its call logs (and appointments) in one query |
 | 10 | File written | `write_xlsx` / `write_pdf` | Into a temp file on the worker; progress every 500 rows |
 | 11 | Upload | `AzureBlobStorageService.upload_file` | Last step that touches the file; temp file removed afterwards |
 | 12 | Complete | Conditional `UPDATE … WHERE status = RUNNING` | If no row matched, the sweep failed it meanwhile — the upload is deleted |
@@ -395,22 +397,26 @@ flowchart TD
 
 ### How the data is read
 
-**Members** — one streamed query, never loaded into memory at once:
+**Members** — streamed a page at a time, never loaded into memory at once:
 
 ```python
-CampaignMember.objects.filter(campaign=campaign)
-    .select_related("contact")
-    .annotate(
-        call_duration=Subquery(latest_call.values("duration_seconds")[:1]),
-        call_credits=Subquery(latest_call.values("credits_charged")[:1]),
-        call_reference=Subquery(latest_call.values("provider_call_id")[:1]),
-    )
-    .order_by("created_at", "id")
-    .iterator(chunk_size=2000)
+members = batched_queryset(               # keyset paging on (created_at, id)
+    CampaignMember.objects.filter(campaign=campaign).select_related("contact"),
+    batch_size=PAGE_SIZE, order_by=("created_at", "id"),
+)
+for page in _pages(members, PAGE_SIZE):   # 500 members
+    logs = _latest_logs(page)             # one query: newest call per member
+    demos = _demo_times(campaign, page)   # one query: appointments, detailed reports only
 ```
 
-- `latest_call` is the member's newest `AgentCallLog` by `created_at`. A member called several times
-  gets **one row** describing the latest call; `Attempts` says how many there were.
+- **Each page costs three queries, not three per member.** The call figures used to be one
+  correlated subquery per column, which is fine for three of them; the workbook now carries fifteen
+  call columns, and fifteen correlated lookups per member over a six-figure audience is a different
+  proposition.
+- `_latest_logs` keeps the member's newest `AgentCallLog` by `created_at`. Somebody called three
+  times gets **one row** describing the latest call; `Attempts` says how many there were.
+- **Keyset paging, not `.iterator()`** — a named cursor does not survive pgbouncer's transaction
+  pooling.
 - The order matches the campaign members endpoint, so the report and the screen list people the
   same way.
 - Soft-deleted members are excluded.
@@ -446,7 +452,11 @@ reference.
 | **Schedule** | Scheduled start · Schedule timezone · Started at · Completed at · Elapsed |
 | **Audience** | Total members · Callable · Suppressed · one line per suppression reason |
 | **Outcomes** | Completed · Failed · Pending · In progress · Cancelled · Reach rate · Failure rate |
-| **Calls** | Total calls · Connected · Connect rate · Total talk time · Average duration |
+| **Calls** | Direction · Total calls · Connected · Connect rate · Not picked up · Not picked up rate · Attempts reported · Total talk time · Average duration · Longest call |
+| **Call length** | Under 30 seconds · 30 to 60 · 60 to 120 · Over 120 — connected calls only |
+| **Attendance** | Handled by the bot · Transferred to a human · Appointments booked |
+| **Sentiment** | One line per mood the calls recorded, with its count |
+| **Dispositions** | One line per outcome the runner sent, with its count — free text, so two spellings count separately |
 | **Credits** | Credits charged · Calls charged · Average per charged call · one line per service tier · a note that credits are as charged, not net of refunds |
 | **Report** | Report ID · Generated at · Requested by · Members in campaign · Members included · Times shown in |
 
@@ -471,12 +481,77 @@ failed + pending + in progress + suppressed + cancelled always adds up to the to
 | 11 | Credits charged | Latest call's `credits_charged` | **never charged** — different from `0`, a free call |
 | 12 | Error | `CampaignMember.error_message` | no error |
 | 13 | Provider call ID | Latest call's `provider_call_id` | no call log |
+| 14 | Probing questions asked | Latest call's `probing_questions_count` | never (`0`) |
+| 15–29 | The call's own record — see below | The member's latest `AgentCallLog` | XLSX only |
+| 30+ | Two columns per probing question — see below | Latest call's `probing_questions` | XLSX only |
 
 **Suppressed members are included**, with their reason — unlike everywhere else in the campaign
 module, where they are hidden.
 
 **A report on a `DRAFT` or `SCHEDULED` campaign has no member rows.** The audience only becomes
 members at launch; selected contacts that were never materialised are not listed.
+
+### The call's own record (XLSX only)
+
+Fifteen columns describing the member's latest call — what a standalone call-analytics export
+carries:
+
+| Column | Source |
+|---|---|
+| Call from · Call to | `caller_number` · `callee_number` (falling back to `customer_number`) |
+| Bot | The agent that placed the call |
+| Call started at · Call ended at | `started_at` · `ended_at`, in the report's zone |
+| Attended by | `AI`, or `Human` when the call recorded a transfer |
+| Sentiment · Sentiment confidence | `mood` · `mood_confidence` |
+| Detected language | `preferred_language` |
+| Appointment booked for | The earliest active booking for that person since the campaign started |
+| Follow-up note | `follow_up_detail`, as sent |
+| Recording | The runner's own URL, else a signed link to our copy |
+| AI summary | `ai_summary` |
+| Transcript | `speaker: text` lines, cut at 32,000 characters — Excel refuses more |
+| Call logged at | When the call log reached us |
+
+Every cell is blank for a member who was never called. "Attended by" is blank too: nobody attended
+a call that did not happen.
+
+> **A downloaded workbook carries recording links.** They are signed for the report's own lifetime,
+> so whoever holds the file can fetch those recordings until it expires. That is why reports are
+> tenant-scoped, expire with their files, and record who asked for them.
+
+**Appointments are correlation, not proof.** A booking is tied to a person, never to a call, so the
+column answers "did an appointment appear for this person after the campaign began". A bot that
+books directly would have to report it for anything stronger.
+
+### Probing questions (XLSX only)
+
+After the call columns, the workbook adds **two columns per probing question**:
+
+| Column | Holds |
+|---|---|
+| `Q1 — How do you manage your leads?` | That call's `answerSummary`, verbatim |
+| `Q1 positive?` | `Yes` / `No`, from `isPositive` |
+
+The question list is discovered per report, **before the first row is written** — the workbook is
+append-only, so no column can be added once the header row is out:
+
+1. the bot's configured questions, in `ProbingQuestion.priority` order, so the columns have a
+   deliberate order and a question nobody ever reached still gets one — an empty column is itself
+   the answer;
+2. anything else this campaign's call logs contain, appended in first-seen order, so a question
+   asked ad hoc or renamed after the call does not go missing.
+
+Two extra queries per report, none per row. Questions are matched on normalised text — trimmed,
+inner whitespace collapsed, case-folded — so one question cannot claim two columns, and editing a
+question on the bot produces a new column rather than rewriting what older calls recorded.
+
+Both cells are blank when the call did not carry that question: "not asked" and "asked but
+unanswered" are different answers, and only the first is silent. `isPositive` is written as sent —
+the runner uses `false` both for a negative answer and for one never given, and only the summary
+text separates them.
+
+`CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS` (25) caps how many pairs a sheet can grow; `0` turns them
+off. **The PDF carries none** — its landscape table is already at its width limit with the fixed
+columns.
 
 ### Times
 
@@ -916,6 +991,7 @@ Written to `InAppNotification` for the **requester only** (`created_by`), with
 | `CAMPAIGN_REPORT_RETENTION_DAYS` | `7` | Days a file stays downloadable; sets `expires_at` |
 | `CAMPAIGN_REPORT_PROGRESS_EVERY` | `500` | Members between `processed_rows` writes |
 | `CAMPAIGN_REPORT_PDF_MAX_ROWS` | `2000` | Most members in a PDF; the XLSX always has everyone |
+| `CAMPAIGN_REPORT_MAX_PROBING_QUESTIONS` | `25` | Most probing questions the XLSX lists, two columns each; `0` turns them off |
 | `CAMPAIGN_REPORT_STALL_MINUTES` | `120` | Time without progress before an open report is failed |
 | `CAMPAIGN_REPORT_DOWNLOAD_URL_HOURS` | `1` | Lifetime of a download link |
 
