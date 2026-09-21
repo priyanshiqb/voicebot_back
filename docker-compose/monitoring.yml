@@ -128,8 +128,16 @@ services:
   # cgroup accounting requires, and it makes this container root-equivalent on the
   # host, same caveat as alloy above. Not published to the host; Prometheus reaches
   # it over the backend network.
+  #
+  # Pinned to a 0.60.x build for a specific reason. This host's Docker uses the
+  # containerd image store, which reports its storage driver as "overlayfs" rather
+  # than "overlay2". cAdvisor before ~0.53 has no such constant, so it fell through
+  # to the legacy /var/lib/docker/image/<driver>/layerdb lookup, failed to resolve a
+  # read-write layer for every single container, and exported zero container metrics
+  # while looking perfectly healthy. Do not downgrade this image without checking
+  # that `docker info` still reports overlay2.
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    image: gcr.io/cadvisor/cadvisor:v0.60.6
     container_name: cadvisor-voicebot
     profiles:
       - host-metrics
@@ -149,8 +157,18 @@ services:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
+      # Explicit, even though /sys above nominally covers it. On cgroup v2 hosts the
+      # unified hierarchy is its own mount and cAdvisor reports zero container metrics
+      # without seeing it directly -- the symptom is a running, healthy-looking
+      # container that exports only machine-level series.
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
+      # Required by the overlayfs path above: cAdvisor resolves each container's
+      # rootfs through containerd's API in the "moby" namespace instead of reading
+      # Docker's layer database. Without this socket it cannot build a client and
+      # falls back to reporting nothing per container.
+      - /run/containerd:/run/containerd:ro
     networks:
       - backend
     restart: always
