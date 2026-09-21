@@ -129,15 +129,22 @@ services:
   # host, same caveat as alloy above. Not published to the host; Prometheus reaches
   # it over the backend network.
   #
-  # Pinned to a 0.60.x build for a specific reason. This host's Docker uses the
-  # containerd image store, which reports its storage driver as "overlayfs" rather
-  # than "overlay2". cAdvisor before ~0.53 has no such constant, so it fell through
-  # to the legacy /var/lib/docker/image/<driver>/layerdb lookup, failed to resolve a
-  # read-write layer for every single container, and exported zero container metrics
-  # while looking perfectly healthy. Do not downgrade this image without checking
-  # that `docker info` still reports overlay2.
+  # The version pin is load-bearing in both directions.
+  #
+  # Floor: this host's Docker uses the containerd image store, which reports its
+  # storage driver as "overlayfs", not "overlay2". Older cAdvisor has no such
+  # constant, so it fell through to the legacy
+  # /var/lib/docker/image/<driver>/layerdb lookup, failed to resolve a read-write
+  # layer for every container, and exported zero container metrics while looking
+  # perfectly healthy. v0.52.1 is known bad; v0.55.1 carries
+  # ContainerdSnapshotterStorageDriver = "overlayfs" and resolves each rootfs
+  # through containerd's API instead.
+  #
+  # Ceiling: v0.55.1 is the newest tag published to gcr.io. cAdvisor kept cutting
+  # GitHub releases past it (v0.60.x exists upstream) without pushing them here, so
+  # a "newer" tag resolves to nothing and the pull fails outright.
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.60.6
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
     container_name: cadvisor-voicebot
     profiles:
       - host-metrics
