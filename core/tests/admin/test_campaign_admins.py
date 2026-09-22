@@ -11,6 +11,7 @@ from django.utils import timezone
 from django_otp import DEVICE_ID_SESSION_KEY
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from core.admin.campaign_admin import CampaignAdminForm
 from core.models.agent import Agent
 from core.models.agent_call_log import AgentCallLog
 from core.models.campaign import Campaign
@@ -272,3 +273,135 @@ class SearchTests(CampaignAdminTestCase):
         for model in (Campaign, CampaignMember, CampaignReport):
             with self.subTest(model=model.__name__):
                 self.assertEqual(self.search(model, "abc-def"), [])
+
+
+class ScheduleOnlyAdminForm(CampaignAdminForm):
+    """Just the schedule fields, so a test does not have to fill in the whole page."""
+
+    class Meta(CampaignAdminForm.Meta):
+        fields = ("scheduled_start_at", "schedule_timezone")
+
+
+class SchedulePageTests(CampaignAdminTestCase):
+    """The start is editable until the campaign begins, and held to the API's rules."""
+
+    SCHEDULE_FIELDS = {"scheduled_start_at", "schedule_timezone"}
+    FORMAT = "%Y-%m-%d %H:%M:%S"
+
+    def _readonly(self, campaign):
+        return set(self.model_admin(Campaign).get_readonly_fields(self.request, campaign))
+
+    def _set(self, status_value, **fields):
+        Campaign.objects.filter(pk=self.campaign.pk).update(status=status_value, **fields)
+        self.campaign.refresh_from_db()
+
+    def _form(self, **data):
+        payload = {
+            "scheduled_start_at": "",
+            "schedule_timezone": self.campaign.schedule_timezone,
+        }
+        payload.update(data)
+        return ScheduleOnlyAdminForm(data=payload, instance=self.campaign)
+
+    def test_the_start_is_editable_before_the_campaign_begins(self):
+        for status_value in (Campaign.Status.DRAFT, Campaign.Status.SCHEDULED):
+            with self.subTest(status=status_value):
+                self._set(status_value)
+                self.assertFalse(self.SCHEDULE_FIELDS & self._readonly(self.campaign))
+
+    def test_the_start_is_editable_on_a_new_campaign(self):
+        readonly = set(self.model_admin(Campaign).get_readonly_fields(self.request, None))
+        self.assertFalse(self.SCHEDULE_FIELDS & readonly)
+
+    def test_the_start_is_locked_once_the_campaign_has_begun(self):
+        begun = (
+            Campaign.Status.RUNNING,
+            Campaign.Status.PAUSED,
+            Campaign.Status.COMPLETED,
+            Campaign.Status.CANCELLED,
+        )
+        for status_value in begun:
+            with self.subTest(status=status_value):
+                self._set(status_value)
+                self.assertTrue(self.SCHEDULE_FIELDS <= self._readonly(self.campaign))
+
+    def test_the_change_page_offers_the_start_as_an_input(self):
+        self._set(
+            Campaign.Status.SCHEDULED,
+            scheduled_start_at=timezone.now() + timedelta(days=2),
+        )
+
+        response = self.change_page(Campaign, self.campaign.pk)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="scheduled_start_at_0"')
+        self.assertContains(response, 'name="schedule_timezone"')
+
+    def test_a_future_start_is_saved(self):
+        self._set(
+            Campaign.Status.SCHEDULED,
+            scheduled_start_at=timezone.now() + timedelta(days=2),
+        )
+        new_start = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+
+        form = self._form(scheduled_start_at=new_start.strftime(self.FORMAT))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.scheduled_start_at, new_start)
+
+    def test_a_past_start_is_refused(self):
+        self._set(
+            Campaign.Status.SCHEDULED,
+            scheduled_start_at=timezone.now() + timedelta(days=2),
+        )
+
+        form = self._form(
+            scheduled_start_at=(timezone.now() - timedelta(hours=1)).strftime(self.FORMAT)
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("scheduled_start_at", form.errors)
+
+    def test_a_scheduled_campaign_cannot_lose_its_start(self):
+        """With no start the sweep never launches it, and it sits SCHEDULED for ever."""
+        self._set(
+            Campaign.Status.SCHEDULED,
+            scheduled_start_at=timezone.now() + timedelta(days=2),
+        )
+
+        form = self._form(scheduled_start_at="")
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("scheduled_start_at", form.errors)
+
+    def test_a_draft_may_drop_its_start(self):
+        self._set(
+            Campaign.Status.DRAFT,
+            scheduled_start_at=timezone.now() + timedelta(days=2),
+        )
+
+        form = self._form(scheduled_start_at="")
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_an_unchanged_start_that_has_just_passed_does_not_block_saving(self):
+        """A save that does not touch the start must not fail because of it."""
+        passed = (timezone.now() - timedelta(minutes=1)).replace(microsecond=0)
+        self._set(Campaign.Status.SCHEDULED, scheduled_start_at=passed)
+
+        form = self._form(
+            scheduled_start_at=passed.strftime(self.FORMAT),
+            schedule_timezone="Europe/London",
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_an_unknown_timezone_is_refused(self):
+        self._set(Campaign.Status.DRAFT)
+
+        form = self._form(schedule_timezone="Mars/Olympus")
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("schedule_timezone", form.errors)

@@ -18,6 +18,13 @@ from tenant.common.models.tenant_base_model import TenantBaseModel
 
 DEFAULT_SCHEDULE_TIMEZONE = "UTC"
 
+# Why a SCHEDULED campaign may not lose its start: the minute sweep launches campaigns
+# whose `scheduled_start_at` has passed, and a NULL never has, so the campaign would sit
+# SCHEDULED for ever with nothing to say why.
+SCHEDULED_NEEDS_A_START = (
+    "A scheduled campaign needs a start time. Set a new one, or cancel the campaign."
+)
+
 
 def resolve_tenant_timezone(tenant):
     """
@@ -180,15 +187,19 @@ class Campaign(TenantBaseModel):
         null=True,
         blank=True,
         db_index=True,
-        help_text=_("UTC instant derived from the date/time pickers and the tenant timezone."),
+        help_text=_(
+            "UTC instant the campaign starts at. Sent by the client as an instant, "
+            "or derived from the deprecated date/time pickers and a timezone."
+        ),
     )
     schedule_timezone = models.CharField(
         max_length=64,
         blank=True,
         help_text=_(
-            "IANA zone the start was expressed in. Kept so the pickers can be shown "
-            "back exactly as typed, and so a later tenant timezone change cannot "
-            "silently move an already-scheduled campaign."
+            "IANA zone this campaign's times are shown in: the start as typed, and "
+            "every time in its report. A display label when the client sends an "
+            "instant; the zone the deprecated date/time pickers are read in otherwise. "
+            "Either way it never moves an already-stored start."
         ),
     )
 
@@ -318,9 +329,34 @@ class Campaign(TenantBaseModel):
             tz = ZoneInfo(DEFAULT_SCHEDULE_TIMEZONE)
         return self.scheduled_start_at.astimezone(tz)
 
+    def set_start_instant(self, instant):
+        """
+        Set the start from an absolute instant the client already resolved.
+
+        No timezone is consulted: the client turned the user's wall-clock choice into
+        an instant itself, so there is nothing left to interpret. Consulting the tenant
+        here is what scheduled campaigns hours late for tenants with no timezone set.
+        `schedule_timezone` is not touched; on this path it is only a display label,
+        set from the request.
+        """
+        if instant is None:
+            if self.status == self.Status.SCHEDULED:
+                raise ValidationError({"scheduled_start_at": SCHEDULED_NEEDS_A_START})
+            self.scheduled_start_at = None
+            return
+
+        if instant <= timezone.now():
+            raise ValidationError(
+                {"scheduled_start_at": "The campaign start must be in the future."}
+            )
+
+        self.scheduled_start_at = instant
+
     def set_schedule(self, start_date, start_time, tz_name=None):
         """
-        Set the start from a date + time pair expressed in the tenant's timezone.
+        Set the start from a date + time pair, read in `tz_name` if given and in the
+        tenant's timezone otherwise. Deprecated input path: clients should send an
+        instant, handled by `set_start_instant()`.
 
         Both or neither: a date with no time has no defined firing instant, and
         defaulting to midnight is how a system ends up calling people at 00:00.
@@ -335,6 +371,8 @@ class Campaign(TenantBaseModel):
             )
 
         if start_date is None:
+            if self.status == self.Status.SCHEDULED:
+                raise ValidationError({"start_date": SCHEDULED_NEEDS_A_START})
             self.scheduled_start_at = None
             self.schedule_timezone = ""
             return

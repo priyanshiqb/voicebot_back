@@ -71,7 +71,14 @@ class CampaignFilter(django_filters.FilterSet):
 # which would collapse every state conflict into a 400.
 EDITABLE_BY_STATUS = {
     Campaign.Status.DRAFT: None,
-    Campaign.Status.SCHEDULED: {"name", "description", "start_date", "start_time"},
+    Campaign.Status.SCHEDULED: {
+        "name",
+        "description",
+        "scheduled_start_at",
+        "schedule_timezone",
+        "start_date",
+        "start_time",
+    },
     Campaign.Status.RUNNING: {"name", "description"},
     Campaign.Status.PAUSED: {"name", "description"},
 }

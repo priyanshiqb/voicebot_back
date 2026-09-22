@@ -138,8 +138,10 @@ reporting a problem — it is what correlates your request with the server logs.
 | `description` | string | Free-text note on who this audience is and why — for the humans reading the list later. | Optional; `""` is accepted. If non-blank, **3–500** characters. A 1–2 character description is rejected. |
 | `contacts` | UUID array | The audience: who this campaign intends to call. Frozen into members at launch. | Optional. Each must be a non-deleted contact **in your tenant**. At most **5 000** (`CAMPAIGN_MAX_SELECTED_CONTACTS`). **Replaces the entire selection** — send the full list, never a delta. |
 | `audience_source` | enum | How the audience was chosen. | Optional, default `SELECTED`. Only `SELECTED` is accepted today; `FILTER` and `UPLOAD` are reserved and return **400**. |
-| `start_date` | string | Calendar date to start on, in your tenant's timezone. Omit both this and `start_time` to launch immediately instead. | Optional, **write-only**. `DD/MM/YYYY` or `YYYY-MM-DD`. Must be sent together with `start_time`. |
-| `start_time` | string | Wall-clock time to start at, in your tenant's timezone. | Optional, **write-only**. `HH:MM`, `HH:MM:SS`, `HH:MM AM/PM`. Must be sent together with `start_date`. |
+| `scheduled_start_at` | datetime | **When the campaign starts, already converted by the client.** Stored exactly as sent — the server applies no timezone. Omit (or send `null`) to launch immediately instead. | Optional, nullable. ISO-8601 **with an offset**: `2027-02-15T04:00:00Z` or `2027-02-15T09:30:00+05:30`. A time with no offset is a **400**. Must be in the future. |
+| `schedule_timezone` | string | IANA zone this campaign's times are **shown** in: `start_local`, and every time in the campaign report. With `scheduled_start_at` it is only a label and never shifts the start. | Optional. Must be a real IANA zone (`Asia/Kolkata`, `Europe/London`), else **400**. Blank is allowed and means "not set". |
+| `start_date` | string | **Deprecated** — send `scheduled_start_at`. Calendar date to start on, read in `schedule_timezone` if sent, else your tenant's timezone, else UTC. | Optional, **write-only**. `DD/MM/YYYY` or `YYYY-MM-DD`. Must be sent together with `start_time`, and not together with `scheduled_start_at`. |
+| `start_time` | string | **Deprecated** — send `scheduled_start_at`. Wall-clock time to start at, read in the same zone as `start_date`. | Optional, **write-only**. `HH:MM`, `HH:MM:SS`, `HH:MM AM/PM`. Must be sent together with `start_date`. |
 | `is_active` | boolean | Soft on/off switch, independent of both `status` and deletion. Does not stop a running campaign. | Optional, default `true`. |
 
 ### Read-only
@@ -150,9 +152,7 @@ reporting a problem — it is what correlates your request with the server logs.
 | `tenant` | object | `{id, name, subdomain}` |
 | `status` | enum | Server-derived; sending it is ignored |
 | `contact_count` | int | Size of the **current** selection (detail only). Compare with `total_members`, which is the **frozen** count from launch — after materialisation they can legitimately differ, because editing `contacts` afterwards does not re-freeze the audience |
-| `start_local` | object \| null | `{date, time, timezone}` — the schedule as typed |
-| `scheduled_start_at` | datetime \| null | UTC |
-| `schedule_timezone` | string | IANA name, e.g. `Asia/Kolkata` |
+| `start_local` | object \| null | `{date, time, timezone}` — the start shown in `schedule_timezone`, or in UTC when that is blank. `null` when unscheduled. |
 | `started_at` | datetime \| null | When materialisation completed |
 | `completed_at` | datetime \| null | |
 | `handoff_id` | uuid \| null | Idempotency key, set at launch |
@@ -170,11 +170,19 @@ reporting a problem — it is what correlates your request with the server logs.
 
 ### Validation notes
 
-- **Dates are day-first.** `01/02/2027` is 1 February 2027.
-- **Start time is interpreted in your tenant's timezone**, then stored as UTC.
-- The **combined** date+time must be in the future. Today's date with a time that has already
-  passed is rejected.
-- Date and time are all-or-nothing.
+- **Send the start as an instant with its offset.** `scheduled_start_at` is stored exactly as
+  sent; the server never applies the tenant's timezone to it. Convert the user's chosen local
+  time in the client, where the browser knows the zone and its daylight-saving rules.
+- **A time without an offset is refused**, not guessed: `2027-02-15T09:30:00` could mean any
+  of 38 offsets, and reading it as UTC is how a campaign starts hours late.
+- **`schedule_timezone` is display only** when `scheduled_start_at` is sent. Send the browser's
+  zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) so `start_local` and the campaign
+  report show local times; without it both fall back to the tenant's zone, then UTC.
+- The start must be **in the future**.
+- **Deprecated date/time pickers:** still accepted during the switch. Dates are day-first
+  (`01/02/2027` is 1 February 2027), and the pair is read in `schedule_timezone` if sent, else
+  the tenant's timezone, else UTC. Date and time are all-or-nothing, and cannot be combined
+  with `scheduled_start_at`.
 
 ---
 
@@ -280,10 +288,18 @@ Creates in `DRAFT`. Only `name` and `agent` are required.
   "description": "Warm leads from the January webinar",
   "agent": "b4e1…",
   "contacts": ["c1a2…", "d3f4…"],
-  "start_date": "15/02/2027",
-  "start_time": "09:30"
+  "scheduled_start_at": "2027-02-15T04:00:00Z",
+  "schedule_timezone": "Asia/Kolkata"
 }
 ```
+
+That is 09:30 in India, converted by the client. `start_local` comes back as
+`{"date": "2027-02-15", "time": "09:30", "timezone": "Asia/Kolkata"}`.
+
+> **Deprecated form, still accepted:** `"start_date": "15/02/2027", "start_time": "09:30"`
+> instead of `scheduled_start_at`, read in `schedule_timezone` (or the tenant's zone, then UTC).
+> Tenants without a timezone set used to have these read as UTC even when the client sent
+> `schedule_timezone`; the zone is now honoured.
 
 ### Response `201`
 
@@ -304,8 +320,12 @@ All field errors arrive as `{"status": false, "message": "<first error>", "error
 | **400** | `agent` unknown, inactive, deleted, **or another tenant's**. | `Invalid pk "…" - object does not exist.` | `{"agent": [...]}` |
 | **400** | A contact id is unknown, deleted, **or another tenant's**. | `Invalid pk "…" - object does not exist.` | `{"contacts": [...]}` |
 | **400** | More than 5 000 contacts. | `A campaign cannot target more than 5000 contacts at once.` | `{"contacts": [...]}` |
-| **400** | The combined start instant is in the past. | `The campaign start must be in the future.` | `{"start_date": [...]}` |
-| **400** | Only one of `start_date` / `start_time` supplied. | `Start date and start time must be supplied together.` | `{"start_time": [...]}` |
+| **400** | `scheduled_start_at` has no offset. | `Include a UTC offset: end the time with Z (UTC) or an offset such as +05:30.` | `{"scheduled_start_at": [...]}` |
+| **400** | `scheduled_start_at` is in the past. | `The campaign start must be in the future.` | `{"scheduled_start_at": [...]}` |
+| **400** | `scheduled_start_at` sent together with `start_date` / `start_time`. | `Send scheduled_start_at, or start_date with start_time, not both.` | `{"scheduled_start_at": [...]}` |
+| **400** | `schedule_timezone` is not a real IANA zone. | `'Mars/Olympus' is not a valid IANA timezone identifier.` | `{"schedule_timezone": [...]}` |
+| **400** | *Deprecated pickers:* the combined start is in the past. | `The campaign start must be in the future.` | `{"start_date": [...]}` |
+| **400** | *Deprecated pickers:* only one of `start_date` / `start_time` supplied. | `Start date and start time must be supplied together.` | `{"start_time": [...]}` |
 | **400** | `audience_source` is a reserved value. | `'FILTER' audiences are not supported yet. Use 'SELECTED'.` | `{"audience_source": [...]}` |
 | **400** | `description` supplied but 1–2 characters. | `Ensure this field has at least 3 characters.` | `{"description": [...]}` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": …}` |
@@ -398,10 +418,16 @@ describes what was actually called.
 | Status | Editable |
 |---|---|
 | `DRAFT` | Everything |
-| `SCHEDULED` | `name`, `description`, `start_date`, `start_time` |
+| `SCHEDULED` | `name`, `description`, `scheduled_start_at`, `schedule_timezone`, `start_date`, `start_time` |
 | `RUNNING`, `PAUSED` | `name`, `description` |
 | `MATERIALIZING`, `HANDING_OFF` | Nothing |
 | `COMPLETED`, `CANCELLED`, `FAILED` | Nothing |
+
+> **A `SCHEDULED` campaign's start can be moved, but not removed.** Sending
+> `"scheduled_start_at": null` (or null `start_date` / `start_time`) is a **400**:
+> `A scheduled campaign needs a start time. Set a new one, or cancel the campaign.` Scheduled
+> campaigns launch when their start passes, and one with no start would never launch. A
+> `DRAFT` may drop its start freely.
 
 The check is on **which keys you send**, not on whether you changed anything. Re-sending `agent`
 with its current value on a `RUNNING` campaign is still a 409 — omit the keys you are not

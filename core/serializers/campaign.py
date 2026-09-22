@@ -1,14 +1,16 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models.functions import Lower
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.models.agent import Agent
-from core.models.campaign import Campaign
+from core.models.campaign import DEFAULT_SCHEDULE_TIMEZONE, Campaign
 from core.models.campaign_member import CampaignMember
 from core.models.contact import Contact
 from core.serializers.agent import AgentRefSerializer
+from onboard.models.timezone import validate_iana_timezone
 from tenant.common.serializers.tenant_base_model_serializer import (
     TenantBaseModelSerializer,
 )
@@ -23,8 +25,6 @@ TIME_INPUT_FORMATS = ["%H:%M", "%I:%M %p", "%I:%M%p", "%H:%M:%S"]
 # Fields the campaign lifecycle derives. Never accepted from a client.
 DERIVED_FIELDS = (
     "status",
-    "scheduled_start_at",
-    "schedule_timezone",
     "started_at",
     "completed_at",
     "launched_by",
@@ -60,6 +60,29 @@ def tenant_from_context(context):
         return None
 
 
+class OffsetDateTimeField(serializers.DateTimeField):
+    """
+    An ISO-8601 instant that must say which offset it is in.
+
+    DRF's DateTimeField quietly reads a timestamp with no offset as server time (UTC
+    here). For a campaign start that turns "13:00, meaning India" into 13:00 UTC, five
+    and a half hours late, with nothing in the response to show it. Refusing is the only
+    safe reading of an instant that does not say where it is.
+    """
+
+    default_error_messages = {
+        "naive": (
+            "Include a UTC offset: end the time with Z (UTC) or an offset such as "
+            "+05:30."
+        ),
+    }
+
+    def enforce_timezone(self, value):
+        if timezone.is_naive(value):
+            self.fail("naive")
+        return super().enforce_timezone(value)
+
+
 class CampaignRefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Campaign
@@ -71,9 +94,10 @@ class CampaignSerializer(TenantBaseModelSerializer):
     Full campaign representation and the only write path.
 
     Model validators are restated here because DRF never calls `full_clean()`. The one
-    exception is the schedule: `Campaign.set_schedule()` already implements and tests the
-    tenant-timezone and past-instant rules, so this serializer calls it and translates
-    the error rather than keeping a second copy of that logic.
+    exception is the schedule: `Campaign.set_start_instant()` and the deprecated
+    `Campaign.set_schedule()` already hold the future-start rule (and, for the date/time
+    pickers, the timezone fallback), so this serializer calls them and translates the
+    error rather than keeping a second copy of that logic.
     """
 
     agent = HybridRelatedField(
@@ -86,17 +110,41 @@ class CampaignSerializer(TenantBaseModelSerializer):
         required=False,
     )
 
+    # The start, as the client resolved it. The preferred way to schedule.
+    scheduled_start_at = OffsetDateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the campaign starts, as an ISO-8601 instant with its offset, e.g. "
+            "2026-09-24T07:30:00Z or 2026-09-24T13:00:00+05:30. Stored as sent; no "
+            "timezone is applied. null clears the schedule."
+        ),
+    )
+    schedule_timezone = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "IANA zone this campaign's times are shown in, e.g. Asia/Kolkata: the start "
+            "as typed, and every time in its report. Only a label when "
+            "scheduled_start_at is sent; the zone start_date/start_time are read in "
+            "when those are sent instead."
+        ),
+    )
+    # Deprecated: kept so clients can move to scheduled_start_at on their own schedule.
     start_date = serializers.DateField(
         input_formats=DATE_INPUT_FORMATS,
         write_only=True,
         required=False,
         allow_null=True,
+        help_text="Deprecated — send scheduled_start_at instead.",
     )
     start_time = serializers.TimeField(
         input_formats=TIME_INPUT_FORMATS,
         write_only=True,
         required=False,
         allow_null=True,
+        help_text="Deprecated — send scheduled_start_at instead.",
     )
     start_local = serializers.SerializerMethodField()
     contact_count = serializers.SerializerMethodField()
@@ -174,7 +222,7 @@ class CampaignSerializer(TenantBaseModelSerializer):
         return {
             "date": local.date().isoformat(),
             "time": local.strftime("%H:%M"),
-            "timezone": obj.schedule_timezone,
+            "timezone": obj.schedule_timezone or DEFAULT_SCHEDULE_TIMEZONE,
         }
 
     @extend_schema_field(serializers.IntegerField())
@@ -214,6 +262,15 @@ class CampaignSerializer(TenantBaseModelSerializer):
             )
         return value
 
+    def validate_schedule_timezone(self, value):
+        if not value:
+            return value
+        try:
+            validate_iana_timezone(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0])
+        return value
+
     def validate(self, attrs):
         # The status-based edit guard lives in the viewset, not here. DRF's
         # run_validation catches whatever validate() raises and re-raises a plain
@@ -222,28 +279,48 @@ class CampaignSerializer(TenantBaseModelSerializer):
         attrs = super().validate(attrs)
 
         submitted = getattr(self, "initial_data", {}) or {}
-        touches_schedule = "start_date" in submitted or "start_time" in submitted
-        if touches_schedule:
-            # Popped so they never reach Model(**validated_data) — they are inputs to
-            # set_schedule(), not columns.
-            attrs["_start_date"] = attrs.pop("start_date", None)
-            attrs["_start_time"] = attrs.pop("start_time", None)
-            attrs["_set_schedule"] = True
-        else:
-            attrs.pop("start_date", None)
-            attrs.pop("start_time", None)
+        sends_instant = "scheduled_start_at" in submitted
+        sends_pickers = "start_date" in submitted or "start_time" in submitted
+        if sends_instant and sends_pickers:
+            # Two starts in one request, possibly disagreeing. There is no right one to
+            # pick, so refuse rather than silently prefer either.
+            raise serializers.ValidationError(
+                {
+                    "scheduled_start_at": (
+                        "Send scheduled_start_at, or start_date with start_time, "
+                        "not both."
+                    )
+                }
+            )
+
+        # Popped so none reach Model(**validated_data) directly: the schedule goes
+        # through the model's own methods, which hold the future-start rule.
+        instant = attrs.pop("scheduled_start_at", None)
+        start_date = attrs.pop("start_date", None)
+        start_time = attrs.pop("start_time", None)
+        if sends_instant:
+            attrs["_schedule"] = {"instant": instant}
+        elif sends_pickers:
+            attrs["_schedule"] = {
+                "date": start_date,
+                "time": start_time,
+                # The zone the pickers were filled in, when the client says so.
+                # set_schedule() falls back to the tenant's, then UTC.
+                "tz": attrs.get("schedule_timezone") or None,
+            }
 
         return attrs
 
-    def _apply_schedule(self, instance, validated_data):
-        if not validated_data.pop("_set_schedule", False):
-            validated_data.pop("_start_date", None)
-            validated_data.pop("_start_time", None)
+    def _apply_schedule(self, instance, schedule):
+        if schedule is None:
             return
-        start_date = validated_data.pop("_start_date", None)
-        start_time = validated_data.pop("_start_time", None)
         try:
-            instance.set_schedule(start_date, start_time)
+            if "instant" in schedule:
+                instance.set_start_instant(schedule["instant"])
+            else:
+                instance.set_schedule(
+                    schedule["date"], schedule["time"], tz_name=schedule["tz"]
+                )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(
                 exc.message_dict if hasattr(exc, "message_dict") else str(exc)
@@ -251,29 +328,21 @@ class CampaignSerializer(TenantBaseModelSerializer):
 
     def create(self, validated_data):
         contacts = validated_data.pop("contacts", [])
-        schedule_data = {
-            k: validated_data.pop(k)
-            for k in ("_set_schedule", "_start_date", "_start_time")
-            if k in validated_data
-        }
+        schedule = validated_data.pop("_schedule", None)
 
         instance = Campaign(**validated_data)
-        self._apply_schedule(instance, schedule_data)
+        self._apply_schedule(instance, schedule)
         instance.save()
         instance.contacts.set(contacts)
         return instance
 
     def update(self, instance, validated_data):
         contacts = validated_data.pop("contacts", None)
-        schedule_data = {
-            k: validated_data.pop(k)
-            for k in ("_set_schedule", "_start_date", "_start_time")
-            if k in validated_data
-        }
+        schedule = validated_data.pop("_schedule", None)
 
         for field, value in validated_data.items():
             setattr(instance, field, value)
-        self._apply_schedule(instance, schedule_data)
+        self._apply_schedule(instance, schedule)
         instance.save()
 
         if contacts is not None:
