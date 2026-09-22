@@ -25,6 +25,7 @@ by this backend, so it is not modelled here. But it has consequences you must de
 - `GET /api/v1/core/custom-voices/` - List records (paginated)
 - `GET /api/v1/core/custom-voices/{id}/` - Retrieve one record
 - `POST /api/v1/core/custom-voices/` - Create a record
+- `POST /api/v1/core/custom-voices/check-name/` - Is a voice name free? — see §3a
 - `DELETE /api/v1/core/custom-voices/{id}/` - Soft-delete a record
 - `POST /api/v1/core/custom-voices/bulk_delete/` - Bulk soft-delete
 - `GET /api/v1/core/custom-voices/dropdown/` - *Present but not useful* — see §7
@@ -194,7 +195,7 @@ shape the frontend currently sends — a convention, not a contract this API enf
 | Conventional key | Type | Meaning |
 |---|---|---|
 | `user_id` | string | The voice provider's owning-account identifier. |
-| `name` | string | Display name shown in voice pickers. |
+| `name` | string | Display name shown in voice pickers. **Unique per tenant, ignoring case and surrounding spaces** — the one key the server checks. |
 | `description` | string | Free text. |
 | `language` | string | Language code, e.g. `en`. |
 | `record_type` | string | How the voice was produced, e.g. `upload`. |
@@ -240,20 +241,53 @@ shape the frontend currently sends — a convention, not a contract this API enf
 > **The response echoes your request, plus `id` and `created_at`.** Nothing else is added — no
 > `tenant`, no audit fields. Store the returned `id`; it is what addresses this record from now on.
 
-> **Duplicates are allowed.** There is no uniqueness rule of any kind. Posting the same payload
-> five times creates five separate rows with five different `id`s and otherwise identical content.
+> **Names are unique within your organisation.** A second voice whose `name` matches a live one
+> — ignoring case and surrounding spaces — is a **400**. Deleted voices release their name, and
+> another organisation may use the same one. A payload with no `name` (or a blank one) is not
+> checked, and nothing else in the payload is compared.
 
 ### Responses
 
 | Status | When | `message` | `errors` |
 |---|---|---|---|
 | **201** | Record stored. | `Created successfully` | `null` |
-| **400** | The body is not parseable JSON. This is the **only** way to get a 400 from this endpoint. | `JSON parse error - <detail>` | `{"detail": "…"}` |
+| **400** | The body is not parseable JSON. | `JSON parse error - <detail>` | `{"detail": "…"}` |
+| **400** | A live voice in your organisation already has this `name`, in any casing. | `A custom voice with this name already exists.` | `{"name": ["…"]}` |
 | **401** | Missing or invalid token. | `Authentication credentials were not provided.` | `{"detail": ...}` |
 | **403** | No active tenant mapping, or an agent token. | as above | `{"detail": ...}` |
 
 > **A malformed *record* is not an error — only malformed *JSON* is.** `{"nmae": "typo"}` returns
 > `201`. Validate the payload shape client-side; the server will not do it for you.
+
+---
+
+### 3a. Check Name Availability
+
+- **Path**: `POST /api/v1/core/custom-voices/check-name/`
+- **Request**:
+  ```json
+  { "name": "Riley — warm" }
+  ```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `name` * | string | The name to check. | Required. Max **255**. |
+| `exclude_id` | UUID | A voice to leave out of the check. There is no update route today, so this is only for symmetry with other name checks. | Optional, nullable. |
+
+- **Success Response (200 OK)**:
+  ```json
+  { "status": true, "message": "success", "data": { "is_unique": true }, "errors": null }
+  ```
+
+The same rule create applies: unique per tenant, ignoring case and surrounding spaces; deleted
+voices do not hold their name.
+
+| Status | When |
+|---|---|
+| **200** | Answered. |
+| **400** | `name` missing or over 255 characters. |
+| **401** | Missing or invalid token. |
+| **403** | No active tenant mapping, or an agent token. |
 
 ---
 

@@ -112,12 +112,23 @@ class ContactViewSet(EntitlementGuardMixin, ImportExportMixin, TenantBaseViewSet
         "email_address",
         "company",
         "consent_status",
+        # The same, under the names the table's columns use. An unrecognised key is
+        # dropped silently, so sorting by these "worked" and sorted nothing.
+        "name",
+        "phone_number",
+        "is_active",
     ]
     # `full_name` is a model property, not a column, so it cannot be ordered on
     # directly. It resolves to the annotation added in get_queryset() — which is
     # deliberately NOT called `full_name`: DRF assigns annotations onto the instance,
     # and the read-only property of that name would make the assignment raise.
-    ordering_field_map = {"full_name": "_full_name"}
+    ordering_field_map = {
+        "full_name": "_full_name",
+        "name": "_full_name",
+        # E.164 first: the stored `phone_number` is as typed, so "+91 98…" and "98…" for
+        # one person would sort apart. The raw column settles numbers that did not parse.
+        "phone_number": ("phone_e164", "phone_number"),
+    }
     # `company` and `consent_status` are both low-cardinality — a book of 500 contacts
     # has a handful of distinct values — so sorting on either leaves almost every row
     # tied and paging over the ties is not reproducible without this.
@@ -137,7 +148,7 @@ class ContactViewSet(EntitlementGuardMixin, ImportExportMixin, TenantBaseViewSet
         queryset = super().get_queryset()
         # Only where it is used. Every action shares this method, and there is no
         # reason to compute the expression for a retrieve or a delete.
-        if self.action in {"list", "export_data"}:
+        if self.action in {"list", "export_data", "dropdown"}:
             queryset = queryset.annotate(_full_name=self.FULL_NAME_ORDER_EXPR)
         return queryset
 

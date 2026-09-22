@@ -5,7 +5,7 @@ import logging
 import django_filters
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, OuterRef, Subquery, Value
+from django.db.models import Count, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Concat, Lower, Trim
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -27,6 +27,7 @@ from core.serializers.campaign import (
     CampaignListSerializer,
     CampaignMemberFilterSerializer,
     CampaignMemberSerializer,
+    CampaignNameCheckSerializer,
     CampaignSerializer,
     PreviewAudienceSerializer,
 )
@@ -34,6 +35,7 @@ from core.serializers.campaign_report import (
     CampaignReportRequestSerializer,
     CampaignReportSerializer,
 )
+from core.serializers.knowledge_base import UniquenessCheckResponseSerializer
 from core.services import campaign_reports as report_service
 from core.services import campaigns as campaign_service
 from core.tasks import materialize_campaign
@@ -454,6 +456,45 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
             data=self.get_serializer(campaign).data, message="Campaign cancelled"
         )
 
+    @extend_schema(
+        summary="Check Campaign Name Availability",
+        description=(
+            "Whether a name is free for a new campaign, or for renaming the campaign in "
+            "`exclude_id`. Names are unique within your organisation, ignoring case, "
+            "and deleted campaigns do not hold theirs: the same rule create and update "
+            "enforce."
+        ),
+        request=CampaignNameCheckSerializer,
+        responses={200: UniquenessCheckResponseSerializer},
+    )
+    @action(
+        detail=False, methods=["post"], url_path="check-name", url_name="check-name"
+    )
+    def check_name(self, request, *args, **kwargs):
+        serializer = CampaignNameCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # A superuser sees every tenant's campaigns, so is answered across all of them.
+        # Anyone else is answered for their own organisation. Checked here because this
+        # action never reaches get_queryset, where the tenant guard usually runs.
+        tenant = None
+        if not request.user.is_superuser:
+            tenant = self._tenant()
+            if tenant is None:
+                return self.error(
+                    message=(
+                        "Your user account is not associated with any active tenant."
+                    ),
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+
+        taken = Campaign.name_in_use(
+            serializer.validated_data["name"],
+            tenant=tenant,
+            exclude_pk=serializer.validated_data.get("exclude_id"),
+        )
+        return self.success(data={"is_unique": not taken})
+
     # ------------------------------------------------------------------
     # Audience
     # ------------------------------------------------------------------
@@ -542,7 +583,10 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
                 name="search",
                 required=False,
                 type=str,
-                description="Search by phone number.",
+                description=(
+                    "Case-insensitive part of the member's name (first, last, or both) "
+                    "or of the number they were called on."
+                ),
             ),
             OpenApiParameter(
                 name="outcome",
@@ -621,7 +665,12 @@ class CampaignViewSet(EntitlementGuardMixin, VBAgentTenantScopedMixin, TenantBas
 
         search = request.query_params.get("search")
         if search:
-            queryset = queryset.filter(phone_e164__icontains=search)
+            # The name through the same annotation the full_name sort uses, so "ada",
+            # "LOVELACE" and "ada lov" all find Ada Lovelace; the number is still the
+            # one frozen at materialisation.
+            queryset = queryset.filter(
+                Q(phone_e164__icontains=search) | Q(_full_name__icontains=search)
+            )
 
         outcomes = request.query_params.getlist("outcome")
         if outcomes:

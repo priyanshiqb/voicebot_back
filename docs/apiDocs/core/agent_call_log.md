@@ -79,7 +79,8 @@ no summary, no probing questions.
 | `direction` | string | Inbound vs outbound. Supports multiple comma-separated values (e.g. `?direction=inbound,outbound`). | `inbound` or `outbound` — **lowercase**. |
 | `outcome` | string | **Exact** match on the disposition string. Supports multiple comma-separated values (e.g. `?outcome=success,failed`). | Free text written by the runtime; there is no fixed vocabulary, so match what your runtime sends. |
 | `agent` | UUID | Filter to one bot. | Must be a valid UUID. |
-| `campaign_id` | string | **Exact** match on the free-text campaign tag. | A string, not a foreign key — see §3. |
+| `campaign` | UUID | Calls of **one or several campaigns**: `?campaign=<id>,<id>`. A call counts when its campaign member belongs to one of them, **or** when the runner's `campaign_id` tag equals one of the ids — so a call whose member link was never made still counts. | Comma-separated campaign UUIDs. A malformed id → **400**. Another tenant's campaign simply matches nothing. |
+| `campaign_id` | string | **Exact** match on the free-text campaign tag, one value or several: `?campaign_id=q1-leads,q2-leads`. | Comma-separated. A string, not a foreign key — see §3. Prefer `campaign` for real campaigns. |
 | `start_date` | date | Calls logged on or after this day, **inclusive**. Matched on `created_at` — see the note below. | `YYYY-MM-DD`, read as a **UTC** calendar day. |
 | `end_date` | date | Calls logged up to this day, **inclusive of the whole day** — `end_date=2026-06-23` includes a log written at `23:59` that evening. | `YYYY-MM-DD`, read as a **UTC** calendar day. Must be on or after `start_date`, else **400**. |
 

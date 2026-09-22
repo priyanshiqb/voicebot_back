@@ -313,6 +313,26 @@ class Campaign(TenantBaseModel):
     def is_live(self):
         return self.status in self.LIVE_STATUSES
 
+    @classmethod
+    def name_in_use(cls, name, tenant=None, exclude_pk=None):
+        """Whether a live campaign already uses `name`, ignoring case.
+
+        The one statement of the per-tenant name rule, shared by create/update
+        validation and the name-availability check so the two can never disagree.
+        Deleted campaigns release their name. `tenant=None` checks every tenant, which
+        only a superuser's check asks for.
+        """
+        queryset = (
+            cls.objects.filter(is_deleted=False)
+            .annotate(lowered=Lower("name"))
+            .filter(lowered=name.lower())
+        )
+        if tenant is not None:
+            queryset = queryset.filter(tenant=tenant)
+        if exclude_pk is not None:
+            queryset = queryset.exclude(pk=exclude_pk)
+        return queryset.exists()
+
     @property
     def local_start(self):
         """

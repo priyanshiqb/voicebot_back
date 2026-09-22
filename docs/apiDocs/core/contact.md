@@ -123,7 +123,7 @@ payload — it omits `notes`, `phone_region`, and the consent detail fields.
 | `page` | integer | Page number. Default `1`. | Beyond the last page → **404**. |
 | `page_size` | integer | Rows per page. Default `10`. | Capped at `100`. |
 | `search` | string | Partial, case-insensitive match across `first_name`, `last_name`, `phone_e164`, `phone_number`, `email_address`, `company`. | Words are split on spaces and **AND**ed; each word must match at least one field. |
-| `ordering` | string | Sort. Default `-created_at`. | Only `created_at`, `updated_at`, `first_name`, `last_name`, `full_name`, `phone_e164`, `email_address`, `company`, `consent_status`, each optionally `-` prefixed. Comma-separate for multiple keys. Anything else is ignored silently. |
+| `ordering` | string | Sort. Default `-created_at`. | `name` (first + last, case-insensitive — same as `full_name`), `phone_number` (by the normalised E.164 number, then as typed), `is_active` (inactive first ascending), `created_at`, `updated_at`, `first_name`, `last_name`, `full_name`, `phone_e164`, `email_address`, `company`, `consent_status` — each optionally `-` prefixed. Comma-separate for multiple keys. Ties are broken by newest first. Anything else is ignored silently. |
 | `is_active` | boolean | Exact match. | `true` / `false`. |
 | `do_not_call` | boolean | Exact match. Use to build a suppression list. | `true` / `false`. |
 | `consent_status` | string | Exact match. | One of the four choices; unknown value → **400**. |

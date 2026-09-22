@@ -175,8 +175,9 @@ class EventTemplate(TenantBaseModel):
             if blocking:
                 raise ValidationError(
                     f"This event type has {blocking} active booking(s) and cannot be "
-                    "deleted. Cancel or complete them first, or set is_active=false "
-                    "to stop new bookings while honouring the ones already made."
+                    "deleted. Cancel or complete them first, or deactivate it "
+                    "(is_active=false) to stop new bookings while honouring the ones "
+                    "already made, once no active bot or bookable host still uses it."
                 )
 
             self.is_deleted = True
@@ -193,6 +194,33 @@ class EventTemplate(TenantBaseModel):
                 if user
                 else ["is_deleted", "deleted_at", "name"]
             )
+
+    def deactivation_blockers(self):
+        """What still depends on this type being active, as (bot names, host emails).
+
+        Two things keep a type live. A bot that offers it (`Agent.event_templates`),
+        and a host who can take it: an active skill for this type, held by someone with
+        an active availability profile. Deactivating under either leaves a bot offering
+        meetings that are all refused, or hosts whose calendars quietly stop producing
+        slots for it.
+        """
+        bots = list(
+            self.agents.filter(is_deleted=False, is_active=True)
+            .order_by("bot_name")
+            .values_list("bot_name", flat=True)
+        )
+        hosts = list(
+            self.skills.filter(
+                is_deleted=False,
+                is_active=True,
+                user__availability_profiles__is_deleted=False,
+                user__availability_profiles__is_active=True,
+            )
+            .order_by("user__email")
+            .values_list("user__email", flat=True)
+            .distinct()
+        )
+        return bots, hosts
 
     def __str__(self):
         return self.name

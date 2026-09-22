@@ -30,6 +30,7 @@ For architecture, flow diagrams, and how the statuses fit together, see the
 - [`DELETE /{id}/` — Delete](#delete-id--delete)
 - [`POST /bulk_delete/`](#post-bulk_delete)
 - [`GET /dropdown/`](#get-dropdown)
+- [`POST /check-name/`](#post-check-name)
 - [`POST /{id}/launch/`](#post-idlaunch)
 - [`POST /{id}/pause/`](#post-idpause)
 - [`POST /{id}/resume/`](#post-idresume)
@@ -114,6 +115,7 @@ reporting a problem — it is what correlates your request with the server logs.
 | `DELETE` | `/{id}/` | Soft delete | 200 |
 | `POST` | `/bulk_delete/` | Soft delete many | 200 |
 | `GET` | `/dropdown/` | Picker options | 200 |
+| `POST` | `/check-name/` | Is a name free? | 200 |
 | `POST` | `/{id}/launch/` | Launch or schedule | 202 |
 | `POST` | `/{id}/pause/` | Hold | 200 |
 | `POST` | `/{id}/resume/` | Un-hold | 200 |
@@ -564,6 +566,41 @@ Compact picker options.
 
 ---
 
+## `POST /check-name/`
+
+Whether a campaign name is free, so the form can say so before the user submits. It answers
+with exactly the rule create and update enforce: **unique within your organisation, ignoring
+case**, and deleted campaigns do not hold their name.
+
+### Request
+
+```json
+{ "name": "Q1 Lead Qualification", "exclude_id": "3f2a…" }
+```
+
+| Field | Type | Description | Validation |
+|---|---|---|---|
+| `name` * | string | The name to check. | Required. Max **100**. Surrounding spaces are trimmed. |
+| `exclude_id` | UUID | The campaign being renamed, so its own current name does not count as taken. Omit for a new campaign. | Optional, nullable. Must be a well-formed UUID. |
+
+### Response `200`
+
+```json
+{ "status": true, "message": "success", "data": { "is_unique": false }, "errors": null }
+```
+
+| Code | When | `message` |
+|---|---|---|
+| **200** | Answered. `is_unique: false` means a live campaign in your organisation already has this name in some casing. | `success` |
+| **400** | `name` missing, or over 100 characters; `exclude_id` malformed. | the field error, under `errors` |
+| **401** | Missing or invalid token. | — |
+| **403** | No active tenant mapping, or an agent token. | `Your user account is not associated with any active tenant.` |
+
+> **This checks uniqueness only.** A name that is free can still be refused by create for its
+> characters or length (letters, digits, spaces, `-`, `_`; 3–100 characters).
+
+---
+
 ## `POST /{id}/launch/`
 
 No request body.
@@ -710,7 +747,7 @@ The frozen audience. Empty until materialisation completes.
 |---|---|---|---|
 | `status` | enum | Narrow to one or more member states. Comma-separated (`?status=PENDING,IN_PROGRESS`) or the key repeated (`?status=PENDING&status=IN_PROGRESS`); a member matching any of them is returned. | `PENDING`, `SUPPRESSED`, `CANCELLED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, uppercase. Spaces around commas are ignored. **Not validated** — see below. |
 | `suppression_reason` | enum | Narrow to one exclusion reason. Pair with `status=SUPPRESSED` for a compliance list. | `DO_NOT_CALL`, `CONSENT_DENIED`, `NO_PHONE`, `CONTACT_DELETED`. **Not validated.** |
-| `search` | string | Substring match on `phone_e164` **only**. | Case-insensitive. Does **not** search names — the audience is keyed by number here. |
+| `search` | string | Part of the member's **name** (first, last, or both: `ada`, `LOVELACE`, `ada lov`) **or** of the number they were called on. | Case-insensitive. The name is the contact's current name; the number is the one frozen at materialisation. |
 | `outcome` | string | Exact match on `outcome`. Supports multiple values (comma-separated or multiple query params). | Matches the outcome text. |
 | `start_date` / `end_date` | datetime | Filter by `last_call_at` time range. | Standard ISO datetime formats. |
 | `min_duration` / `max_duration` | int | Length of the member's **latest call** in seconds, both inclusive: `?min_duration=30&max_duration=300`. Either can be sent alone. | Whole numbers, `0` or more, and `min_duration` no greater than `max_duration`, else **400**. Sent empty (`?min_duration=`) counts as not sent. Setting either leaves out members with no linked call. |

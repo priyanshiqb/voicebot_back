@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, time, timedelta
 
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models.agent import Agent
@@ -56,6 +57,10 @@ MAX_RECORDING_BYTES = 50 * 1024 * 1024
 
 
 class CharInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
+    pass
+
+
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
     pass
 
 
@@ -118,6 +123,13 @@ class AgentCallLogFilterForm(forms.Form):
 class AgentCallLogFilter(django_filters.FilterSet):
     outcome = CharInFilter(field_name="outcome", lookup_expr="in")
     direction = CharInFilter(field_name="direction", lookup_expr="in")
+    # One campaign or several: `?campaign=<uuid>,<uuid>`. A malformed id is a 400.
+    campaign = UUIDInFilter(
+        method="filter_campaigns",
+        label="Calls of any of these campaigns (comma-separated campaign ids).",
+    )
+    # The runner's free-text tag, exact, one value or several: `?campaign_id=a,b`.
+    campaign_id = CharInFilter(field_name="campaign_id", lookup_expr="in")
     start_date = django_filters.DateFilter(
         method="filter_from_date",
         label="Calls logged on or after this UTC date, inclusive (YYYY-MM-DD).",
@@ -129,7 +141,7 @@ class AgentCallLogFilter(django_filters.FilterSet):
 
     class Meta:
         model = AgentCallLog
-        fields = ["direction", "agent", "campaign_id"]
+        fields = ["direction", "agent"]
         form = AgentCallLogFilterForm
 
     def filter_from_date(self, queryset, name, value):
@@ -137,6 +149,21 @@ class AgentCallLogFilter(django_filters.FilterSet):
 
     def filter_to_date(self, queryset, name, value):
         return filter_call_date_range(queryset, end_date=value)
+
+    def filter_campaigns(self, queryset, name, value):
+        """Calls belonging to any of these campaigns.
+
+        Matched through the call's campaign member, which is the reliable link, or
+        through the runner's free-text `campaign_id` tag when that holds the campaign's
+        id. The second path is what keeps a call whose member link was never made (the
+        log arrived after the runner reported its outcome) inside its campaign.
+        """
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(campaign_member__campaign_id__in=value)
+            | Q(campaign_id__in=[str(campaign_id) for campaign_id in value])
+        )
 
 CALL_LOG_EXAMPLE = {
     "provider_call_id": "call-001",

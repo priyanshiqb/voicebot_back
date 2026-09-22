@@ -141,7 +141,7 @@ audit fields are **not** included; use Retrieve for those.
 | `remove_knowledge_bases` | UUID array | Knowledge bases to **unlink**. | — |
 | `add_probing_questions` | UUID array | Probing questions to **link**. | Each must belong to your tenant **or** be a global default (`is_default: true`). |
 | `remove_probing_questions` | UUID array | Probing questions to **unlink**. | — |
-| `add_event_templates` | UUID array | Meeting types this agent may book. | Each must belong to your tenant. |
+| `add_event_templates` | UUID array | Meeting types this agent may book. | Each must belong to your tenant **and be active** — an inactive type is a **400** (`Event template <name> is inactive. Activate it before adding it to a bot.`), because it refuses every booking. |
 | `remove_event_templates` | UUID array | Meeting types to **unlink**. | — |
 
 > **`service_tier` is not settable here.** Every agent carries one — it decides what a

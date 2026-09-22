@@ -263,6 +263,16 @@ class AgentSerializer(TenantBaseModelSerializer):
                     raise serializers.ValidationError({
                         "add_event_templates": f"Event template {et.id} does not belong to your tenant context."
                     })
+                # An inactive type refuses every booking, so a bot offering it promises
+                # meetings it can never book. The event-skill serializer refuses the
+                # same for hosts; together they keep an inactive type unattached.
+                if not et.is_active:
+                    raise serializers.ValidationError({
+                        "add_event_templates": (
+                            f"Event template {et.name} is inactive. Activate it before "
+                            "adding it to a bot."
+                        )
+                    })
                 resolved_add_ets.append(et)
             attrs["resolved_add_event_templates"] = resolved_add_ets
 

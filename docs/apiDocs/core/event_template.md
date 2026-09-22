@@ -160,7 +160,7 @@ An event template defines duration, buffers, how a host is chosen, and the booki
 | `reschedule_lead_minutes` | integer | Minimum notice required to reschedule. | ≥ 0, default `60`. |
 | `location_type` | enum | Where the meeting happens: `IN_PERSON`, `PHONE`, `VIDEO`. | Default `VIDEO`. Descriptive only — no conferencing link is generated. |
 | `color` | string | Hex colour for UI rendering, e.g. `#0284C7`. | Max 7 chars. **Stored as-is — the format is not validated**, so `purple` is accepted and will not render. |
-| `is_active` | boolean | Whether this type can be booked. `false` keeps the template and its history but removes it from availability and booking. | Default `true`. |
+| `is_active` | boolean | Whether this type can be booked. `false` keeps the template and its history but removes it from availability, booking and the dropdown. | Default `true`. Switching to `false` is **refused while the type is in use** — see §5. |
 
 `id`, `tenant`, `created_by`/`updated_by`/`deleted_by`, and all timestamps are **read-only**.
 
@@ -216,11 +216,23 @@ widening a buffer does not retroactively reserve more of the host's calendar.
 |---|---|---|
 | **200** | Updated. Body is the full template. | `Updated successfully` |
 | **400** | Same table as Create. | — |
+| **400** | `is_active: false` while the type is still in use — see below. | `This event type is still in use and cannot be deactivated: offered by 2 active bot(s): Sales Bot, Support Bot; bookable through 1 host(s) with an active availability profile: host@example.com. First remove it from those bots and deactivate those hosts' event skills.` |
 | **403** | Agent token. | — |
 | **404** | No such template in your tenant. | — |
 
 > Setting `is_active: false` takes effect immediately: the template disappears from
-> `available-slots` and new bookings are refused with a `400`. Bookings already made are untouched.
+> `available-slots` and the dropdown, and new bookings are refused with a `400`. Bookings already
+> made are untouched.
+
+> **Deactivating is refused while the type is still in use**, in either of two ways:
+>
+> - **An active bot offers it** — it is among an active, non-deleted agent's event templates.
+>   Remove it from the bot's configuration first.
+> - **A host can take it** — someone holds an active event skill for it *and* has an active
+>   availability profile. Deactivate that event skill first.
+>
+> The message names the bots and hosts (the first three of each). Reactivating is never
+> refused.
 
 ---
 
@@ -234,7 +246,7 @@ suffixed with a deletion timestamp so it becomes immediately reusable.
 | Status | When | `message` |
 |---|---|---|
 | **200** | Deleted. | `Deleted successfully` |
-| **400** | The template still has active bookings. **Nothing is deleted.** | `This event type has 3 active booking(s) and cannot be deleted. Cancel or complete them first, or set is_active=false to stop new bookings while honouring the ones already made.` |
+| **400** | The template still has active bookings. **Nothing is deleted.** | `This event type has 3 active booking(s) and cannot be deleted. Cancel or complete them first, or deactivate it (is_active=false) to stop new bookings while honouring the ones already made, once no active bot or bookable host still uses it.` |
 | **403** | Agent token. | — |
 | **404** | No such template in your tenant. | — |
 
@@ -249,7 +261,7 @@ and no-show bookings do not block deletion.
 
 | Situation | Do this |
 |---|---|
-| The type is genuinely retired, but existing bookings should still happen | `PATCH {"is_active": false}` — removes it from availability and refuses new bookings, while every booking already made proceeds normally |
+| The type is genuinely retired, but existing bookings should still happen | First remove it from every active bot and deactivate its hosts' event skills, then `PATCH {"is_active": false}` — removes it from availability and refuses new bookings, while every booking already made proceeds normally |
 | The bookings should not happen either | Cancel them (`POST /bookings/{id}/cancel/`), then delete |
 | The meetings already happened | Mark them `complete`/`no-show`, then delete |
 

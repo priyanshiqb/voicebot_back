@@ -42,7 +42,10 @@ Three consequences worth knowing before you start:
   - `user` (optional): Filter by host user id.
   - `event_template` (optional): Filter by event template id.
   - `is_active` (optional): Boolean filter.
-  - `ordering` (optional): `user_name`, `template_name`, `is_active`, `created_at`, `updated_at`, `user__email`, `user__first_name`, `user__last_name`, or `event_template__name`; prefix `-` to reverse, comma-separate for multiple keys. Default `-created_at`.
+  - `ordering` (optional): prefix `-` to reverse, comma-separate for multiple keys. Default `-created_at`; ties are broken newest first.
+    - **Table columns:** `user_name` (first + last), `user_email`, `template_name`, `is_active` (the skill), `created_at`, `updated_at`
+    - **Template settings:** `template_duration`, `template_is_active`, `event_template__duration_minutes`, `event_template__location_type`, `event_template__assignment_strategy`, `event_template__is_active`, `event_template__name`
+    - **Host:** `user__email`, `user__first_name`, `user__last_name`, `user__is_active`
     - `user_name` sorts by the host's full name, falling back to their email when both name fields are blank — matching what the table renders. `template_name` is an alias for `event_template__name`.
     - Every sort is tie-broken by `-created_at` then `id`, so paging an `is_active` sort — which puts every row in one of two ties — does not repeat or skip rows.
 - **Success Response (200 OK)**:

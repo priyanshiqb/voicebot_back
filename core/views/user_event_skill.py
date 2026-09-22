@@ -44,6 +44,16 @@ class UserEventSkillViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
         "user_name",
         "template_name",
         "is_active",
+        # Everything else a skill row can sensibly be sorted by: the host's email and
+        # status, and the template's own settings, under table-style names and paths.
+        "user_email",
+        "template_duration",
+        "template_is_active",
+        "user__is_active",
+        "event_template__duration_minutes",
+        "event_template__location_type",
+        "event_template__assignment_strategy",
+        "event_template__is_active",
     ]
     # The listing shows a user object and a template object, not the columns they are
     # stored in, so the names the client sorts by are not queryset paths. `user_name`
@@ -52,6 +62,9 @@ class UserEventSkillViewSet(VBAgentTenantScopedMixin, TenantBaseViewSet):
     ordering_field_map = {
         "user_name": "_user_name",
         "template_name": "event_template__name",
+        "user_email": "user__email",
+        "template_duration": "event_template__duration_minutes",
+        "template_is_active": "event_template__is_active",
     }
     # `is_active` is a boolean: sorting on it puts every row in one of two ties.
     ordering_tiebreaker = ("-created_at", "id")

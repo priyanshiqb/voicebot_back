@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models.functions import Lower
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -232,15 +231,10 @@ class CampaignSerializer(TenantBaseModelSerializer):
         return obj.contacts.count()
 
     def validate_name(self, value):
-        tenant = tenant_from_context(self.context)
-        qs = Campaign.objects.filter(is_deleted=False).annotate(
-            lowered=Lower("name")
-        ).filter(lowered=value.lower())
-        if tenant is not None:
-            qs = qs.filter(tenant=tenant)
-        if self.instance is not None:
-            qs = qs.exclude(pk=self.instance.pk)
-        if qs.exists():
+        exclude_pk = self.instance.pk if self.instance is not None else None
+        if Campaign.name_in_use(
+            value, tenant=tenant_from_context(self.context), exclude_pk=exclude_pk
+        ):
             raise serializers.ValidationError(
                 "A campaign with this name already exists."
             )
@@ -479,3 +473,17 @@ class PreviewAudienceSerializer(serializers.Serializer):
                 f"A campaign cannot target more than {cap} contacts at once."
             )
         return value
+
+
+class CampaignNameCheckSerializer(serializers.Serializer):
+    """The body of ``POST /campaigns/check-name/``."""
+
+    name = serializers.CharField(max_length=100)
+    exclude_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The campaign being renamed, so its own current name does not count as "
+            "taken. Omit when checking a name for a new campaign."
+        ),
+    )

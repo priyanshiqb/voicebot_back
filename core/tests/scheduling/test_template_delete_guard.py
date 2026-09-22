@@ -26,6 +26,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from core.models.booking import Booking
 from core.models.event_template import EventTemplate
+from core.models.user_event_skill import UserEventSkill
 from core.services import bookings as booking_service
 from core.tests.scheduling import factories as f
 from core.tests.scheduling.factories import ATTENDEES
@@ -183,8 +184,15 @@ class DeletionPathTests(_TemplateBase, APITestCase):
         self.assertTrue(other.is_deleted)
 
     def test_deactivating_is_the_escape_hatch(self):
-        """Documented alternative: stop new bookings, honour existing ones."""
+        """Documented alternative: stop new bookings, honour existing ones.
+
+        Deactivating needs the type released first — no active bot or bookable host may
+        still offer it — so the host's event skill is switched off before the type is.
+        """
         self._book()
+        UserEventSkill.objects.filter(
+            user=self.host, event_template=self.template
+        ).update(is_active=False)
         response = self.client.patch(
             f"{TEMPLATES_URL}{self.template.id}/", {"is_active": False}, format="json"
         )
