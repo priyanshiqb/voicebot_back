@@ -19,6 +19,8 @@ def send_email_task(
     lead_text=None,
     otp_code=None,
     body_text=None,
+    action_url=None,
+    action_label=None,
     delivery_log_id=None,
 ):
     """
@@ -32,6 +34,10 @@ def send_email_task(
 
     ``otp_code`` is rendered into the message and **never recorded** — a table of
     live one-time codes would be a credential store.
+
+    ``action_url`` renders as a button, with the address printed under it to copy. Mail
+    that asks someone to do something needs it in the HTML part: the plain-text body is
+    the alternative almost no client displays.
     """
     from user.services import email_log
     from user.models.email_delivery_log import EmailDeliveryLog
@@ -43,7 +49,7 @@ def send_email_task(
         "Sending email task triggered", extra={"delivery_log_id": delivery_log_id}
     )
 
-    if not html_message and (title or lead_text or otp_code):
+    if not html_message and (title or lead_text or otp_code or action_url):
         try:
             context = {
                 "subject": subject,
@@ -51,6 +57,8 @@ def send_email_task(
                 "lead_text": lead_text or message,
                 "otp_code": otp_code,
                 "body_text": body_text,
+                "action_url": action_url,
+                "action_label": action_label,
                 "current_year": timezone.now().year,
             }
             html_message = render_to_string("emails/generic_email.html", context)

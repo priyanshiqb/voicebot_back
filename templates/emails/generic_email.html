@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ subject }}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-    
+
     body {
       font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       background-color: #fafafa;
@@ -14,11 +15,13 @@
       padding: 0;
       -webkit-font-smoothing: antialiased;
     }
+
     .wrapper {
       width: 100%;
       background-color: #fafafa;
       padding: 60px 0;
     }
+
     .container {
       max-width: 480px;
       margin: 0 auto;
@@ -27,29 +30,37 @@
       overflow: hidden;
       box-shadow: 0 20px 25px -5px rgba(30, 58, 138, 0.04), 0 10px 10px -5px rgba(30, 58, 138, 0.02);
       border: 1px solid #e2e8f0;
-      border-top: 4px solid #1e3a8a; /* Royal Blue accent line */
+      border-top: 4px solid #1e3a8a;
+      /* Royal Blue accent line */
     }
+
     .header {
       padding: 44px 40px 10px 40px;
       text-align: center;
     }
+
     .logo-text {
       font-family: "Playfair Display", Georgia, serif;
-      color: #1e3a8a; /* Royal Blue */
+      color: #1e3a8a;
+      /* Royal Blue */
       font-size: 22px;
       font-weight: 700;
       letter-spacing: 3px;
       margin: 0;
       text-transform: uppercase;
     }
+
     .content {
       padding: 20px 40px 40px 40px;
     }
+
     .security-badge {
       display: inline-flex;
       align-items: center;
-      background-color: #fef3c7; /* Soft gold tint */
-      color: #b45309; /* Deep amber/gold */
+      background-color: #fef3c7;
+      /* Soft gold tint */
+      color: #b45309;
+      /* Deep amber/gold */
       font-size: 10px;
       font-weight: 700;
       padding: 6px 12px;
@@ -59,6 +70,7 @@
       margin-bottom: 24px;
       border: 1px solid #fde68a;
     }
+
     .badge-dot {
       display: inline-block;
       width: 6px;
@@ -67,6 +79,7 @@
       border-radius: 50%;
       margin-right: 8px;
     }
+
     .content h2 {
       margin-top: 0;
       color: #0f172a;
@@ -75,14 +88,44 @@
       letter-spacing: -0.5px;
       margin-bottom: 16px;
     }
+
     .content p {
       margin: 16px 0;
       font-size: 15px;
       line-height: 1.6;
       color: #475569;
     }
+
+    .action {
+      text-align: center;
+      margin: 32px 0 8px 0;
+    }
+
+    .action-button {
+      display: inline-block;
+      background-color: #1e3a8a;
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 32px;
+      border-radius: 10px;
+      letter-spacing: 0.3px;
+    }
+
+    .action-fallback {
+      text-align: center;
+      word-break: break-all;
+    }
+
+    .action-fallback a {
+      color: #1e3a8a;
+      text-decoration: none;
+    }
+
     .otp-card {
-      background-color: #f0f7ff; /* Soft royal blue tint */
+      background-color: #f0f7ff;
+      /* Soft royal blue tint */
       border: 1px solid #bfdbfe;
       border-radius: 12px;
       padding: 32px 24px;
@@ -90,6 +133,7 @@
       text-align: center;
       box-shadow: 0 4px 6px -1px rgba(30, 58, 138, 0.03);
     }
+
     .otp-label {
       margin: 0 0 12px 0;
       font-size: 11px;
@@ -98,6 +142,7 @@
       color: #1e3a8a;
       font-weight: 700;
     }
+
     .otp-code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 38px;
@@ -111,17 +156,20 @@
       -ms-user-select: all;
       cursor: pointer;
     }
+
     .otp-hint {
       margin-top: 12px;
       font-size: 12px;
       color: #64748b;
       font-weight: 500;
     }
+
     .divider {
       height: 1px;
       background-color: #f1f5f9;
       margin: 32px 0;
     }
+
     .footer {
       background-color: #fafbfc;
       padding: 28px 40px;
@@ -131,23 +179,28 @@
       color: #94a3b8;
       line-height: 1.6;
     }
+
     .footer p {
       margin: 6px 0;
     }
+
     .footer-links {
       margin-top: 16px;
       font-size: 12px;
     }
+
     .footer-links a {
       color: #1e3a8a;
       text-decoration: none;
       margin: 0 8px;
     }
+
     .footer-links a:hover {
       text-decoration: underline;
     }
   </style>
 </head>
+
 <body>
   <div class="wrapper">
     <div class="container">
@@ -160,7 +213,20 @@
         </div>
         <h2>{{ title }}</h2>
         <p>{{ lead_text }}</p>
-        
+
+        {% if action_url %}
+        <div class="action">
+          <!-- Styled inline as well as by class: several clients drop <style> blocks,
+               and this button is the whole point of the mail. -->
+          <a class="action-button" href="{{ action_url }}"
+            style="display:inline-block;background-color:#1e3a8a;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 32px;border-radius:10px;">{{ action_label|default:"Open" }}</a>
+        </div>
+        <p class="action-fallback" style="font-size:12px;color:#94a3b8;text-align:center;word-break:break-all;">
+          Or copy this link into your browser:<br>
+          <a href="{{ action_url }}" style="color:#1e3a8a;text-decoration:none;">{{ action_url }}</a>
+        </p>
+        {% endif %}
+
         {% if otp_code %}
         <div class="otp-card">
           <p class="otp-label">Verification OTP Code</p>
@@ -168,7 +234,7 @@
           <div class="otp-hint">Double-click or tap to highlight code</div>
         </div>
         {% endif %}
-        
+
         {% if body_text %}
         <div class="divider"></div>
         <p style="font-size: 14px; color: #64748b;">{{ body_text }}</p>
@@ -184,4 +250,5 @@
     </div>
   </div>
 </body>
+
 </html>

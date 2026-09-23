@@ -27,15 +27,35 @@ def _from_email():
     return getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@voicebot.com")
 
 
+def _frontend_base():
+    """Where the app a person clicks through to lives.
+
+    `FRONTEND_BASE_URL` first, for a deployment whose app sits somewhere other than the
+    origin the API allows. Then `FRONTEND_PROJECT_URL`, which every environment defines
+    and `FRONTEND_BASE_URL` — defined by none of them — silently shadowed: reading only
+    the first is why invitations went out linking to a bare path with no host.
+    """
+    base = getattr(settings, "FRONTEND_BASE_URL", "") or getattr(
+        settings, "FRONTEND_PROJECT_URL", ""
+    )
+    return (base or "").rstrip("/")
+
+
 def accept_url(raw_token):
     """Where the invitee goes to finish signing up.
 
     Built from a configured frontend base rather than the request host: the API and the
     app are not the same origin, and a link pointing at the API is a dead end for a
-    person. Falls back to a bare path so a misconfigured environment produces an
-    obviously-wrong relative link rather than one pointing at somebody else's domain.
+    person. With neither setting configured this still returns a bare path — an
+    obviously-wrong relative link rather than one pointing at somebody else's domain —
+    and says so in the log, because the invitation is unusable either way.
     """
-    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    base = _frontend_base()
+    if not base:
+        logger.error(
+            "neither FRONTEND_BASE_URL nor FRONTEND_PROJECT_URL is set; the invitation "
+            "link has no host and cannot be opened"
+        )
     return f"{base}/accept-invitation?token={raw_token}"
 
 
@@ -66,9 +86,14 @@ def send_invitation(*, invitation, raw_token, request=None):
             title="You're invited",
             lead_text=f"Join {organisation} on VoiceBot",
             body_text=(
-                f"Set your password to activate your account. This link expires on "
+                f"This invitation expires on "
                 f"{invitation.expires_at.strftime('%d %b %Y')}."
             ),
+            # The link as something to click, and printed underneath to copy. It lives
+            # only in this mail, so the HTML part — the one a mail client shows — has to
+            # carry it; a plain-text-only link reaches almost nobody.
+            action_url=link,
+            action_label="Set your password",
             delivery_log_id=delivery_log_id,
         )
         return True

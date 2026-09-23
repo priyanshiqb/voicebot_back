@@ -126,6 +126,20 @@ The account created at invite time is `is_active: false` with an unusable passwo
 > address at the database level, so the invitation takes the "already registered" path and they
 > receive the notice rather than an invitation. Restoring their account is the way back.
 
+#### What the invitation email contains
+
+The raw token exists **only** in this email, so the link is the invitation. The mail carries it
+twice: as a **Set your password** button, and printed underneath as plain text to copy, for clients
+that strip buttons.
+
+The link is `<frontend>/accept-invitation?token=<raw token>`, where `<frontend>` is
+`FRONTEND_BASE_URL` when set and `FRONTEND_PROJECT_URL` otherwise — that fallback is what every
+environment actually relies on, since `FRONTEND_BASE_URL` is normally unset.
+
+> **With neither configured the link has no host** (`/accept-invitation?token=...`) and cannot be
+> opened from an inbox. The backend logs an `ERROR` saying so when it builds such a link, and the
+> invitation still counts against the seat — check this first if invitees report a dead link.
+
 ---
 
 ### 2. List Invitations
