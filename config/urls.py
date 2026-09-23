@@ -9,6 +9,34 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from rest_framework.permissions import AllowAny
+
+
+def docs_patterns(prefix, name_prefix="", **view_kwargs):
+    """Schema, Swagger UI and ReDoc under one prefix.
+
+    Each set points at its own schema route by name: the UI is a page that fetches the
+    document over HTTP, so a protected UI pointed at a public schema would protect
+    nothing, and a public UI pointed at a protected one would show an error.
+    """
+    schema_name = f"{name_prefix}schema"
+    return [
+        path(
+            f"{prefix}schema/",
+            SpectacularAPIView.as_view(**view_kwargs),
+            name=schema_name,
+        ),
+        path(
+            f"{prefix}docs/",
+            SpectacularSwaggerView.as_view(url_name=schema_name, **view_kwargs),
+            name=f"{name_prefix}swagger-ui",
+        ),
+        path(
+            f"{prefix}redoc/",
+            SpectacularRedocView.as_view(url_name=schema_name, **view_kwargs),
+            name=f"{name_prefix}redoc",
+        ),
+    ]
 
 # Import for serving media and static files during development
 from django.conf import settings
@@ -42,19 +70,21 @@ urlpatterns = [
     # API endpoints grouped under v1 namespace
     path("api/v1/", include((api_v1_patterns, "api-v1"))),
     
-    # OpenAPI Schema endpoints for interactive documentation
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path(
-        "api/docs/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
-        name="swagger-ui",
-    ),
-    path(
-        "api/redoc/",
-        SpectacularRedocView.as_view(url_name="schema"),
-        name="redoc",
-    ),
 ]
+
+# The documentation, for the people who are meant to read it. Registered everywhere and
+# closed everywhere: SPECTACULAR_SETTINGS requires an account holding
+# "Can view the API documentation", which is granted per person. Sign in to /admin/
+# first — that is what gives a browser the session cookie these read.
+urlpatterns += docs_patterns("api/internal/", "internal-")
+
+# The familiar unauthenticated paths. Only where a deployment asks for them, which
+# defaults to DEBUG, because this hands the whole API map to anyone who can reach the
+# host. Never turn this on where that is the internet.
+if settings.API_DOCS_ENABLED:
+    urlpatterns += docs_patterns(
+        "api/", permission_classes=[AllowAny], authentication_classes=[]
+    )
 
 # Add media and static file serving for local development
 if settings.DEBUG:

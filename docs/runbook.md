@@ -395,11 +395,20 @@ uv run python manage.py spectacular --fail-on-warn --file schema.yml
 
 Served by the running app:
 
-| Path | What |
-|---|---|
-| `/api/schema/` | The raw OpenAPI document |
-| `/api/docs/` | Swagger UI |
-| `/api/redoc/` | ReDoc |
+| Path | What | Who |
+|---|---|---|
+| `/api/internal/schema/` | The raw OpenAPI document | Signed in, with **Can view the API documentation** |
+| `/api/internal/docs/` | Swagger UI | Same |
+| `/api/internal/redoc/` | ReDoc | Same |
+| `/api/schema/`, `/api/docs/`, `/api/redoc/` | The same three, unauthenticated | **Only when `API_DOCS_ENABLED` is on** (defaults to `DJANGO_DEBUG`); otherwise they are `404` |
+
+> **The schema is the whole API map**, so the unauthenticated paths are off wherever the host is
+> reachable by anyone else, and the `/api/internal/` ones ask for a permission rather than a role.
+>
+> **To let somebody read the docs on a deployed environment:** give their account
+> *Users → user | Can view the API documentation* in the Django admin, and `is_staff` so they can
+> sign in there — the session cookie from that login is what the pages read. No other admin
+> permission is needed. A script can use a JWT against `/api/internal/schema/` instead.
 
 > **Verify schema changes against the generated document, not the source.** A decorator that
 > looks right can still fail to reach the output. The schema-regression tests in

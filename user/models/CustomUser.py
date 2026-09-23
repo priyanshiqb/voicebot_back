@@ -195,6 +195,10 @@ class CustomUser(AbstractUser, BaseModelCore):
     objects = UserManager()
 
     class Meta(AbstractUser.Meta):
+        # Held by a person, not implied by a role: reading the API schema is its own
+        # decision, separate from Django admin (`is_staff`) and from the operator
+        # console (`platform_role`). See user.permissions.CanViewAPIDocs.
+        permissions = [("view_api_docs", "Can view the API documentation")]
         # Inherited, not replaced. A bare `class Meta` here silently drops
         # AbstractUser's verbose_name and verbose_name_plural, which shows up as
         # "Custom users" in the admin and a spurious AlterModelOptions in the

@@ -343,11 +343,28 @@ REST_FRAMEWORK = {
 }
 
 # OpenAPI Settings
+
+# Whether the unauthenticated documentation routes exist at all. The schema is a
+# complete map of the API — every endpoint, field, enum and error — so serving it to
+# anyone who can reach the host is free reconnaissance. Defaults to DEBUG: on where the
+# app is a developer's own machine, off wherever it is reachable by anybody else. The
+# permission-gated routes stay registered either way; see config/urls.py.
+API_DOCS_ENABLED = env.bool("API_DOCS_ENABLED", default=DEBUG)
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "Voicebot Backend API",
     "DESCRIPTION": "Enterprise production REST API for the Voicebot platform.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Closed by default, so a new documentation route is private unless it says
+    # otherwise. `API_DOCS_ENABLED` relaxes this on the public routes only.
+    "SERVE_PERMISSIONS": ["user.permissions.CanViewAPIDocs"],
+    # Session first: the documentation is a browser page, and a browser cannot attach a
+    # JWT to it. The JWT class is kept for reading the schema with a script.
+    "SERVE_AUTHENTICATION": [
+        "rest_framework.authentication.SessionAuthentication",
+        "user.authentication.CachedJWTAuthentication",
+    ],
     "ENUM_NAME_OVERRIDES": {
         "TransactionStatusEnum": "onboard.models.transaction.Transaction.TransactionStatusChoices",
         "SubscriptionStatusEnum": "onboard.models.subscription.Subscription.SubscriptionStatusChoices",

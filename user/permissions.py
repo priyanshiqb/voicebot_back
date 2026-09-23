@@ -53,3 +53,22 @@ class HasConsolePermission(IsPlatformStaff):
         if required is None:
             return True
         return request.user.can(required)
+
+
+class CanViewAPIDocs(BasePermission):
+    """Who may read the OpenAPI schema and the documentation pages.
+
+    A permission rather than a role. The people who need the schema — a frontend
+    developer, an integrating partner — are not the people who need the Django admin,
+    and `is_staff` would hand over both. Granted per account under
+    *Users → Permissions → Can view the API documentation*; superusers hold every
+    permission and so pass on their own.
+    """
+
+    message = "You do not have permission to view the API documentation."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user and user.is_authenticated and user.has_perm("user.view_api_docs")
+        )
