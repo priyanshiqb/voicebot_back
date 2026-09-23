@@ -144,7 +144,13 @@ class CustomUserViewSet(EntitlementGuardMixin, BaseViewSet):
         "email",
         "first_name",
         "last_name",
+        "name",
+        "is_active",
     ]
+
+    ordering_field_map = {
+        "name": ("first_name", "last_name"),
+    }
 
     filterset_fields = {
         "is_active": ["exact"],
