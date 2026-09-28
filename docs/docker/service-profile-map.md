@@ -22,6 +22,10 @@ This document lists each Docker container service configured in the project alon
 | **`loki`** | `logs-monitoring` | Loki log aggregator |
 | **`alloy`** | `logs-monitoring` | Grafana Alloy log collector (replaced Promtail, EOL 2026-03-02) |
 | **`prometheus`** | `matrics-monitoring` | Prometheus metrics and time-series DB |
+| **`alertmanager`** | `matrics-monitoring` | Sends Prometheus alerts by email and/or Telegram (channels set by `ALERT_*` in `.env`) |
+| **`cadvisor`** | `host-metrics` | Per-container CPU, memory, network and disk metrics |
+| **`node-exporter`** | `host-metrics` | Host CPU, memory, disk and network metrics |
+| **`probe-tools`** | `logs-monitoring`, `redis-exporter` | One-shot: copies busybox for the healthchecks of shell-less images (loki, redis-exporter). Shows as `Exited (0)` |
 | **`azurite`** | `emulators` | Azure Blob, Queue, and Table storage emulator |
 | **`caddy`** | `gateway` | Caddy reverse proxy and SSL gateway |
 | **`backend-docs`** | `backend-docs` | Nginx/Docsify developer portal & API/WS docs server |

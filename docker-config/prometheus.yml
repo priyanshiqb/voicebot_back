@@ -10,11 +10,24 @@ global:
 rule_files:
   - /etc/prometheus/alert-rules.yml
 
+# Firing alerts go here to be grouped, deduplicated and sent. Alertmanager shares
+# Prometheus's compose profile, so this target always exists alongside it.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   # Prometheus itself
   - job_name: prometheus
     static_configs:
       - targets: ["prometheus:9090"]
+
+  # Alertmanager itself: feeds AlertmanagerNotificationsFailing, so a dead email
+  # channel can still be reported through Telegram and vice versa.
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
 
   # Loki internal metrics (handy for health)
   - job_name: loki

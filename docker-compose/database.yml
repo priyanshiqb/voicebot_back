@@ -69,12 +69,25 @@ services:
     container_name: postgres-exporter-voicebot
     profiles:
       - pgexporter
+    # Split into URI / USER / PASS rather than one DATA_SOURCE_NAME: inside a DSN a
+    # password containing @ / # : must be URL-encoded, and Azure-generated ones often
+    # do. Defaults reach the local postgres container; see .env.example 1.5 for Azure.
     environment:
-      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      DATA_SOURCE_URI: "${POSTGRES_EXPORTER_HOST:-postgres}:${POSTGRES_EXPORTER_PORT:-5432}/${POSTGRES_DB}?sslmode=${POSTGRES_EXPORTER_SSLMODE:-disable}"
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
         required: false
+    # The landing page, not /metrics: a scrape runs queries against the database,
+    # and whether Postgres is up is PostgresDown's job, not this container's.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9187/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - backend
     restart: always

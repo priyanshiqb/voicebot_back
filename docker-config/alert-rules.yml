@@ -1,8 +1,10 @@
 # Prometheus alerting rules for the Voicebot stack.
 #
-# These evaluate and show up as firing in the Prometheus UI (/alerts) and in Grafana,
-# but nothing is notified anywhere: there is no Alertmanager in this compose stack yet.
-# Adding one is the only step between this file and alerts that actually page someone.
+# Firing alerts go to Alertmanager (docker-compose/monitoring.yml), which sends them by
+# email and/or Telegram depending on which ALERT_* settings are in .env. With neither
+# set, as on a dev box, they still show in the Prometheus UI (/alerts) and in Grafana
+# but notify nobody. `severity` drives the repeat interval: critical every 1h,
+# everything else every 4h (docker-config/alertmanager/start.sh).
 #
 # Every expression here uses a metric name that exists on the wire, not the name a
 # library declares -- see the note in scripts/build_dashboard.py about prometheus_client
@@ -44,6 +46,18 @@ groups:
         annotations:
           summary: "Redis is unreachable"
           description: "Redis backs both the cache and the Celery broker, so tasks stop flowing too."
+
+      - alert: AlertmanagerNotificationsFailing
+        # Per integration, so a broken email channel is reported over Telegram and
+        # the reverse. If every channel is failing this cannot reach anyone; the
+        # Alertmanager container logs say why.
+        expr: sum(increase(alertmanager_notifications_failed_total[15m])) by (integration) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alertmanager cannot deliver via {{ $labels.integration }}"
+          description: "Notifications through {{ $labels.integration }} failed within the last 15 minutes. Check the credentials in .env and `docker logs alertmanager-voicebot`."
 
   # ------------------------------------------------------------------------- #
   - name: django

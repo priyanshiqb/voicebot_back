@@ -1,0 +1,21 @@
+{{/*
+  Telegram message body, sent with parse_mode HTML.
+
+  Every interpolated value goes through `html`. Telegram rejects the whole
+  message ("can't parse entities") on a bare < > or &, and alert text can carry
+  any of them: Alertmanager's default template embeds the Prometheus query URL,
+  whose & separators alone are enough to break delivery.
+*/}}
+{{ define "telegram.voicebot" -}}
+{{ range .Alerts.Firing -}}
+🔴 <b>{{ .Labels.alertname | html }}</b> ({{ .Labels.severity | html }})
+{{ .Annotations.summary | html }}
+{{ with .Annotations.description }}{{ . | html }}
+{{ end }}
+{{ end -}}
+{{ range .Alerts.Resolved -}}
+✅ <b>Resolved: {{ .Labels.alertname | html }}</b>
+{{ .Annotations.summary | html }}
+
+{{ end -}}
+{{- end }}

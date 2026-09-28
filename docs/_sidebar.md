@@ -151,6 +151,9 @@
 * **🗄 Database Patterns**
   * [Iterating Large Querysets behind PgBouncer](architecture/queryset-iteration-and-pgbouncer.md)
 
+* **🚨 Monitoring & Alerts**
+  * [Production Alerts — When & What](monitoring/alerts.md)
+
 <!-- * **📐 Architecture**
   * [Azure Blob Storage Service](architecture/azure-blob-storage-service.md) -->
 

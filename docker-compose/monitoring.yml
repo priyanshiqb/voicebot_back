@@ -36,8 +36,8 @@ services:
   # 9. Grafana Loki (Log Aggregator)
   #
   # The Loki image is distroless: /usr/bin/loki and nothing else, no shell or wget,
-  # and Loki has no self-probe flag. loki-probe-tools below drops a static busybox
-  # into a shared volume so the healthcheck has a wget to run.
+  # and Loki has no self-probe flag. probe-tools below drops a static busybox into
+  # a shared volume so the healthcheck has a wget to run.
   #
   # Not a `type: image` mount of busybox, which would be simpler: under the
   # containerd image store, compose hands the engine an image ID it cannot resolve
@@ -54,9 +54,9 @@ services:
     volumes:
       - ../docker-config/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ../.data/loki:/loki
-      - loki-probe-tools:/probe:ro
+      - probe-tools:/probe:ro
     depends_on:
-      loki-probe-tools:
+      probe-tools:
         condition: service_completed_successfully
     ports:
       - "${LOKI_BIND_IP:-${BIND_IP}}:${LOKI_PORT}:3100"
@@ -75,18 +75,21 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # 9a. One-shot: copies busybox into the volume Loki's healthcheck runs it from.
-  # Exits 0 immediately; `docker ps -a` shows it as Exited (0), which is expected.
-  # Must be the -musl variant: plain busybox is linked against glibc, which the
-  # Loki image lacks, so it fails there with "no such file or directory".
-  loki-probe-tools:
+  # 9a. One-shot: copies busybox into the volume that the healthchecks of shell-less
+  # images (loki, redis-exporter) run it from. Exits 0 immediately; `docker ps -a`
+  # shows it as Exited (0), which is expected. One profile per consumer, so it runs
+  # whenever either is enabled. Must be the -musl variant: plain busybox is linked
+  # against glibc, which those images lack, so it fails with "no such file or
+  # directory".
+  probe-tools:
     image: busybox:stable-musl
-    container_name: loki-probe-tools-voicebot
+    container_name: probe-tools-voicebot
     profiles:
       - logs-monitoring
+      - redis-exporter
     command: ["cp", "/bin/busybox", "/probe/busybox"]
     volumes:
-      - loki-probe-tools:/probe
+      - probe-tools:/probe
     restart: "no"
 
   # 9b. Grafana Alloy (Log Collector & Shipper)
@@ -166,6 +169,56 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    restart: always
+    networks:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 10b. Alertmanager - delivers Prometheus alerts by email and/or Telegram
+  #
+  # Same profile as Prometheus, so it always has somewhere to send alerts. Which
+  # channels are live is decided at start from .env (see .env.example 1.8 and
+  # docker-config/alertmanager/start.sh); with none set, alerts are dropped, so a
+  # dev box running this profile sends nothing.
+  #
+  # Only the variables the config needs are passed, not env_file: this container
+  # has no business holding the Django secret key or payment credentials.
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager-voicebot
+    profiles:
+      - matrics-monitoring
+    entrypoint: ["/bin/sh", "/etc/alertmanager/voicebot/start.sh"]
+    environment:
+      ALERT_ENV_NAME: ${ALERT_ENV_NAME:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_SMTP_HOST: ${ALERT_SMTP_HOST:-}
+      ALERT_SMTP_PORT: ${ALERT_SMTP_PORT:-}
+      ALERT_SMTP_USE_TLS: ${ALERT_SMTP_USE_TLS:-}
+      ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+      ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN:-}
+      ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ../docker-config/alertmanager:/etc/alertmanager/voicebot:ro
+      # Silences and the notification log, so a restart neither forgets an active
+      # silence nor re-sends everything already delivered. A named volume, not
+      # ../.data: it inherits the image's nobody ownership of /alertmanager.
+      - alertmanager-data:/alertmanager
+    # The rendered config and the secret files it points at live only in memory.
+    tmpfs:
+      - /tmp/alertmanager:mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9093/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: always
     networks:
       - backend
@@ -262,6 +315,13 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+    # The landing page, not /metrics: a scrape walks every collector.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9100/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - backend
     restart: always
@@ -272,5 +332,6 @@ services:
         max-file: "3"
 
 volumes:
-  # Holds the static busybox loki-probe-tools copies in; see the loki service.
-  loki-probe-tools:
+  # Holds the static busybox probe-tools copies in; see the loki service.
+  probe-tools:
+  alertmanager-data:

@@ -61,10 +61,23 @@ services:
       - redis-exporter
     environment:
       REDIS_ADDR: "redis://redis:6379"
+    # The image is the redis_exporter binary alone, no shell or wget, so the
+    # healthcheck runs busybox from the probe-tools volume (see the loki service in
+    # monitoring.yml). /health answers without touching Redis.
+    volumes:
+      - probe-tools:/probe:ro
     depends_on:
       redis:
         condition: service_healthy
         required: false
+      probe-tools:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:9121/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - backend
     restart: always
