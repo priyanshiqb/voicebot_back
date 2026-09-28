@@ -379,6 +379,51 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # 14. celery-exporter - Celery task and worker metrics from the event stream
+  #
+  # Subscribes to the task events and heartbeats the workers publish through the
+  # broker (CELERY_WORKER_SEND_TASK_EVENTS in config/settings/base.py) and serves
+  # them as Prometheus counters: tasks sent/received/started/succeeded/failed/
+  # retried by task name, a runtime histogram, workers online and tasks active per
+  # worker. Celery has no /metrics of its own.
+  #
+  # --worker-timeout 60: a worker counts as down after 60s without a heartbeat
+  # (they arrive every 2s) instead of the default 300s, so CeleryNoWorkersOnline
+  # fires in minutes. --queues celery makes the queue's series exist before a
+  # worker is first seen. --buckets: the default runtime histogram stops at 10s,
+  # but calendar syncs, campaign runs and ETL calls take minutes, and everything
+  # past the last bucket reads as that bucket; these reach 30 minutes.
+  celery-exporter:
+    image: danihodovic/celery-exporter:latest
+    container_name: celery-exporter-voicebot
+    profiles:
+      - celery-exporter
+    command:
+      - --broker-url=${CELERY_BROKER_URL:-redis://redis:6379/2}
+      - --worker-timeout=60
+      - --queues=celery
+      - --buckets=0.01,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60,120,300,600,1800,inf
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+    # The image has Python but no wget or curl. /health answers once the exporter
+    # is connected to the broker.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:9808/health', timeout=4).status != 200)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   # Holds the static busybox probe-tools copies in; see the loki service.
   probe-tools:

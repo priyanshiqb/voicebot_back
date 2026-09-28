@@ -17,7 +17,8 @@ This document lists each Docker container service configured in the project alon
 | **`pgadmin`** | `pgadmin` | Database management UI |
 | **`redis`** | `caches` | Redis Cache & Channels Layer |
 | **`redis-insight`** | `redis-insight` | Redis Insight analytics web dashboard |
-| **`redis-exporter`** | `redis-exporter` | Metrics exporter for Redis caching instance |
+| **`redis-exporter`** | `redis-exporter` | Metrics exporter for Redis caching instance (also reports the Celery queue length) |
+| **`celery-exporter`** | `celery-exporter` | Celery task and worker metrics from the workers' event stream: tasks by state, runtime, workers online |
 | **`grafana`** | `grafana` | Grafana visual observability dashboards |
 | **`loki`** | `logs-monitoring` | Loki log aggregator |
 | **`alloy`** | `logs-monitoring` | Grafana Alloy log collector (replaced Promtail, EOL 2026-03-02) |

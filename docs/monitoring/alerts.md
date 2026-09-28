@@ -128,6 +128,20 @@ The email body is Alertmanager's standard template, with the same summary and de
 
 **Verified locally:** a crash-looping container, a container with a failing healthcheck, and a stopped container each fired the matching alert, with the expected severity and message.
 
+### 4.7 Celery
+
+| Alert | Severity | Triggers when | Notified after | Message |
+|---|---|---|---|---|
+| `CeleryNoWorkersOnline` | critical | No worker has sent a heartbeat for a minute (immediately on a clean shutdown) | ~2.5–3.5 min | **No Celery worker is online**<br>No worker has sent a heartbeat for over a minute, so queued tasks are not being processed. Check `docker logs celery-prod-voicebot`. |
+| `CeleryQueueBacklog` | warning | More than 100 tasks waiting in the queue for 15 min | ~15.5 min | **Celery queue has stayed above 100 waiting tasks**<br>250 tasks waiting for 15 minutes. Workers are outpaced or stuck; check tasks running per worker on the dashboard. |
+| `CeleryTaskFailing` | warning | A single task fails on more than 10% of its runs, with at least 3 failures, in 15 min | ~5.5 min after the 3rd failure | **Celery task core.tasks.refresh_calendar_tokens is failing**<br>60% of its runs failed in the last 15 minutes. The exception is in the dashboard's Celery row and in `docker logs celery-prod-voicebot`. |
+
+**Where these come from.** Workers publish task events and a heartbeat every 2 s through the broker (`CELERY_WORKER_SEND_TASK_EVENTS` in `config/settings/base.py`). The `celery-exporter` container (profile `celery-exporter`) turns them into metrics. `CeleryQueueBacklog` reads the queue length from Redis instead, so it keeps working if the event stream breaks. If the exporter itself goes down, `TargetDown` reports it and `CeleryNoWorkersOnline` stays quiet rather than raising a false alarm.
+
+> **One blind spot in `CeleryTaskFailing`.** The first failure of a given task and exception creates a new metric series, and Prometheus cannot count the jump from "no series" to its first value. A one-off burst of failures inside a single 15-second scrape can therefore go unseen. Repeated failures are caught. The **Failures by Task & Exception (24h)** panel still lists every failure.
+
+**Verified locally:** stopping the only worker fired `CeleryNoWorkersOnline` after 2 minutes, and tasks failing with `TypeError` fired `CeleryTaskFailing` for that task after 5 minutes.
+
 ---
 
 ## 5. What is NOT alerted
@@ -140,7 +154,7 @@ Prometheus and Alertmanager run **on the same server** as the app, so they only 
 | **Whole server down** (crashed, frozen, out of memory, Azure host problem) | Monitoring goes down with it | External uptime check, or an Azure Monitor alert on the VM's availability |
 | **Prometheus or Alertmanager down** | Nothing is left to evaluate or send | Heartbeat ("dead man's switch"): an always-firing `Watchdog` alert pinged to an outside service, which alerts you when the pings stop |
 | **Server loses outbound internet** | Messages cannot leave the server | Same heartbeat as above |
-| Celery queue backing up, out-of-memory kills, logs no longer arriving | No rule exists yet | Rules that can be added with the current stack |
+| Out-of-memory kills, logs no longer arriving | No rule exists yet (OOM kills do show on the dashboard) | Rules that can be added with the current stack |
 | A container **removed** outright (rather than stopped) | Its metrics vanish instead of reporting "not running" | Only an issue outside normal deploys; a missing backend still triggers `TargetDown` |
 | **Monitoring stopped by `docker compose down`** | Prometheus and Alertmanager are removed with everything else | The heartbeat above. It will also report planned downs, so pause it for maintenance. |
 
@@ -150,7 +164,7 @@ Prometheus and Alertmanager run **on the same server** as the app, so they only 
 
 ## 5a. Deploys: which commands raise alerts
 
-A deploy only alerts if something stays broken past an alert's hold time. The shortest hold time that matters here is **`TargetDown`'s 3 minutes**. A normal redeploy finishes well within that.
+A deploy only alerts if something stays broken past an alert's hold time. The shortest hold times that matter are **`CeleryNoWorkersOnline`'s 2 minutes** (the worker is recreated after backend-wsgi is healthy) and **`TargetDown`'s 3 minutes**. A normal redeploy finishes well within both.
 
 | Command | What it does | Alert? |
 |---|---|---|

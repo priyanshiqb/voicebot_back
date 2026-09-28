@@ -242,34 +242,6 @@ def state_timeline(title, specs, states, description=None):
     return p
 
 
-def loki_bars(title, expr, legend, description=None, unit="short"):
-    """Horizontal bar gauge over an instant Loki metric query, one bar per series.
-    A bar gauge rather than a table: it needs no transformations to turn Loki's
-    one-frame-per-series result into rows."""
-    p = {
-        "type": "bargauge", "title": title, "datasource": LOKI,
-        "fieldConfig": {
-            "defaults": {
-                "unit": unit, "min": 0, "decimals": 0,
-                "color": {"mode": "fixed", "fixedColor": "red"},
-                "thresholds": {"mode": "absolute",
-                               "steps": [{"color": "red", "value": None}]},
-            },
-            "overrides": [],
-        },
-        "options": {
-            "orientation": "horizontal", "displayMode": "basic",
-            "showUnfilled": True, "valueMode": "color", "namePlacement": "left",
-            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-        },
-        "targets": [{"datasource": LOKI, "expr": expr, "legendFormat": legend,
-                     "refId": "A", "queryType": "instant", "editorMode": "code"}],
-    }
-    if description:
-        p["description"] = description
-    return p
-
-
 def logs(title, expr, description=None):
     p = {
         "type": "logs", "title": title, "datasource": LOKI,
@@ -318,6 +290,7 @@ SERVICES = [
     ("django-prod-asgi|django-dev", "Django WS (ASGI)"),
     ("postgres", "PostgreSQL"),
     ("redis", "Redis"),
+    ("celery", "Celery Exporter"),
     ("cadvisor", "Containers"),
     ("node", "Host"),
     ("loki", "Loki"),
@@ -417,8 +390,12 @@ L.add(stat("Root Disk Used",
            thresholds=[{"color": "green", "value": None},
                        {"color": "yellow", "value": 75},
                        {"color": "red", "value": 90}]), w=4, h=4)
-L.add(stat("Database Size", 'pg_database_size_bytes{datname="voicebot_db"}',
-           unit="bytes", decimals=1), w=4, h=4)
+L.add(stat("Celery Workers Online", "sum(celery_worker_up)",
+           decimals=0, color_mode="background",
+           thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}],
+           description="Workers that sent a heartbeat in the last minute, via "
+                       "celery-exporter. 0 means queued tasks are not being processed."),
+      w=4, h=4)
 L.add(stat("Redis Memory", "redis_memory_used_bytes", unit="bytes", decimals=1),
       w=4, h=4)
 L.add(stat("Cache Hit Ratio",
@@ -599,58 +576,78 @@ L.add(ts("Cache Operations",
          unit="ops"))
 
 # --------------------------------------------------------------------------- #
-L.row("Celery - Tasks & Queue")
+L.row("Celery - Workers, Tasks & Queue")
 
-# Celery exports no Prometheus metrics, so everything except the queue length is
-# read from the worker and beat logs. The substrings are Celery's own log lines,
-# identical in its plain format and inside the JSON formatter's "message":
-#   Task <name>[<id>] received
-#   Task <name>[<id>] succeeded in <s>s: <result>
-#   Task <name>[<id>] raised unexpected: <exc>
-#   Task <name>[<id>] retry: <exc>
-#   Scheduler: Sending due task <entry> (<name>)            (beat)
-# Selected by container name, which both the prod and dev containers share the
-# pattern of, rather than service_name, which another stack on a dev box can reuse.
+# celery_* come from celery-exporter, which reads the task events and heartbeats the
+# workers publish (CELERY_WORKER_SEND_TASK_EVENTS in config/settings/base.py). Labels:
+# name (task), hostname (worker container id), queue_name, and exception on failures.
+# Two panels stay log-based because the exporter cannot give them: beat's dispatches
+# (its task-sent events are indistinguishable from the web app's) and the failure
+# text itself. Logs are selected by container name, which the prod and dev
+# containers share the pattern of, rather than service_name, which another stack on
+# a dev box can reuse.
 WORKER = '{container=~"celery-(prod|dev)-voicebot"}'
 BEAT = '{container=~"celery-beat-(prod|dev)-voicebot"}'
-_TASK = r"Task (?P<task>[\w.]+)\["
+_STATES = ("sent", "received", "started", "succeeded", "failed", "retried",
+           "rejected", "revoked")
 
+L.add(ts("Workers Online",
+         [("sum(celery_worker_up)", "online")],
+         decimals=0, min_=0, fill=20,
+         description="Workers that sent a heartbeat in the last minute. A drop to 0 "
+                     "fires CeleryNoWorkersOnline. A deploy briefly shows the old and "
+                     "new container overlapping."), w=8)
+L.add(ts("Tasks Running per Worker",
+         [("celery_worker_tasks_active", "{{hostname}}")],
+         decimals=0, min_=0,
+         description="Tasks executing right now. Pinned at the worker's concurrency "
+                     "while the queue grows means the worker is saturated."), w=8)
 L.add(ts("Queue Length (waiting tasks)",
          [('sum(redis_key_size{db="db2",key="celery"})', "waiting")],
          fill=20, min_=0,
          description="Length of the Celery broker list in Redis db2. Brief spikes that "
-                     "drain are normal; a line that keeps climbing means workers are "
-                     "down, stuck or outpaced."), w=8)
-L.add(loki_ts("Task Throughput (from logs)",
-              [('sum(count_over_time(%s |= "] received" [1m]))' % WORKER, "received"),
-               ('sum(count_over_time(%s |= "] succeeded in " [1m]))' % WORKER, "succeeded"),
-               ('sum(count_over_time(%s |= "raised unexpected" [1m]))' % WORKER, "failed"),
-               ('sum(count_over_time(%s |= "] retry: " [1m]))' % WORKER, "retried")],
-              description="Tasks per minute. received well above succeeded + failed for "
-                          "long stretches means tasks are piling up or hanging."), w=8)
-L.add(loki_ts("Beat: Tasks Dispatched",
+                     "drain are normal; above 100 for 15 minutes fires "
+                     "CeleryQueueBacklog."), w=8)
+L.add(ts("Task Throughput by State",
+         [("sum(rate(celery_task_%s_total[%s])) * 60" % (s, RATE), s) for s in _STATES],
+         fill=0, min_=0,
+         description="Tasks per minute at each stage. sent is published by web and beat, "
+                     "received/started by the workers. received well above "
+                     "succeeded + failed for long means tasks are piling up or hanging."))
+L.add(ts("Failure Ratio by Task",
+         [("sum by (name) (rate(celery_task_failed_total[%s])) "
+           "/ clamp_min(sum by (name) (rate(celery_task_started_total[%s])), 0.001) "
+           "* 100 > 0" % (HIST, HIST), "{{name}}")],
+         unit="percent", fill=0, min_=0,
+         description="Share of each task's runs that failed, over 5 minutes. Only "
+                     "tasks with failures appear. 10%+ with 3 or more failures in 15 "
+                     "minutes fires CeleryTaskFailing."))
+L.add(ts("Task Runtime p95 by Task",
+         [("histogram_quantile(0.95, sum by (name, le) "
+           "(rate(celery_task_runtime_bucket[%s])))" % HIST, "{{name}}")],
+         unit="s", fill=0,
+         description="Every completed run, from the exporter's histogram (buckets up to "
+                     "30 minutes). A task whose line keeps rising is heading for a "
+                     "timeout."))
+L.add(table("Top 15 Tasks by Runs (last hour)",
+            [("topk(15, sum by (name) (increase(celery_task_started_total[1h])))", "")],
+            unit="short",
+            description="Where the workers' time goes."))
+L.add(table("Failures by Task & Exception (24h)",
+            [("sum by (name, exception) (increase(celery_task_failed_total[24h])) > 0", "")],
+            unit="short",
+            description="Every failing task with the exception it raised. Empty is the "
+                        "goal. The full error text is in Recent Task Failures below."))
+L.add(loki_ts("Beat: Tasks Dispatched (from logs)",
               [('sum(count_over_time(%s |= "Sending due task" [1m]))' % BEAT,
                 "dispatched")],
-              description="Periodic tasks celery beat sent per minute. A flat zero where "
-                          "there used to be a steady pattern means beat has stopped "
-                          "scheduling."), w=8)
-L.add(loki_ts("Task Duration p95 by Task (from logs)",
-              [("quantile_over_time(0.95, %s |= \"succeeded in\" "
-                "| regexp `%s[^\\]]*\\] succeeded in (?P<runtime>[0-9.]+)s` "
-                "| unwrap runtime | __error__=\"\" [5m]) by (task)" % (WORKER, _TASK),
-                "{{task}}")],
-              unit="s",
-              description="Successful runs only, from the runtime Celery logs on success. "
-                          "A task whose line keeps rising is heading for a timeout."))
-L.add(loki_bars("Top Failing Tasks (24h)",
-                "topk(10, sum by (task) (count_over_time(%s |= \"raised unexpected\" "
-                "| regexp `%s` [24h])))" % (WORKER, _TASK),
-                "{{task}}",
-                description="Failures per task over the last 24 hours, by task name."))
+              description="Periodic tasks celery beat sent per minute, from its log. A flat "
+                          "zero where there used to be a steady pattern means beat has "
+                          "stopped scheduling."))
 L.add(logs("Recent Task Failures",
            '%s |= "raised unexpected"' % WORKER,
-           description="The exception each failed task raised. Expand a line for the "
-                       "full traceback context."), w=24, h=10)
+           description="The exception each failed task raised, from the worker log. "
+                       "Expand a line for the full traceback context."), w=24, h=10)
 
 # --------------------------------------------------------------------------- #
 L.row("PostgreSQL")

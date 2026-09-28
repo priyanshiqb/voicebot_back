@@ -67,6 +67,11 @@ scrape_configs:
     static_configs:
       - targets: ["redis-exporter:9121"]
 
+  # Celery tasks and workers via celery-exporter (profile celery-exporter)
+  - job_name: celery
+    static_configs:
+      - targets: ["celery-exporter:9808"]
+
   # Per-container CPU / memory / network / disk
   - job_name: cadvisor
     static_configs:

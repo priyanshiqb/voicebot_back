@@ -126,6 +126,52 @@ groups:
           description: "Usually PgBouncer saturation or Postgres refusing connections."
 
   # ------------------------------------------------------------------------- #
+  - name: celery
+    rules:
+      # celery_* come from celery-exporter (profile celery-exporter), which reads the
+      # task events and heartbeats the workers publish.
+      - alert: CeleryNoWorkersOnline
+        # `or vector(0)`: the exporter purges a dead worker's series after 10
+        # minutes, and an empty sum would then quietly resolve this while nothing
+        # runs. `and on() up{job="celery"} == 1`: with the exporter itself down
+        # there is no heartbeat data at all, which is TargetDown's to report.
+        expr: (sum(celery_worker_up) or vector(0)) < 1 and on() up{job="celery"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Celery worker is online"
+          description: "No worker has sent a heartbeat for over a minute, so queued tasks are not being processed. Check `docker logs celery-prod-voicebot`."
+
+      - alert: CeleryQueueBacklog
+        # From Redis directly rather than the exporter, so it still works if the
+        # event stream breaks.
+        expr: sum(redis_key_size{db="db2",key="celery"}) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery queue has stayed above 100 waiting tasks"
+          description: "{{ $value | printf \"%.0f\" }} tasks waiting for 15 minutes. Workers are outpaced or stuck; check tasks running per worker on the dashboard."
+
+      - alert: CeleryTaskFailing
+        # Per task, and only with at least 3 failures, so a single flaky run does
+        # not page. `>= 3` rather than `> 2` because increase() extrapolates.
+        # Caveat: the first failures of a task/exception pair create a new series,
+        # and increase() cannot count the jump from nothing to its first value, so
+        # a one-off burst inside a single scrape can go unseen.
+        expr: |
+          sum by (name) (increase(celery_task_failed_total[15m]))
+            / clamp_min(sum by (name) (increase(celery_task_started_total[15m])), 1) > 0.10
+          and sum by (name) (increase(celery_task_failed_total[15m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery task {{ $labels.name }} is failing"
+          description: "{{ $value | humanizePercentage }} of its runs failed in the last 15 minutes. The exception is in the dashboard's Celery row and in `docker logs celery-prod-voicebot`."
+
+  # ------------------------------------------------------------------------- #
   - name: postgres
     rules:
       - alert: PostgresTooManyConnections

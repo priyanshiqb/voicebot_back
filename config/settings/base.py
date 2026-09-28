@@ -621,6 +621,13 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+# Task events, consumed by the celery-exporter container (docker-compose/monitoring.yml).
+# Workers publish received/started/succeeded/failed/retried events plus a heartbeat
+# every 2s; producers (web, beat) publish task-sent. They travel as broker pub/sub
+# messages that are simply dropped when nothing is subscribed. Without them the
+# exporter sees nothing, and every Celery panel and alert reads empty.
+CELERY_WORKER_SEND_TASK_EVENTS = True
+CELERY_TASK_SEND_SENT_EVENT = True
 
 # ETL Server Configuration
 ETL_SERVER_URL = env.str("ETL_SERVER_URL")
