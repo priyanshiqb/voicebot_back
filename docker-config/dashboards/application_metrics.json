@@ -90,7 +90,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"django-prod-wsgi\"}",
+          "expr": "max(up{job=~\"django-prod-wsgi|django-dev\"})",
           "legendFormat": "Django API (WSGI)",
           "refId": "A",
           "editorMode": "code",
@@ -101,7 +101,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"django-prod-asgi\"}",
+          "expr": "max(up{job=~\"django-prod-asgi|django-dev\"})",
           "legendFormat": "Django WS (ASGI)",
           "refId": "B",
           "editorMode": "code",
@@ -112,8 +112,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"django-dev\"}",
-          "legendFormat": "Django Dev",
+          "expr": "max(up{job=~\"postgres\"})",
+          "legendFormat": "PostgreSQL",
           "refId": "C",
           "editorMode": "code",
           "range": true
@@ -123,8 +123,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"postgres\"}",
-          "legendFormat": "PostgreSQL",
+          "expr": "max(up{job=~\"redis\"})",
+          "legendFormat": "Redis",
           "refId": "D",
           "editorMode": "code",
           "range": true
@@ -134,8 +134,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"redis\"}",
-          "legendFormat": "Redis",
+          "expr": "max(up{job=~\"cadvisor\"})",
+          "legendFormat": "Containers",
           "refId": "E",
           "editorMode": "code",
           "range": true
@@ -145,8 +145,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"cadvisor\"}",
-          "legendFormat": "Containers",
+          "expr": "max(up{job=~\"node\"})",
+          "legendFormat": "Host",
           "refId": "F",
           "editorMode": "code",
           "range": true
@@ -156,8 +156,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"node\"}",
-          "legendFormat": "Host",
+          "expr": "max(up{job=~\"loki\"})",
+          "legendFormat": "Loki",
           "refId": "G",
           "editorMode": "code",
           "range": true
@@ -167,8 +167,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"loki\"}",
-          "legendFormat": "Loki",
+          "expr": "max(up{job=~\"prometheus\"})",
+          "legendFormat": "Prometheus",
           "refId": "H",
           "editorMode": "code",
           "range": true
@@ -178,8 +178,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"prometheus\"}",
-          "legendFormat": "Prometheus",
+          "expr": "max(up{job=~\"alertmanager\"})",
+          "legendFormat": "Alertmanager",
           "refId": "I",
           "editorMode": "code",
           "range": true
@@ -189,7 +189,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job=\"grafana\"}",
+          "expr": "max(up{job=~\"grafana\"})",
           "legendFormat": "Grafana",
           "refId": "J",
           "editorMode": "code",
@@ -200,14 +200,14 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "up{job!~\"django-prod-wsgi|django-prod-asgi|django-dev|postgres|redis|cadvisor|node|loki|prometheus|grafana\"}",
+          "expr": "up{job!~\"alertmanager|cadvisor|django-dev|django-prod-asgi|django-prod-wsgi|grafana|loki|node|postgres|prometheus|redis\"}",
           "legendFormat": "{{job}}",
           "refId": "K",
           "editorMode": "code",
           "range": true
         }
       ],
-      "description": "0 = Prometheus could not scrape the target. Django Dev is expected to be offline whenever the prod compose profile is running. A tile showing a raw job name is a scrape target with no friendly name yet.",
+      "description": "0 = Prometheus could not scrape the target. The Django tiles count the prod backend or the dev one, whichever this box runs. A tile showing a raw job name is a scrape target with no friendly name yet.",
       "gridPos": {
         "h": 4,
         "w": 24,
@@ -425,6 +425,424 @@
     },
     {
       "type": "stat",
+      "title": "Firing Alerts",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Alerts firing in Prometheus right now. The Alerts row below lists them.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 5
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Unhealthy Containers",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "count(docker_container_health{status=\"unhealthy\"} == 1) or 0 * count(docker_container_health{status=\"unhealthy\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Running containers whose Docker healthcheck reports unhealthy. No data means the docker-state sidecar is not running.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 5
+      },
+      "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Containers Down",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "count(docker_container_running{restart_policy=~\"always|unless-stopped\"} == 0) or 0 * count(docker_container_running{restart_policy=~\"always|unless-stopped\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Containers with restart: always / unless-stopped that are not running. One-shots such as probe-tools are excluded.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 5
+      },
+      "id": 8
+    },
+    {
+      "type": "stat",
+      "title": "Celery Queue",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(redis_key_size{db=\"db2\",key=\"celery\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Tasks waiting for a worker. Climbing and not draining means the workers are down, stuck or outpaced.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 9
+      },
+      "id": 9
+    },
+    {
+      "type": "stat",
+      "title": "Host Memory Used",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "(1 - node_memory_MemAvailable_bytes / clamp_min(node_memory_MemTotal_bytes, 1)) * 100",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 9
+      },
+      "id": 10
+    },
+    {
+      "type": "stat",
+      "title": "Root Disk Used",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / clamp_min(node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}, 1)) * 100",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 9
+      },
+      "id": 11
+    },
+    {
+      "type": "stat",
       "title": "Database Size",
       "datasource": {
         "type": "prometheus",
@@ -482,9 +900,9 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 5
+        "y": 9
       },
-      "id": 6
+      "id": 12
     },
     {
       "type": "stat",
@@ -545,9 +963,9 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 5
+        "y": 9
       },
-      "id": 7
+      "id": 13
     },
     {
       "type": "stat",
@@ -616,9 +1034,348 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 5
+        "y": 9
       },
-      "id": 8
+      "id": 14
+    },
+    {
+      "type": "row",
+      "title": "Alerts",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 15,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Firing Now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "Value": true,
+              "alertstate": true
+            }
+          }
+        }
+      ],
+      "description": "Every alert Prometheus is firing, with its labels. Empty is the goal. Messages for these go out through Alertmanager.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 16
+    },
+    {
+      "type": "state-timeline",
+      "title": "Alert Timeline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "firing",
+                  "color": "red",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "max by (alertname) (ALERTS{alertstate=\"firing\"})",
+          "legendFormat": "{{alertname}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "When each alert fired and for how long, across the dashboard's time range.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 17
+    },
+    {
+      "type": "timeseries",
+      "title": "Notifications Sent / Failed (last hour)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (integration) (increase(alertmanager_notifications_total{integration=~\"email|telegram\"}[1h]))",
+          "legendFormat": "{{integration}} sent",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (integration) (increase(alertmanager_notifications_failed_total{integration=~\"email|telegram\"}[1h]))",
+          "legendFormat": "{{integration}} failed",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Per channel. A channel that is not configured in .env sends nothing and shows flat zero. Any failed line: check the ALERT_* credentials and `docker logs alertmanager-voicebot`.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "id": 18
+    },
+    {
+      "type": "timeseries",
+      "title": "Prometheus -> Alertmanager",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "ops",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(prometheus_notifications_sent_total[2m]))",
+          "legendFormat": "sent",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(prometheus_notifications_errors_total[2m]))",
+          "legendFormat": "errors",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(prometheus_notifications_dropped_total[2m]))",
+          "legendFormat": "dropped",
+          "refId": "C",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Alerts handed from Prometheus to Alertmanager. Errors or drops mean Prometheus cannot reach Alertmanager, so nothing is being sent. Flat zero everywhere with alerts firing means Prometheus is running stale config: `docker compose restart prometheus`.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "id": 19
     },
     {
       "type": "row",
@@ -628,9 +1385,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 30
       },
-      "id": 9,
+      "id": 20,
       "panels": []
     },
     {
@@ -700,9 +1457,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 10
+        "y": 31
       },
-      "id": 10
+      "id": 21
     },
     {
       "type": "timeseries",
@@ -770,9 +1527,91 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 10
+        "y": 31
       },
-      "id": 11
+      "id": 22
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Ratio by Service",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "percent",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (job) (rate(django_http_responses_total_by_status_total{job=~\"django-.*\", status=~\"5..\"}[2m])) / clamp_min(sum by (job) (rate(django_http_responses_total_by_status_total{job=~\"django-.*\"}[2m])), 0.001) * 100",
+          "legendFormat": "{{job}} 5xx",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (job) (rate(django_http_responses_total_by_status_total{job=~\"django-.*\", status=~\"4..\"}[2m])) / clamp_min(sum by (job) (rate(django_http_responses_total_by_status_total{job=~\"django-.*\"}[2m])), 0.001) * 100",
+          "legendFormat": "{{job}} 4xx",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Share of responses that are errors, per backend. 5xx is the server's fault and what the error-rate alerts watch; a 4xx spike is usually a client or auth problem (expired tokens, bad input).",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "id": 23
     },
     {
       "type": "timeseries",
@@ -840,9 +1679,9 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 18
+        "y": 46
       },
-      "id": 12
+      "id": 24
     },
     {
       "type": "timeseries",
@@ -911,9 +1750,9 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 18
+        "y": 46
       },
-      "id": 13
+      "id": 25
     },
     {
       "type": "timeseries",
@@ -982,9 +1821,9 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 18
+        "y": 46
       },
-      "id": 14
+      "id": 26
     },
     {
       "type": "table",
@@ -1053,9 +1892,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 54
       },
-      "id": 15
+      "id": 27
     },
     {
       "type": "table",
@@ -1125,9 +1964,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 54
       },
-      "id": 16
+      "id": 28
     },
     {
       "type": "row",
@@ -1137,9 +1976,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 62
       },
-      "id": 17,
+      "id": 29,
       "panels": []
     },
     {
@@ -1241,9 +2080,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 63
       },
-      "id": 18
+      "id": 30
     },
     {
       "type": "timeseries",
@@ -1311,9 +2150,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 63
       },
-      "id": 19
+      "id": 31
     },
     {
       "type": "table",
@@ -1382,9 +2221,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 71
       },
-      "id": 20
+      "id": 32
     },
     {
       "type": "timeseries",
@@ -1464,9 +2303,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 71
       },
-      "id": 21
+      "id": 33
     },
     {
       "type": "timeseries",
@@ -1545,9 +2384,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 79
       },
-      "id": 22
+      "id": 34
     },
     {
       "type": "timeseries",
@@ -1627,9 +2466,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 79
       },
-      "id": 23
+      "id": 35
     },
     {
       "type": "row",
@@ -1639,9 +2478,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 87
       },
-      "id": 24,
+      "id": 36,
       "panels": []
     },
     {
@@ -1722,9 +2561,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 88
       },
-      "id": 25
+      "id": 37
     },
     {
       "type": "timeseries",
@@ -1814,9 +2653,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 88
       },
-      "id": 26
+      "id": 38
     },
     {
       "type": "timeseries",
@@ -1885,9 +2724,9 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 96
       },
-      "id": 27
+      "id": 39
     },
     {
       "type": "timeseries",
@@ -1955,9 +2794,9 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 68
+        "y": 96
       },
-      "id": 28
+      "id": 40
     },
     {
       "type": "timeseries",
@@ -2025,9 +2864,9 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 68
+        "y": 96
       },
-      "id": 29
+      "id": 41
     },
     {
       "type": "timeseries",
@@ -2095,9 +2934,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 104
       },
-      "id": 30
+      "id": 42
     },
     {
       "type": "timeseries",
@@ -2187,9 +3026,441 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 104
       },
-      "id": 31
+      "id": 43
+    },
+    {
+      "type": "row",
+      "title": "Celery - Tasks & Queue",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 112
+      },
+      "id": 44,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue Length (waiting tasks)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(redis_key_size{db=\"db2\",key=\"celery\"})",
+          "legendFormat": "waiting",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Length of the Celery broker list in Redis db2. Brief spikes that drain are normal; a line that keeps climbing means workers are down, stuck or outpaced.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 113
+      },
+      "id": 45
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Throughput (from logs)",
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "sum(count_over_time({container=~\"celery-(prod|dev)-voicebot\"} |= \"] received\" [1m]))",
+          "legendFormat": "received",
+          "refId": "A",
+          "queryType": "range",
+          "editorMode": "code"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "sum(count_over_time({container=~\"celery-(prod|dev)-voicebot\"} |= \"] succeeded in \" [1m]))",
+          "legendFormat": "succeeded",
+          "refId": "B",
+          "queryType": "range",
+          "editorMode": "code"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "sum(count_over_time({container=~\"celery-(prod|dev)-voicebot\"} |= \"raised unexpected\" [1m]))",
+          "legendFormat": "failed",
+          "refId": "C",
+          "queryType": "range",
+          "editorMode": "code"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "sum(count_over_time({container=~\"celery-(prod|dev)-voicebot\"} |= \"] retry: \" [1m]))",
+          "legendFormat": "retried",
+          "refId": "D",
+          "queryType": "range",
+          "editorMode": "code"
+        }
+      ],
+      "description": "Tasks per minute. received well above succeeded + failed for long stretches means tasks are piling up or hanging.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 113
+      },
+      "id": 46
+    },
+    {
+      "type": "timeseries",
+      "title": "Beat: Tasks Dispatched",
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "sum(count_over_time({container=~\"celery-beat-(prod|dev)-voicebot\"} |= \"Sending due task\" [1m]))",
+          "legendFormat": "dispatched",
+          "refId": "A",
+          "queryType": "range",
+          "editorMode": "code"
+        }
+      ],
+      "description": "Periodic tasks celery beat sent per minute. A flat zero where there used to be a steady pattern means beat has stopped scheduling.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 113
+      },
+      "id": 47
+    },
+    {
+      "type": "timeseries",
+      "title": "Task Duration p95 by Task (from logs)",
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "s",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "quantile_over_time(0.95, {container=~\"celery-(prod|dev)-voicebot\"} |= \"succeeded in\" | regexp `Task (?P<task>[\\w.]+)\\[[^\\]]*\\] succeeded in (?P<runtime>[0-9.]+)s` | unwrap runtime | __error__=\"\" [5m]) by (task)",
+          "legendFormat": "{{task}}",
+          "refId": "A",
+          "queryType": "range",
+          "editorMode": "code"
+        }
+      ],
+      "description": "Successful runs only, from the runtime Celery logs on success. A task whose line keeps rising is heading for a timeout.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 121
+      },
+      "id": 48
+    },
+    {
+      "type": "bargauge",
+      "title": "Top Failing Tasks (24h)",
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "topk(10, sum by (task) (count_over_time({container=~\"celery-(prod|dev)-voicebot\"} |= \"raised unexpected\" | regexp `Task (?P<task>[\\w.]+)\\[` [24h])))",
+          "legendFormat": "{{task}}",
+          "refId": "A",
+          "queryType": "instant",
+          "editorMode": "code"
+        }
+      ],
+      "description": "Failures per task over the last 24 hours, by task name.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 121
+      },
+      "id": 49
+    },
+    {
+      "type": "logs",
+      "title": "Recent Task Failures",
+      "datasource": {
+        "type": "loki",
+        "uid": "Loki"
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "expr": "{container=~\"celery-(prod|dev)-voicebot\"} |= \"raised unexpected\"",
+          "refId": "A",
+          "queryType": "range",
+          "editorMode": "code"
+        }
+      ],
+      "description": "The exception each failed task raised. Expand a line for the full traceback context.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 129
+      },
+      "id": 50
     },
     {
       "type": "row",
@@ -2199,9 +3470,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 84
+        "y": 139
       },
-      "id": 32,
+      "id": 51,
       "panels": []
     },
     {
@@ -2257,7 +3528,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(pg_stat_database_numbackends) / clamp_min(pg_settings_max_connections, 1) * 100",
+          "expr": "sum(pg_stat_database_numbackends) / clamp_min(max(pg_settings_max_connections), 1) * 100",
           "legendFormat": "",
           "refId": "A",
           "editorMode": "code",
@@ -2269,9 +3540,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 85
+        "y": 140
       },
-      "id": 33
+      "id": 52
     },
     {
       "type": "stat",
@@ -2332,9 +3603,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 85
+        "y": 140
       },
-      "id": 34
+      "id": 53
     },
     {
       "type": "timeseries",
@@ -2398,14 +3669,156 @@
           "range": true
         }
       ],
-      "description": "Django connects through PgBouncer in transaction mode, so this tracks the pool (DEFAULT_POOL_SIZE=20), not client connections.",
+      "description": "Django connects through PgBouncer in transaction mode, so this tracks the server-side pool, not client connections. Its size is the Azure server parameter pgbouncer.default_pool_size in production, DEFAULT_POOL_SIZE on the local pgbouncer container.",
       "gridPos": {
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 140
       },
-      "id": 35
+      "id": 54
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections by State",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (state) (pg_stat_activity_count{datname=\"voicebot_db\", state!~\"disabled|fastpath function call\"})",
+          "legendFormat": "{{state}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "idle in transaction is the one to watch: a connection holding a transaction open while doing nothing keeps its locks and blocks vacuum. It should sit at or near zero.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 147
+      },
+      "id": 55
+    },
+    {
+      "type": "timeseries",
+      "title": "Longest Open Transaction",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "s",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "max by (state) (pg_stat_activity_max_tx_duration{datname=\"voicebot_db\"})",
+          "legendFormat": "{{state}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Age of the oldest transaction in each state. Minutes-long values on active or idle in transaction point at a stuck request or task.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 147
+      },
+      "id": 56
     },
     {
       "type": "timeseries",
@@ -2484,9 +3897,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 92
+        "y": 155
       },
-      "id": 36
+      "id": 57
     },
     {
       "type": "timeseries",
@@ -2555,9 +3968,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 92
+        "y": 155
       },
-      "id": 37
+      "id": 58
     },
     {
       "type": "timeseries",
@@ -2670,9 +4083,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 100
+        "y": 163
       },
-      "id": 38
+      "id": 59
     },
     {
       "type": "timeseries",
@@ -2751,9 +4164,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 100
+        "y": 163
       },
-      "id": 39
+      "id": 60
     },
     {
       "type": "timeseries",
@@ -2822,9 +4235,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 108
+        "y": 171
       },
-      "id": 40
+      "id": 61
     },
     {
       "type": "timeseries",
@@ -2892,9 +4305,153 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 108
+        "y": 171
       },
-      "id": 41
+      "id": 62
+    },
+    {
+      "type": "table",
+      "title": "Top 15 Tables by Sequentially Scanned Rows",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "topk(15, sum by (relname) (rate(pg_stat_user_tables_seq_tup_read{datname=\"voicebot_db\"}[5m])))",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ],
+      "description": "Rows per second read by full-table scans. A large table near the top is usually missing an index for a hot query; small lookup tables here are normal.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 179
+      },
+      "id": 63
+    },
+    {
+      "type": "table",
+      "title": "Top 15 Tables by Dead Rows",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "topk(15, sum by (relname) (pg_stat_user_tables_n_dead_tup{datname=\"voicebot_db\"}))",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ],
+      "description": "Rows deleted or updated but not yet vacuumed. A table that stays high is bloating: autovacuum is not keeping up with its churn.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 179
+      },
+      "id": 64
     },
     {
       "type": "row",
@@ -2904,9 +4461,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 116
+        "y": 187
       },
-      "id": 42,
+      "id": 65,
       "panels": []
     },
     {
@@ -2974,9 +4531,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 117
+        "y": 188
       },
-      "id": 43
+      "id": 66
     },
     {
       "type": "stat",
@@ -3037,9 +4594,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 117
+        "y": 188
       },
-      "id": 44
+      "id": 67
     },
     {
       "type": "timeseries",
@@ -3118,9 +4675,9 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 117
+        "y": 188
       },
-      "id": 45
+      "id": 68
     },
     {
       "type": "timeseries",
@@ -3200,9 +4757,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 124
+        "y": 195
       },
-      "id": 46
+      "id": 69
     },
     {
       "type": "timeseries",
@@ -3270,9 +4827,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 124
+        "y": 195
       },
-      "id": 47
+      "id": 70
     },
     {
       "type": "timeseries",
@@ -3347,14 +4904,14 @@
           "range": true
         }
       ],
-      "description": "db2 is the Celery broker, so its key count is queue backlog.",
+      "description": "db2 holds the Celery broker queue and task results, so its key count is not the backlog; see Queue Length in the Celery row.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 132
+        "y": 203
       },
-      "id": 48
+      "id": 71
     },
     {
       "type": "timeseries",
@@ -3434,9 +4991,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 132
+        "y": 203
       },
-      "id": 49
+      "id": 72
     },
     {
       "type": "timeseries",
@@ -3515,9 +5072,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 140
+        "y": 211
       },
-      "id": 50
+      "id": 73
     },
     {
       "type": "table",
@@ -3586,9 +5143,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 140
+        "y": 211
       },
-      "id": 51
+      "id": 74
     },
     {
       "type": "row",
@@ -3598,9 +5155,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 148
+        "y": 219
       },
-      "id": 52,
+      "id": 75,
       "panels": []
     },
     {
@@ -3670,9 +5227,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 149
+        "y": 220
       },
-      "id": 53
+      "id": 76
     },
     {
       "type": "timeseries",
@@ -3736,18 +5293,18 @@
           "range": true
         }
       ],
-      "description": "Working set, not RSS -- this is the number the OOM killer uses.",
+      "description": "Working set, not RSS -- this is the number the OOM killer uses. It includes kernel file cache charged to the container, so it can run far above what the process uses (cadvisor itself shows hundreds of MB for ~20 MB of RSS); compare with the RSS panel.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 149
+        "y": 220
       },
-      "id": 54
+      "id": 77
     },
     {
       "type": "timeseries",
-      "title": "Network Received",
+      "title": "Memory RSS by Container",
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"
@@ -3772,7 +5329,7 @@
             },
             "axisPlacement": "auto"
           },
-          "unit": "Bps",
+          "unit": "bytes",
           "decimals": null,
           "min": null
         },
@@ -3800,161 +5357,21 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(container_network_receive_bytes_total{name!=\"\"}[2m])) by (name)",
+          "expr": "sum(container_memory_rss{name!=\"\"}) by (name)",
           "legendFormat": "{{name}}",
           "refId": "A",
           "editorMode": "code",
           "range": true
         }
       ],
+      "description": "Memory the processes actually hold, without reclaimable cache. Steady growth here, not in the working set, is a real leak.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 157
+        "y": 228
       },
-      "id": 55
-    },
-    {
-      "type": "timeseries",
-      "title": "Network Transmitted",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "Bps",
-          "decimals": null,
-          "min": null
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "sum(rate(container_network_transmit_bytes_total{name!=\"\"}[2m])) by (name)",
-          "legendFormat": "{{name}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true
-        }
-      ],
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 157
-      },
-      "id": 56
-    },
-    {
-      "type": "timeseries",
-      "title": "Container Restarts (1h)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "short",
-          "decimals": null,
-          "min": null
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "sum(changes(container_start_time_seconds{name!=\"\"}[1h])) by (name)",
-          "legendFormat": "{{name}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true
-        }
-      ],
-      "description": "A step means the container was recreated or restarted within the last hour. Steady zero is what you want.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 165
-      },
-      "id": 57
+      "id": 78
     },
     {
       "type": "table",
@@ -4023,9 +5440,461 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 165
+        "y": 228
       },
-      "id": 58
+      "id": 79
+    },
+    {
+      "type": "state-timeline",
+      "title": "Container Health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "healthy",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "starting",
+                  "color": "yellow",
+                  "index": 1
+                },
+                "2": {
+                  "text": "unhealthy",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "max by (name) (docker_container_health{status=\"starting\"} + ignoring(status) 2 * docker_container_health{status=\"unhealthy\"})",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Docker healthcheck status over time, for running containers that define one. Red is what ContainerUnhealthy alerts on.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 236
+      },
+      "id": 80
+    },
+    {
+      "type": "state-timeline",
+      "title": "Container Running State",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "running",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "stopped",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.85,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "min by (name) (docker_container_running{restart_policy=~\"always|unless-stopped\"})",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Containers meant to stay up (restart: always / unless-stopped). Red is what ContainerNotRunning alerts on.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 236
+      },
+      "id": 81
+    },
+    {
+      "type": "table",
+      "title": "Out-of-Memory Kills (24h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (name) (increase(container_oom_events_total{name!=\"\"}[24h])) > 0",
+          "legendFormat": "",
+          "refId": "A",
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ],
+      "description": "Processes the kernel killed for running out of memory, per container. Empty is the goal; any row means that container needs more memory or has a leak.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 246
+      },
+      "id": 82
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Restarts (last hour)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (name) (increase(docker_container_restarts_total[1h])) > 0",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Restarts Docker made under the restart policy, i.e. crashes. Deploys recreate containers and do not count. Empty is the goal; 3+ in 15 minutes fires ContainerRestartLoop.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 246
+      },
+      "id": 83
+    },
+    {
+      "type": "timeseries",
+      "title": "Network Received",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "Bps",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(container_network_receive_bytes_total{name!=\"\"}[2m])) by (name)",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 254
+      },
+      "id": 84
+    },
+    {
+      "type": "timeseries",
+      "title": "Network Transmitted",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "Bps",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(container_network_transmit_bytes_total{name!=\"\"}[2m])) by (name)",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 254
+      },
+      "id": 85
     },
     {
       "type": "row",
@@ -4035,9 +5904,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 173
+        "y": 262
       },
-      "id": 59,
+      "id": 86,
       "panels": []
     },
     {
@@ -4104,9 +5973,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 174
+        "y": 263
       },
-      "id": 60
+      "id": 87
     },
     {
       "type": "gauge",
@@ -4172,9 +6041,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 174
+        "y": 263
       },
-      "id": 61
+      "id": 88
     },
     {
       "type": "gauge",
@@ -4241,9 +6110,9 @@
         "h": 7,
         "w": 6,
         "x": 12,
-        "y": 174
+        "y": 263
       },
-      "id": 62
+      "id": 89
     },
     {
       "type": "stat",
@@ -4304,9 +6173,9 @@
         "h": 7,
         "w": 6,
         "x": 18,
-        "y": 174
+        "y": 263
       },
-      "id": 63
+      "id": 90
     },
     {
       "type": "timeseries",
@@ -4375,9 +6244,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 181
+        "y": 270
       },
-      "id": 64
+      "id": 91
     },
     {
       "type": "timeseries",
@@ -4461,15 +6330,27 @@
           "refId": "C",
           "editorMode": "code",
           "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes",
+          "legendFormat": "swap used",
+          "refId": "D",
+          "editorMode": "code",
+          "range": true
         }
       ],
+      "description": "swap used climbing means RAM ran short and the host is paging; expect latency to follow.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 181
+        "y": 270
       },
-      "id": 65
+      "id": 92
     },
     {
       "type": "timeseries",
@@ -4559,9 +6440,9 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 189
+        "y": 278
       },
-      "id": 66
+      "id": 93
     },
     {
       "type": "timeseries",
@@ -4640,9 +6521,9 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 189
+        "y": 278
       },
-      "id": 67
+      "id": 94
     },
     {
       "type": "timeseries",
@@ -4722,9 +6603,9 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 189
+        "y": 278
       },
-      "id": 68
+      "id": 95
     },
     {
       "type": "table",
@@ -4793,9 +6674,317 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 197
+        "y": 286
       },
-      "id": 69
+      "id": 96
+    },
+    {
+      "type": "row",
+      "title": "Monitoring Stack",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 294
+      },
+      "id": 97,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Prometheus Storage",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "bytes",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "prometheus_tsdb_storage_blocks_bytes",
+          "legendFormat": "used",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vector(8 * 1024 * 1024 * 1024)",
+          "legendFormat": "retention cap (8GB)",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "On-disk metrics against --storage.tsdb.retention.size. At the cap the oldest data is deleted early, before the 30d time limit.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 295
+      },
+      "id": 98
+    },
+    {
+      "type": "timeseries",
+      "title": "Active Series",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": null
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "prometheus_tsdb_head_series",
+          "legendFormat": "series",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Time series Prometheus holds in memory; its RAM grows with this. A sudden jump usually means a new label with many values.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 295
+      },
+      "id": 99
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki Ingestion",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "short",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(rate(loki_distributor_lines_received_total[2m]))",
+          "legendFormat": "lines/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Log lines arriving from Alloy. Dropping to zero means logs have stopped flowing and the log panels below are going stale.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 295
+      },
+      "id": 100
+    },
+    {
+      "type": "timeseries",
+      "title": "Rule Evaluation Failures",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": true,
+            "pointSize": 4,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto"
+          },
+          "unit": "ops",
+          "decimals": null,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum by (rule_group) (rate(prometheus_rule_evaluation_failures_total[5m]))",
+          "legendFormat": "{{rule_group}}",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true
+        }
+      ],
+      "description": "Alert rules that errored instead of evaluating. A rule that cannot evaluate can never fire, so anything above zero means an alert is silently off.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 295
+      },
+      "id": 101
     },
     {
       "type": "row",
@@ -4805,9 +6994,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 205
+        "y": 303
       },
-      "id": 70,
+      "id": 102,
       "panels": []
     },
     {
@@ -4865,7 +7054,7 @@
             "type": "loki",
             "uid": "Loki"
           },
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"backend-wsgi|backend-asgi|celery-prod|celery-beat-prod\"}[1m]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"backend-wsgi|backend-asgi|backend-dev|celery-prod|celery-dev|celery-beat-prod|celery-beat-dev\"}[1m]))",
           "legendFormat": "{{service_name}}",
           "refId": "A",
           "queryType": "range",
@@ -4877,9 +7066,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 206
+        "y": 304
       },
-      "id": 71
+      "id": 103
     },
     {
       "type": "timeseries",
@@ -4936,7 +7125,7 @@
             "type": "loki",
             "uid": "Loki"
           },
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"backend-wsgi|backend-asgi|celery-prod|celery-beat-prod\"} |~ `(?i)(error|exception|traceback|critical|fatal)` [1m]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"backend-wsgi|backend-asgi|backend-dev|celery-prod|celery-dev|celery-beat-prod|celery-beat-dev\"} |~ `(?i)(error|exception|traceback|critical|fatal)` [1m]))",
           "legendFormat": "{{service_name}}",
           "refId": "A",
           "queryType": "range",
@@ -4948,9 +7137,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 206
+        "y": 304
       },
-      "id": 72
+      "id": 104
     },
     {
       "type": "logs",
@@ -4975,7 +7164,7 @@
             "type": "loki",
             "uid": "Loki"
           },
-          "expr": "{service_name=~\"backend-wsgi|backend-asgi|celery-prod|celery-beat-prod\"} |~ `(?i)(error|exception|traceback|critical|fatal)`",
+          "expr": "{service_name=~\"backend-wsgi|backend-asgi|backend-dev|celery-prod|celery-dev|celery-beat-prod|celery-beat-dev\"} |~ `(?i)(error|exception|traceback|critical|fatal)`",
           "refId": "A",
           "queryType": "range",
           "editorMode": "code"
@@ -4986,9 +7175,9 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 214
+        "y": 312
       },
-      "id": 73
+      "id": 105
     }
   ],
   "refresh": "30s",
@@ -5009,6 +7198,6 @@
   "timezone": "browser",
   "title": "Voicebot Application Observability",
   "uid": "voicebot-app-metrics",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

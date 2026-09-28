@@ -129,7 +129,10 @@ groups:
   - name: postgres
     rules:
       - alert: PostgresTooManyConnections
-        expr: sum(pg_stat_database_numbackends) / clamp_min(pg_settings_max_connections, 1) > 0.8
+        # max() on the right: sum() drops every label and pg_settings_max_connections
+        # keeps its own, so without it the division matched nothing and this rule
+        # could never fire.
+        expr: sum(pg_stat_database_numbackends) / clamp_min(max(pg_settings_max_connections), 1) > 0.8
         for: 5m
         labels:
           severity: warning

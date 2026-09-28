@@ -61,6 +61,11 @@ services:
       - redis-exporter
     environment:
       REDIS_ADDR: "redis://redis:6379"
+      # Length of the Celery broker queue (the `celery` list in db2, see
+      # CELERY_BROKER_URL) as redis_key_size{db="db2",key="celery"}: tasks waiting
+      # for a worker. The only Celery backlog signal there is; the db2 key count is
+      # not it, since result keys live in db2 too.
+      REDIS_EXPORTER_CHECK_SINGLE_KEYS: "db2=celery"
     # The image is the redis_exporter binary alone, no shell or wget, so the
     # healthcheck runs busybox from the probe-tools volume (see the loki service in
     # monitoring.yml). /health answers without touching Redis.

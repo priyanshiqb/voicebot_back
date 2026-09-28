@@ -156,8 +156,12 @@ services:
       # period cannot fill the disk. Whichever limit is hit first wins.
       - '--storage.tsdb.retention.time=30d'
       - '--storage.tsdb.retention.size=8GB'
-      # Allows `curl -XPOST .../-/reload` instead of restarting the container to pick
-      # up prometheus.yml or alert-rules.yml changes.
+      # Allows `curl -XPOST .../-/reload`, but that only helps for edits made IN
+      # PLACE. The two config files above are single-file bind mounts, which pin
+      # the file's inode: `git pull` writes a new file and renames it over the old
+      # one, so a running container keeps reading the old version and a reload
+      # re-reads stale config without error. After a pull, `docker compose restart
+      # prometheus` instead; a restart re-resolves the mounts.
       - '--web.enable-lifecycle'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
