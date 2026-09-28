@@ -2,6 +2,10 @@ services:
   # 1. Production Django WSGI Server (Gunicorn)
   backend-wsgi:
     image: voicebot-backend-prod:latest
+    # The image exists only on this host, built from the build: block below and
+    # shared by every prod service. Without `never`, compose first asks Docker Hub
+    # for it and prints a harmless but alarming "pull access denied" before building.
+    pull_policy: never
     build:
       context: ../
       dockerfile: Dockerfile
@@ -54,6 +58,7 @@ services:
   # 1b. Production Django ASGI Server (Daphne)
   backend-asgi:
     image: voicebot-backend-prod:latest
+    pull_policy: never  # built by backend-wsgi
     profiles:
       - prod
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
@@ -73,6 +78,12 @@ services:
         required: false
       backend-wsgi:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - backend
       - shared_network
@@ -88,6 +99,7 @@ services:
   # 2b. Celery Worker (Production) — executes tasks
   celery-prod:
     image: voicebot-backend-prod:latest
+    pull_policy: never  # built by backend-wsgi
     container_name: celery-prod-voicebot
     profiles:
       - prod
@@ -106,6 +118,15 @@ services:
         required: false
       backend-wsgi:
         condition: service_healthy
+    # The ping round-trips through Redis to this worker's own control queue, so it
+    # fails when the worker is wedged or has lost the broker, not only when the
+    # process is gone. Each probe loads the app (~3s), hence the slower cadence.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME --timeout 10 > /dev/null"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
     networks:
       - backend
     restart: always
@@ -124,6 +145,7 @@ services:
   # than one host, beat belongs on exactly one of them.
   celery-beat-prod:
     image: voicebot-backend-prod:latest
+    pull_policy: never  # built by backend-wsgi
     container_name: celery-beat-prod-voicebot
     profiles:
       - prod
@@ -148,6 +170,16 @@ services:
         required: false
       backend-wsgi:
         condition: service_healthy
+    # Beat has no control queue to ping. It rewrites its schedule store at least
+    # every ~8 minutes (sync after 180s, checked on each <=300s wake-up), so nothing
+    # touched in 15 means the loop is stuck. The glob matters: on Python 3.13 the
+    # store is SQLite in WAL mode, and only the -wal file's mtime moves on a sync.
+    healthcheck:
+      test: ["CMD-SHELL", "find /var/lib/celery -maxdepth 1 -name 'celerybeat-schedule*' -mmin -15 | grep -q ."]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - backend
     restart: always

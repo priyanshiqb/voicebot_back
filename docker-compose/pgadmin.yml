@@ -16,6 +16,13 @@ services:
       postgres:
         condition: service_healthy
         required: false
+    # First boot sets up its config DB and took ~35s in testing.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/misc/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: always
     networks:
       - backend

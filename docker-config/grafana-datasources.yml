@@ -1,5 +1,15 @@
 apiVersion: 1
 
+# Runs before `datasources` on every boot, so both are re-created with the uids
+# below. A grafana.db from before the uids were pinned holds these names under
+# auto-generated uids, and provisioning then fails with "data source not found"
+# and Grafana crash-loops. The dashboards reference the uids, not the numeric ids.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+  - name: Loki
+    orgId: 1
+
 datasources:
   - name: Prometheus
     uid: Prometheus

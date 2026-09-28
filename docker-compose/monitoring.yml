@@ -13,6 +13,12 @@ services:
       - "${GRAFANA_BIND_IP:-${BIND_IP}}:${GRAFANA_PORT}:3000"
     depends_on:
       - loki
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     volumes:
       - ../.data/grafana:/var/lib/grafana
       - ../docker-config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
@@ -28,6 +34,15 @@ services:
         max-file: "3"
 
   # 9. Grafana Loki (Log Aggregator)
+  #
+  # The Loki image is distroless: /usr/bin/loki and nothing else, no shell or wget,
+  # and Loki has no self-probe flag. loki-probe-tools below drops a static busybox
+  # into a shared volume so the healthcheck has a wget to run.
+  #
+  # Not a `type: image` mount of busybox, which would be simpler: under the
+  # containerd image store, compose hands the engine an image ID it cannot resolve
+  # once the image is already local, so every redeploy after the first fails with
+  # "No such image: sha256:...".
   loki:
     image: grafana/loki:latest
     container_name: loki-voicebot
@@ -39,8 +54,18 @@ services:
     volumes:
       - ../docker-config/loki-config.yml:/etc/loki/local-config.yaml:ro
       - ../.data/loki:/loki
+      - loki-probe-tools:/probe:ro
+    depends_on:
+      loki-probe-tools:
+        condition: service_completed_successfully
     ports:
       - "${LOKI_BIND_IP:-${BIND_IP}}:${LOKI_PORT}:3100"
+    healthcheck:
+      test: ["CMD", "/probe/busybox", "wget", "-q", "--spider", "http://127.0.0.1:3100/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: always
     networks:
       - backend
@@ -49,6 +74,20 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # 9a. One-shot: copies busybox into the volume Loki's healthcheck runs it from.
+  # Exits 0 immediately; `docker ps -a` shows it as Exited (0), which is expected.
+  # Must be the -musl variant: plain busybox is linked against glibc, which the
+  # Loki image lacks, so it fails there with "no such file or directory".
+  loki-probe-tools:
+    image: busybox:stable-musl
+    container_name: loki-probe-tools-voicebot
+    profiles:
+      - logs-monitoring
+    command: ["cp", "/bin/busybox", "/probe/busybox"]
+    volumes:
+      - loki-probe-tools:/probe
+    restart: "no"
 
   # 9b. Grafana Alloy (Log Collector & Shipper)
   #
@@ -80,6 +119,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - loki
+    # The image has bash but no curl or wget, so the probe speaks HTTP over bash's
+    # /dev/tcp. It checks the status line because Alloy's UI answers 200 for any path.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: always
     networks:
       - backend
@@ -113,6 +160,12 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
       - "${PROMETHEUS_BIND_IP:-${BIND_IP}}:${PROMETHEUS_PORT}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: always
     networks:
       - backend
@@ -217,3 +270,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  # Holds the static busybox loki-probe-tools copies in; see the loki service.
+  loki-probe-tools:

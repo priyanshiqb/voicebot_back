@@ -2,6 +2,9 @@ services:
   # 2. Local Development Django Backend Server (Daphne with Hot-Reloading)
   backend-dev:
     image: voicebot-backend-dev:latest
+    # Local-only image, built below and shared by the dev services; `never` stops
+    # compose asking Docker Hub for it first. See backend-prod.yml.
+    pull_policy: never
     build:
       context: ../
       dockerfile: Dockerfile
@@ -41,6 +44,7 @@ services:
   # 2b. Local Development Celery Worker (executes tasks)
   celery-dev:
     image: voicebot-backend-dev:latest
+    pull_policy: never  # built by backend-dev
     container_name: celery-dev-voicebot
     profiles:
       - dev
@@ -79,6 +83,7 @@ services:
   # periodic task, so never scale or replicate this service.
   celery-beat-dev:
     image: voicebot-backend-dev:latest
+    pull_policy: never  # built by backend-dev
     container_name: celery-beat-dev-voicebot
     profiles:
       - dev

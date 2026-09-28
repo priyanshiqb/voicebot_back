@@ -12,7 +12,7 @@ services:
     volumes:
       - ../.data/postgres:/var/lib/postgresql
     ports:
-      - "${POSTGRES_BIND_IP:-${BIND_IP}}:${DB_PORT}:5432"
+      - "${POSTGRES_BIND_IP:-${BIND_IP}}:${DB_PORT:-5579}:5432"
     restart: always
     networks:
       - backend
