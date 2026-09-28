@@ -49,6 +49,9 @@ LABELSET = re.compile(r"\{[^{}]*\}")
 GROUPING = re.compile(r"\b(?:by|without|on|ignoring|group_left|group_right)\s*\([^()]*\)")
 IDENT = re.compile(r"[a-zA-Z_:][a-zA-Z0-9_:]*")
 DURATION = re.compile(r"^\d")
+# Dashboard variables ($task, ${worker}). Grafana substitutes them; here they become
+# .*, which is exactly what each variable's All option sends.
+VARIABLE = re.compile(r"\$\{?\w+\}?")
 
 
 def metric_names(expr):
@@ -174,7 +177,7 @@ def main():
             continue
 
         try:
-            res = instant_query(args.url, expr)
+            res = instant_query(args.url, VARIABLE.sub(".*", expr))
         except (urllib.error.URLError, OSError) as exc:
             missing.append((source, title, ["<query failed: %s>" % exc], expr))
             continue

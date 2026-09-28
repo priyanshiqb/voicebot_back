@@ -152,7 +152,7 @@ groups:
           severity: warning
         annotations:
           summary: "Celery queue has stayed above 100 waiting tasks"
-          description: "{{ $value | printf \"%.0f\" }} tasks waiting for 15 minutes. Workers are outpaced or stuck; check tasks running per worker on the dashboard."
+          description: "{{ $value | printf \"%.0f\" }} tasks waiting for 15 minutes. Workers are outpaced or stuck; check Tasks Running per Worker on the Voicebot Celery dashboard."
 
       - alert: CeleryTaskFailing
         # Per task, and only with at least 3 failures, so a single flaky run does
@@ -169,7 +169,7 @@ groups:
           severity: warning
         annotations:
           summary: "Celery task {{ $labels.name }} is failing"
-          description: "{{ $value | humanizePercentage }} of its runs failed in the last 15 minutes. The exception is in the dashboard's Celery row and in `docker logs celery-prod-voicebot`."
+          description: "{{ $value | humanizePercentage }} of its runs failed in the last 15 minutes. The exception is in the Failures section of the Voicebot Celery dashboard (filter Task to this one) and in `docker logs celery-prod-voicebot`."
 
   # ------------------------------------------------------------------------- #
   - name: postgres

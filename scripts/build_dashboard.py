@@ -1,9 +1,12 @@
-"""Generates docker-config/dashboards/application_metrics.json.
+"""Generates the Grafana dashboards in docker-config/dashboards/:
 
-The dashboard is ~90 panels. Hand-maintaining that much Grafana JSON is how you end
-up with panels querying metrics that do not exist, so the layout lives here instead
-and the JSON is a build artifact. Both are committed: Grafana provisions the JSON,
-this file is how you change it.
+    application_metrics.json   Voicebot Application Observability (~90 panels)
+    celery.json                Voicebot Celery, filterable by task/worker/queue
+
+Hand-maintaining that much Grafana JSON is how you end up with panels querying
+metrics that do not exist, so the layouts live here instead and the JSON files are
+build artifacts. Both are committed: Grafana provisions the JSON, this file is how
+you change it. After a pull on the server, `docker compose restart grafana`.
 
     python scripts/build_dashboard.py
 
@@ -34,42 +37,50 @@ HIST = "5m"   # rate() window under histogram_quantile, needs more samples
 # absent whenever the prod compose profile is the one running.
 DJ = 'job=~"django-.*"'
 
-_state = {"id": 0, "y": 0}
-
-
-def _next_id():
-    _state["id"] += 1
-    return _state["id"]
-
-
 class Layout:
-    """Packs panels left-to-right across Grafana's 24-column grid."""
+    """Packs panels left-to-right across Grafana's 24-column grid, one per dashboard.
+
+    A line advances by its TALLEST panel, so mixed heights on one line cannot
+    overlap the next, and a row header after a part-filled line starts a new one.
+    """
 
     def __init__(self):
         self.panels = []
+        self._id = 0
         self._x = 0
+        self._y = 0
+        self._line_h = 0
+
+    def _next_id(self):
+        self._id += 1
+        return self._id
+
+    def _newline(self):
+        self._y += self._line_h
+        self._x = 0
+        self._line_h = 0
 
     def row(self, title):
-        self._x = 0
+        if self._x:
+            self._newline()
         self.panels.append({
             "type": "row", "title": title, "collapsed": False,
-            "gridPos": {"h": 1, "w": 24, "x": 0, "y": _state["y"]},
-            "id": _next_id(), "panels": [],
+            "gridPos": {"h": 1, "w": 24, "x": 0, "y": self._y},
+            "id": self._next_id(), "panels": [],
         })
-        _state["y"] += 1
+        self._y += 1
         return self
 
     def add(self, panel, w=12, h=8):
         if self._x + w > 24:
-            self._x = 0
-            _state["y"] += h
-        panel["gridPos"] = {"h": h, "w": w, "x": self._x, "y": _state["y"]}
-        panel["id"] = _next_id()
+            self._newline()
+        panel["gridPos"] = {"h": h, "w": w, "x": self._x, "y": self._y}
+        panel["id"] = self._next_id()
         self.panels.append(panel)
         self._x += w
+        self._line_h = max(self._line_h, h)
         if self._x >= 24:
-            self._x = 0
-            _state["y"] += h
+            self._newline()
         return self
 
 
@@ -268,6 +279,27 @@ def loki_ts(title, specs, unit="short", description=None, stack=False):
         for i, (e, lg) in enumerate(specs)
     ]
     return p
+
+
+def query_var(name, label, query):
+    """Multi-select dashboard filter over Prometheus label values, defaulting to All.
+    Grafana renders a multi-value selection as a regex alternation, so queries use
+    the variable with =~, and allValue .* makes All match everything."""
+    return {
+        "name": name, "label": label, "type": "query", "datasource": PROM,
+        "definition": query, "query": query,
+        "refresh": 2,               # re-read the values whenever the time range changes
+        "sort": 1, "multi": True, "includeAll": True, "allValue": ".*",
+        "current": {"selected": True, "text": ["All"], "value": ["$__all"]},
+        "options": [], "hide": 0, "regex": "",
+    }
+
+
+def dash_link(title, uid, tooltip):
+    """Link in the dashboard header that carries the current time range across."""
+    return {"title": title, "type": "link", "url": "/d/%s" % uid, "icon": "dashboard",
+            "tooltip": tooltip, "keepTime": True, "includeVars": False,
+            "targetBlank": False, "asDropdown": False, "tags": []}
 
 
 L = Layout()
@@ -576,78 +608,49 @@ L.add(ts("Cache Operations",
          unit="ops"))
 
 # --------------------------------------------------------------------------- #
-L.row("Celery - Workers, Tasks & Queue")
-
 # celery_* come from celery-exporter, which reads the task events and heartbeats the
 # workers publish (CELERY_WORKER_SEND_TASK_EVENTS in config/settings/base.py). Labels:
-# name (task), hostname (worker container id), queue_name, and exception on failures.
-# Two panels stay log-based because the exporter cannot give them: beat's dispatches
-# (its task-sent events are indistinguishable from the web app's) and the failure
-# text itself. Logs are selected by container name, which the prod and dev
-# containers share the pattern of, rather than service_name, which another stack on
-# a dev box can reuse.
-WORKER = '{container=~"celery-(prod|dev)-voicebot"}'
-BEAT = '{container=~"celery-beat-(prod|dev)-voicebot"}'
+# name (task), hostname (worker container id), queue_name, and exception on
+# failures. The full picture is the separate Voicebot Celery dashboard at the bottom
+# of this file; this row is its summary, built from the same functions.
 _STATES = ("sent", "received", "started", "succeeded", "failed", "retried",
            "rejected", "revoked")
 
-L.add(ts("Workers Online",
-         [("sum(celery_worker_up)", "online")],
-         decimals=0, min_=0, fill=20,
-         description="Workers that sent a heartbeat in the last minute. A drop to 0 "
-                     "fires CeleryNoWorkersOnline. A deploy briefly shows the old and "
-                     "new container overlapping."), w=8)
-L.add(ts("Tasks Running per Worker",
-         [("celery_worker_tasks_active", "{{hostname}}")],
-         decimals=0, min_=0,
-         description="Tasks executing right now. Pinned at the worker's concurrency "
-                     "while the queue grows means the worker is saturated."), w=8)
-L.add(ts("Queue Length (waiting tasks)",
-         [('sum(redis_key_size{db="db2",key="celery"})', "waiting")],
-         fill=20, min_=0,
-         description="Length of the Celery broker list in Redis db2. Brief spikes that "
-                     "drain are normal; above 100 for 15 minutes fires "
-                     "CeleryQueueBacklog."), w=8)
-L.add(ts("Task Throughput by State",
-         [("sum(rate(celery_task_%s_total[%s])) * 60" % (s, RATE), s) for s in _STATES],
-         fill=0, min_=0,
-         description="Tasks per minute at each stage. sent is published by web and beat, "
-                     "received/started by the workers. received well above "
-                     "succeeded + failed for long means tasks are piling up or hanging."))
-L.add(ts("Failure Ratio by Task",
-         [("sum by (name) (rate(celery_task_failed_total[%s])) "
-           "/ clamp_min(sum by (name) (rate(celery_task_started_total[%s])), 0.001) "
-           "* 100 > 0" % (HIST, HIST), "{{name}}")],
-         unit="percent", fill=0, min_=0,
-         description="Share of each task's runs that failed, over 5 minutes. Only "
-                     "tasks with failures appear. 10%+ with 3 or more failures in 15 "
-                     "minutes fires CeleryTaskFailing."))
-L.add(ts("Task Runtime p95 by Task",
-         [("histogram_quantile(0.95, sum by (name, le) "
-           "(rate(celery_task_runtime_bucket[%s])))" % HIST, "{{name}}")],
-         unit="s", fill=0,
-         description="Every completed run, from the exporter's histogram (buckets up to "
-                     "30 minutes). A task whose line keeps rising is heading for a "
-                     "timeout."))
-L.add(table("Top 15 Tasks by Runs (last hour)",
-            [("topk(15, sum by (name) (increase(celery_task_started_total[1h])))", "")],
-            unit="short",
-            description="Where the workers' time goes."))
-L.add(table("Failures by Task & Exception (24h)",
-            [("sum by (name, exception) (increase(celery_task_failed_total[24h])) > 0", "")],
-            unit="short",
-            description="Every failing task with the exception it raised. Empty is the "
-                        "goal. The full error text is in Recent Task Failures below."))
-L.add(loki_ts("Beat: Tasks Dispatched (from logs)",
-              [('sum(count_over_time(%s |= "Sending due task" [1m]))' % BEAT,
-                "dispatched")],
-              description="Periodic tasks celery beat sent per minute, from its log. A flat "
-                          "zero where there used to be a steady pattern means beat has "
-                          "stopped scheduling."))
-L.add(logs("Recent Task Failures",
-           '%s |= "raised unexpected"' % WORKER,
-           description="The exception each failed task raised, from the worker log. "
-                       "Expand a line for the full traceback context."), w=24, h=10)
+
+def celery_workers_online(wf=""):
+    return ts("Workers Online", [("sum(celery_worker_up{%s})" % wf, "online")],
+              decimals=0, min_=0, fill=20,
+              description="Workers that sent a heartbeat in the last minute. A drop to "
+                          "0 fires CeleryNoWorkersOnline. A deploy briefly shows the old "
+                          "and new container overlapping.")
+
+
+def celery_queue_length(qf=""):
+    return ts("Queue Length (waiting tasks)",
+              [("celery_queue_length{%s}" % qf, "{{queue_name}}")],
+              decimals=0, fill=20, min_=0,
+              description="Tasks waiting for a worker, per queue. Brief spikes that drain "
+                          "are normal; above 100 for 15 minutes fires CeleryQueueBacklog.")
+
+
+def celery_throughput(tf="", sent_filter=""):
+    # task-sent carries the PRODUCER's hostname (web, beat), not a worker's, so it
+    # takes the filter without hostname.
+    return ts("Task Throughput by State",
+              [("sum(rate(celery_task_%s_total{%s}[%s])) * 60"
+                % (s, sent_filter if s == "sent" else tf, RATE), s) for s in _STATES],
+              fill=0, min_=0,
+              description="Tasks per minute at each stage. sent is published by web and "
+                          "beat, the rest by the workers. received well above "
+                          "succeeded + failed for long means tasks are piling up or "
+                          "hanging.")
+
+
+L.row("Celery (summary: full detail on the Voicebot Celery dashboard)")
+
+L.add(celery_workers_online(), w=8)
+L.add(celery_queue_length(), w=8)
+L.add(celery_throughput(), w=8)
 
 # --------------------------------------------------------------------------- #
 L.row("PostgreSQL")
@@ -938,39 +941,244 @@ L.add(logs("Recent Errors (all app containers)",
            description="Live tail. Click a line to expand its labels and jump to that "
                        "container's full stream."), w=24, h=12)
 
+# =========================================================================== #
+# Dashboard 2: Voicebot Celery
+# =========================================================================== #
+# Everything about the task pipeline in one place, filterable. Metrics from
+# celery-exporter (see the Celery row above for its labels); two log panels from
+# Loki for what the exporter cannot give: the failure text and beat's dispatches.
+C = Layout()
+
+# Filters, all =~ (see query_var). task-sent carries the producer's hostname, and
+# the per-worker / per-queue gauges have only one of the labels, hence the variants.
+TF = 'name=~"$task", hostname=~"$worker", queue_name=~"$queue"'
+SENT = 'name=~"$task", queue_name=~"$queue"'
+WF = 'hostname=~"$worker"'
+QF = 'queue_name=~"$queue"'
+
+# Logs are selected by container name: the prod and dev containers share the
+# pattern, while service_name can be reused by another stack on a dev box.
+WORKER = '{container=~"celery-(prod|dev)-voicebot"}'
+BEAT = '{container=~"celery-beat-(prod|dev)-voicebot"}'
+
 # --------------------------------------------------------------------------- #
+C.row("Overview")
 
-dashboard = {
-    "annotations": {"list": []},
-    "editable": True,
-    "fiscalYearStartMonth": 0,
-    "graphTooltip": 1,          # shared crosshair across panels
-    "id": None,
-    "links": [],
-    "liveNow": False,
-    "panels": L.panels,
-    "refresh": "30s",
-    "schemaVersion": 39,
-    "style": "dark",
-    "tags": ["voicebot", "observability"],
-    "templating": {"list": []},
-    "time": {"from": "now-3h", "to": "now"},
-    "timepicker": {},
-    "timezone": "browser",
-    "title": "Voicebot Application Observability",
-    "uid": "voicebot-app-metrics",
-    "version": 3,
-    "weekStart": "",
-}
+C.add(stat("Workers Online", "sum(celery_worker_up{%s})" % WF,
+           decimals=0, color_mode="background", graph="none",
+           thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}]),
+      w=4, h=4)
+C.add(stat("Tasks Running", "sum(celery_worker_tasks_active{%s})" % WF, decimals=0),
+      w=4, h=4)
+C.add(stat("Queue Length", "sum(celery_queue_length{%s})" % QF,
+           decimals=0, color_mode="background",
+           thresholds=[{"color": "green", "value": None},
+                       {"color": "yellow", "value": 100},
+                       {"color": "red", "value": 1000}]), w=4, h=4)
+C.add(stat("Tasks Started / min",
+           "sum(rate(celery_task_started_total{%s}[%s])) * 60" % (TF, HIST),
+           decimals=1), w=4, h=4)
+C.add(stat("Failure Rate (1h)",
+           "sum(increase(celery_task_failed_total{%s}[1h])) "
+           "/ clamp_min(sum(increase(celery_task_started_total{%s}[1h])), 1) * 100"
+           % (TF, TF),
+           unit="percent", decimals=1, color_mode="background",
+           thresholds=[{"color": "green", "value": None},
+                       {"color": "yellow", "value": 1},
+                       {"color": "red", "value": 10}]), w=4, h=4)
+C.add(stat("Failed (24h)", "sum(increase(celery_task_failed_total{%s}[24h]))" % TF,
+           decimals=0, color_mode="background", graph="none", thresholds=_RED_IF_ANY),
+      w=4, h=4)
 
-out = os.path.normpath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..", "docker-config", "dashboards", "application_metrics.json"))
+# --------------------------------------------------------------------------- #
+C.row("Workers")
 
-with open(out, "w", encoding="utf-8", newline="\n") as fh:
-    json.dump(dashboard, fh, indent=2)
-    fh.write("\n")
+C.add(state_timeline("Worker Availability",
+                     [("max by (hostname) (celery_worker_up{%s})" % WF, "{{hostname}}")],
+                     [(1, "online", "green"), (0, "offline", "red")],
+                     description="One lane per worker container (hostname is its container "
+                                 "id). A deploy shows the old lane going red as a new one "
+                                 "starts; red on the only worker is CeleryNoWorkersOnline."))
+C.add(ts("Tasks Running per Worker",
+         [("celery_worker_tasks_active{%s}" % WF, "{{hostname}}")],
+         decimals=0, min_=0,
+         description="Tasks executing right now. Pinned at the worker's concurrency "
+                     "while the queue grows means the worker is saturated."))
+C.add(ts("Worker Utilization",
+         [("sum(celery_worker_tasks_active{%s}) "
+           "/ clamp_min(sum(celery_active_process_count{%s}), 1) * 100" % (WF, QF),
+           "busy")],
+         unit="percent", min_=0, fill=10,
+         description="Running tasks against the worker processes consuming the queues. "
+                     "Near 100% for long while the queue grows means the workers need "
+                     "more concurrency."))
+C.add(ts("Workers & Processes per Queue",
+         [("celery_active_worker_count{%s}" % QF, "{{queue_name}} workers"),
+          ("celery_active_process_count{%s}" % QF, "{{queue_name}} processes")],
+         decimals=0, min_=0, fill=0,
+         description="Processes is the total concurrency consuming each queue."))
 
-rows = sum(1 for p in L.panels if p["type"] == "row")
-print("Wrote %s" % out)
-print("%d rows, %d panels" % (rows, len(L.panels) - rows))
+# --------------------------------------------------------------------------- #
+C.row("Queue")
+
+C.add(celery_queue_length(QF))
+C.add(ts("Enqueued vs Started",
+         [("sum(rate(celery_task_sent_total{%s}[%s])) * 60" % (SENT, RATE), "enqueued"),
+          ("sum(rate(celery_task_started_total{%s}[%s])) * 60" % (TF, RATE), "started")],
+         fill=0, min_=0,
+         description="Tasks per minute going into the queue and being picked up. "
+                     "enqueued staying above started is a queue that is growing."))
+
+# --------------------------------------------------------------------------- #
+C.row("Throughput")
+
+C.add(celery_throughput(TF, SENT))
+C.add(ts("Started by Task",
+         [("sum by (name) (rate(celery_task_started_total{%s}[%s])) * 60" % (TF, RATE),
+           "{{name}}")],
+         stack=True, min_=0,
+         description="Tasks per minute, per task: where the work comes from."))
+C.add(ts("Failure Ratio by Task",
+         [("sum by (name) (rate(celery_task_failed_total{%s}[%s])) "
+           "/ clamp_min(sum by (name) (rate(celery_task_started_total{%s}[%s])), 0.001) "
+           "* 100 > 0" % (TF, HIST, TF, HIST), "{{name}}")],
+         unit="percent", fill=0, min_=0,
+         description="Share of each task's runs that failed, over 5 minutes. Only tasks "
+                     "with failures appear. 10%+ with 3 or more failures in 15 minutes "
+                     "fires CeleryTaskFailing."))
+C.add(ts("Retries, Rejections & Revocations",
+         [("sum by (name) (rate(celery_task_%s_total{%s}[%s])) * 60 > 0" % (s, TF, RATE),
+           "{{name}} %s" % s) for s in ("retried", "rejected", "revoked")],
+         fill=0, min_=0,
+         description="Per task, per minute. Retries climbing usually mean a dependency "
+                     "(the ETL service, a calendar API, SMTP) is failing intermittently."))
+
+# --------------------------------------------------------------------------- #
+C.row("Runtime")
+
+C.add(ts("Runtime Percentiles",
+         [("histogram_quantile(%s, sum by (le) (rate(celery_task_runtime_bucket{%s}[%s])))"
+           % (q, TF, HIST), label)
+          for q, label in (("0.50", "p50"), ("0.95", "p95"), ("0.99", "p99"))],
+         unit="s", fill=0,
+         description="Completed runs across the selected tasks. Buckets reach 30 "
+                     "minutes (see the celery-exporter --buckets flag)."))
+C.add(ts("p95 Runtime by Task",
+         [("histogram_quantile(0.95, sum by (name, le) "
+           "(rate(celery_task_runtime_bucket{%s}[%s])))" % (TF, HIST), "{{name}}")],
+         unit="s", fill=0,
+         description="A task whose line keeps rising is heading for a timeout."))
+C.add(table("Slowest Tasks (p95, last hour)",
+            [("topk(15, histogram_quantile(0.95, sum by (name, le) "
+              "(rate(celery_task_runtime_bucket{%s}[1h]))))" % TF, "")],
+            unit="s"))
+C.add(table("Worker Time by Task (last hour)",
+            [("topk(15, sum by (name) (increase(celery_task_runtime_sum{%s}[1h])))" % TF, "")],
+            unit="s",
+            description="Total seconds of worker time each task used: where the capacity "
+                        "goes. A cheap task run very often can outrank a slow one."))
+
+# --------------------------------------------------------------------------- #
+C.row("Failures")
+
+C.add(table("Failures by Task & Exception (24h)",
+            [("sum by (name, exception) (increase(celery_task_failed_total{%s}[24h])) > 0"
+              % TF, "")],
+            unit="short",
+            description="Every failing task with the exception it raised. Empty is the "
+                        "goal. The full error text is in Recent Task Failures below."))
+C.add(ts("Failures by Exception",
+         [("sum by (exception) (rate(celery_task_failed_total{%s}[%s])) * 60 > 0"
+           % (TF, HIST), "{{exception}}")],
+         fill=0, min_=0,
+         description="Failures per minute by exception type, across the selected tasks. "
+                     "One exception spiking across many tasks points at a shared "
+                     "dependency rather than a bug in one task."))
+C.add(logs("Recent Task Failures",
+           # ${task} is .* for All; a selection narrows the log to those tasks.
+           '%s |= "raised unexpected" |~ `Task (${task})\\[`' % WORKER,
+           description="The exception each failed task raised, from the worker log. "
+                       "Follows the Task filter. Expand a line for the traceback."),
+      w=24, h=12)
+
+# --------------------------------------------------------------------------- #
+C.row("Beat & Containers")
+
+C.add(loki_ts("Beat: Tasks Dispatched",
+              [('sum(count_over_time(%s |= "Sending due task" [1m]))' % BEAT,
+                "dispatched")],
+              description="Periodic tasks celery beat sent per minute, from its log. A flat "
+                          "zero where there used to be a steady pattern means beat has "
+                          "stopped scheduling. Beat publishes no heartbeat of its own; its "
+                          "container healthcheck (schedule file freshness) is the other "
+                          "signal, on the right."))
+C.add(state_timeline("Celery Container Health",
+                     [('max by (name) (docker_container_health{status="starting", '
+                       'name=~"celery.*"} + ignoring(status) 2 * docker_container_health'
+                       '{status="unhealthy", name=~"celery.*"})', "{{name}}")],
+                     [(0, "healthy", "green"), (1, "starting", "yellow"),
+                      (2, "unhealthy", "red")],
+                     description="Docker healthchecks of the worker (inspect ping) and beat "
+                                 "(schedule file written in the last 15 minutes)."))
+C.add(logs("Beat Log", BEAT,
+           description="Everything beat logs: dispatches, schedule changes, and errors "
+                       "reaching the broker."), w=24, h=8)
+
+# =========================================================================== #
+# Output
+# =========================================================================== #
+
+MAIN_UID = "voicebot-app-metrics"
+CELERY_UID = "voicebot-celery"
+OUT_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "docker-config", "dashboards"))
+
+
+def write_dashboard(filename, layout, uid, title, tags, version,
+                    links=(), variables=()):
+    dashboard = {
+        "annotations": {"list": []},
+        "editable": True,
+        "fiscalYearStartMonth": 0,
+        "graphTooltip": 1,          # shared crosshair across panels
+        "id": None,
+        "links": list(links),
+        "liveNow": False,
+        "panels": layout.panels,
+        "refresh": "30s",
+        "schemaVersion": 39,
+        "style": "dark",
+        "tags": list(tags),
+        "templating": {"list": list(variables)},
+        "time": {"from": "now-3h", "to": "now"},
+        "timepicker": {},
+        "timezone": "browser",
+        "title": title,
+        "uid": uid,
+        "version": version,
+        "weekStart": "",
+    }
+    out = os.path.join(OUT_DIR, filename)
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(dashboard, fh, indent=2)
+        fh.write("\n")
+    rows = sum(1 for p in layout.panels if p["type"] == "row")
+    print("Wrote %s: %d rows, %d panels" % (out, rows, len(layout.panels) - rows))
+
+
+write_dashboard(
+    "application_metrics.json", L, MAIN_UID, "Voicebot Application Observability",
+    tags=("voicebot", "observability"), version=4,
+    links=[dash_link("Celery", CELERY_UID,
+                     "Workers, queue, every task's throughput, runtime and failures")])
+
+write_dashboard(
+    "celery.json", C, CELERY_UID, "Voicebot Celery",
+    tags=("voicebot", "observability", "celery"), version=1,
+    links=[dash_link("Application Observability", MAIN_UID,
+                     "Back to the main dashboard")],
+    variables=[
+        query_var("task", "Task", "label_values(celery_task_started_total, name)"),
+        query_var("worker", "Worker", "label_values(celery_worker_up, hostname)"),
+        query_var("queue", "Queue", "label_values(celery_queue_length, queue_name)"),
+    ])

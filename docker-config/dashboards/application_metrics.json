@@ -6,7 +6,20 @@
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "title": "Celery",
+      "type": "link",
+      "url": "/d/voicebot-celery",
+      "icon": "dashboard",
+      "tooltip": "Workers, queue, every task's throughput, runtime and failures",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
   "liveNow": false,
   "panels": [
     {
@@ -3048,7 +3061,7 @@
     },
     {
       "type": "row",
-      "title": "Celery - Workers, Tasks & Queue",
+      "title": "Celery (summary: full detail on the Voicebot Celery dashboard)",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -3114,7 +3127,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(celery_worker_up)",
+          "expr": "sum(celery_worker_up{})",
           "legendFormat": "online",
           "refId": "A",
           "editorMode": "code",
@@ -3132,7 +3145,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Tasks Running per Worker",
+      "title": "Queue Length (waiting tasks)",
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"
@@ -3146,7 +3159,7 @@
             "drawStyle": "line",
             "lineInterpolation": "smooth",
             "lineWidth": 1,
-            "fillOpacity": 8,
+            "fillOpacity": 20,
             "gradientMode": "opacity",
             "showPoints": "never",
             "spanNulls": true,
@@ -3185,14 +3198,14 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "celery_worker_tasks_active",
-          "legendFormat": "{{hostname}}",
+          "expr": "celery_queue_length{}",
+          "legendFormat": "{{queue_name}}",
           "refId": "A",
           "editorMode": "code",
           "range": true
         }
       ],
-      "description": "Tasks executing right now. Pinned at the worker's concurrency while the queue grows means the worker is saturated.",
+      "description": "Tasks waiting for a worker, per queue. Brief spikes that drain are normal; above 100 for 15 minutes fires CeleryQueueBacklog.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -3200,77 +3213,6 @@
         "y": 113
       },
       "id": 46
-    },
-    {
-      "type": "timeseries",
-      "title": "Queue Length (waiting tasks)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 20,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "short",
-          "decimals": null,
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "sum(redis_key_size{db=\"db2\",key=\"celery\"})",
-          "legendFormat": "waiting",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true
-        }
-      ],
-      "description": "Length of the Celery broker list in Redis db2. Brief spikes that drain are normal; above 100 for 15 minutes fires CeleryQueueBacklog.",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 113
-      },
-      "id": 47
     },
     {
       "type": "timeseries",
@@ -3327,7 +3269,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_sent_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_sent_total{}[2m])) * 60",
           "legendFormat": "sent",
           "refId": "A",
           "editorMode": "code",
@@ -3338,7 +3280,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_received_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_received_total{}[2m])) * 60",
           "legendFormat": "received",
           "refId": "B",
           "editorMode": "code",
@@ -3349,7 +3291,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_started_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_started_total{}[2m])) * 60",
           "legendFormat": "started",
           "refId": "C",
           "editorMode": "code",
@@ -3360,7 +3302,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_succeeded_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_succeeded_total{}[2m])) * 60",
           "legendFormat": "succeeded",
           "refId": "D",
           "editorMode": "code",
@@ -3371,7 +3313,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_failed_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_failed_total{}[2m])) * 60",
           "legendFormat": "failed",
           "refId": "E",
           "editorMode": "code",
@@ -3382,7 +3324,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_retried_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_retried_total{}[2m])) * 60",
           "legendFormat": "retried",
           "refId": "F",
           "editorMode": "code",
@@ -3393,7 +3335,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_rejected_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_rejected_total{}[2m])) * 60",
           "legendFormat": "rejected",
           "refId": "G",
           "editorMode": "code",
@@ -3404,416 +3346,21 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "sum(rate(celery_task_revoked_total[2m])) * 60",
+          "expr": "sum(rate(celery_task_revoked_total{}[2m])) * 60",
           "legendFormat": "revoked",
           "refId": "H",
           "editorMode": "code",
           "range": true
         }
       ],
-      "description": "Tasks per minute at each stage. sent is published by web and beat, received/started by the workers. received well above succeeded + failed for long means tasks are piling up or hanging.",
+      "description": "Tasks per minute at each stage. sent is published by web and beat, the rest by the workers. received well above succeeded + failed for long means tasks are piling up or hanging.",
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 121
+        "w": 8,
+        "x": 16,
+        "y": 113
       },
-      "id": 48
-    },
-    {
-      "type": "timeseries",
-      "title": "Failure Ratio by Task",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 0,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "percent",
-          "decimals": null,
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "sum by (name) (rate(celery_task_failed_total[5m])) / clamp_min(sum by (name) (rate(celery_task_started_total[5m])), 0.001) * 100 > 0",
-          "legendFormat": "{{name}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true
-        }
-      ],
-      "description": "Share of each task's runs that failed, over 5 minutes. Only tasks with failures appear. 10%+ with 3 or more failures in 15 minutes fires CeleryTaskFailing.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 121
-      },
-      "id": 49
-    },
-    {
-      "type": "timeseries",
-      "title": "Task Runtime p95 by Task",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 0,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "s",
-          "decimals": null,
-          "min": null
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (name, le) (rate(celery_task_runtime_bucket[5m])))",
-          "legendFormat": "{{name}}",
-          "refId": "A",
-          "editorMode": "code",
-          "range": true
-        }
-      ],
-      "description": "Every completed run, from the exporter's histogram (buckets up to 30 minutes). A task whose line keeps rising is heading for a timeout.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 129
-      },
-      "id": 50
-    },
-    {
-      "type": "table",
-      "title": "Top 15 Tasks by Runs (last hour)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 2,
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "sortBy": [
-          {
-            "displayName": "Value",
-            "desc": true
-          }
-        ],
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "countRows": false
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "topk(15, sum by (name) (increase(celery_task_started_total[1h])))",
-          "legendFormat": "",
-          "refId": "A",
-          "editorMode": "code",
-          "range": false,
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true
-            }
-          }
-        }
-      ],
-      "description": "Where the workers' time goes.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 129
-      },
-      "id": 51
-    },
-    {
-      "type": "table",
-      "title": "Failures by Task & Exception (24h)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 2,
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true,
-        "sortBy": [
-          {
-            "displayName": "Value",
-            "desc": true
-          }
-        ],
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "countRows": false
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "sum by (name, exception) (increase(celery_task_failed_total[24h])) > 0",
-          "legendFormat": "",
-          "refId": "A",
-          "editorMode": "code",
-          "range": false,
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true
-            }
-          }
-        }
-      ],
-      "description": "Every failing task with the exception it raised. Empty is the goal. The full error text is in Recent Task Failures below.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 137
-      },
-      "id": 52
-    },
-    {
-      "type": "timeseries",
-      "title": "Beat: Tasks Dispatched (from logs)",
-      "datasource": {
-        "type": "loki",
-        "uid": "Loki"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
-            "showPoints": "never",
-            "spanNulls": true,
-            "pointSize": 4,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto"
-          },
-          "unit": "short",
-          "decimals": null,
-          "min": null
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "expr": "sum(count_over_time({container=~\"celery-beat-(prod|dev)-voicebot\"} |= \"Sending due task\" [1m]))",
-          "legendFormat": "dispatched",
-          "refId": "A",
-          "queryType": "range",
-          "editorMode": "code"
-        }
-      ],
-      "description": "Periodic tasks celery beat sent per minute, from its log. A flat zero where there used to be a steady pattern means beat has stopped scheduling.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 137
-      },
-      "id": 53
-    },
-    {
-      "type": "logs",
-      "title": "Recent Task Failures",
-      "datasource": {
-        "type": "loki",
-        "uid": "Loki"
-      },
-      "options": {
-        "showTime": true,
-        "showLabels": false,
-        "showCommonLabels": false,
-        "wrapLogMessage": true,
-        "prettifyLogMessage": false,
-        "enableLogDetails": true,
-        "dedupStrategy": "none",
-        "sortOrder": "Descending"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "expr": "{container=~\"celery-(prod|dev)-voicebot\"} |= \"raised unexpected\"",
-          "refId": "A",
-          "queryType": "range",
-          "editorMode": "code"
-        }
-      ],
-      "description": "The exception each failed task raised, from the worker log. Expand a line for the full traceback context.",
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 145
-      },
-      "id": 54
+      "id": 47
     },
     {
       "type": "row",
@@ -3823,9 +3370,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 155
+        "y": 121
       },
-      "id": 55,
+      "id": 48,
       "panels": []
     },
     {
@@ -3893,9 +3440,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 156
+        "y": 122
       },
-      "id": 56
+      "id": 49
     },
     {
       "type": "stat",
@@ -3956,9 +3503,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 156
+        "y": 122
       },
-      "id": 57
+      "id": 50
     },
     {
       "type": "timeseries",
@@ -4027,9 +3574,9 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 156
+        "y": 122
       },
-      "id": 58
+      "id": 51
     },
     {
       "type": "timeseries",
@@ -4098,9 +3645,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 163
+        "y": 129
       },
-      "id": 59
+      "id": 52
     },
     {
       "type": "timeseries",
@@ -4169,9 +3716,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 163
+        "y": 129
       },
-      "id": 60
+      "id": 53
     },
     {
       "type": "timeseries",
@@ -4250,9 +3797,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 171
+        "y": 137
       },
-      "id": 61
+      "id": 54
     },
     {
       "type": "timeseries",
@@ -4321,9 +3868,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 171
+        "y": 137
       },
-      "id": 62
+      "id": 55
     },
     {
       "type": "timeseries",
@@ -4436,9 +3983,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 179
+        "y": 145
       },
-      "id": 63
+      "id": 56
     },
     {
       "type": "timeseries",
@@ -4517,9 +4064,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 179
+        "y": 145
       },
-      "id": 64
+      "id": 57
     },
     {
       "type": "timeseries",
@@ -4588,9 +4135,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 187
+        "y": 153
       },
-      "id": 65
+      "id": 58
     },
     {
       "type": "timeseries",
@@ -4658,9 +4205,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 187
+        "y": 153
       },
-      "id": 66
+      "id": 59
     },
     {
       "type": "table",
@@ -4730,9 +4277,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 195
+        "y": 161
       },
-      "id": 67
+      "id": 60
     },
     {
       "type": "table",
@@ -4802,9 +4349,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 195
+        "y": 161
       },
-      "id": 68
+      "id": 61
     },
     {
       "type": "row",
@@ -4814,9 +4361,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 203
+        "y": 169
       },
-      "id": 69,
+      "id": 62,
       "panels": []
     },
     {
@@ -4884,9 +4431,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 204
+        "y": 170
       },
-      "id": 70
+      "id": 63
     },
     {
       "type": "stat",
@@ -4947,9 +4494,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 204
+        "y": 170
       },
-      "id": 71
+      "id": 64
     },
     {
       "type": "timeseries",
@@ -5028,9 +4575,9 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 204
+        "y": 170
       },
-      "id": 72
+      "id": 65
     },
     {
       "type": "timeseries",
@@ -5110,9 +4657,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 211
+        "y": 177
       },
-      "id": 73
+      "id": 66
     },
     {
       "type": "timeseries",
@@ -5180,9 +4727,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 211
+        "y": 177
       },
-      "id": 74
+      "id": 67
     },
     {
       "type": "timeseries",
@@ -5262,9 +4809,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 219
+        "y": 185
       },
-      "id": 75
+      "id": 68
     },
     {
       "type": "timeseries",
@@ -5344,9 +4891,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 219
+        "y": 185
       },
-      "id": 76
+      "id": 69
     },
     {
       "type": "timeseries",
@@ -5425,9 +4972,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 227
+        "y": 193
       },
-      "id": 77
+      "id": 70
     },
     {
       "type": "table",
@@ -5496,9 +5043,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 227
+        "y": 193
       },
-      "id": 78
+      "id": 71
     },
     {
       "type": "row",
@@ -5508,9 +5055,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 235
+        "y": 201
       },
-      "id": 79,
+      "id": 72,
       "panels": []
     },
     {
@@ -5580,9 +5127,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 236
+        "y": 202
       },
-      "id": 80
+      "id": 73
     },
     {
       "type": "timeseries",
@@ -5651,9 +5198,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 236
+        "y": 202
       },
-      "id": 81
+      "id": 74
     },
     {
       "type": "timeseries",
@@ -5722,9 +5269,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 244
+        "y": 210
       },
-      "id": 82
+      "id": 75
     },
     {
       "type": "table",
@@ -5793,9 +5340,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 244
+        "y": 210
       },
-      "id": 83
+      "id": 76
     },
     {
       "type": "state-timeline",
@@ -5880,9 +5427,9 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 252
+        "y": 218
       },
-      "id": 84
+      "id": 77
     },
     {
       "type": "state-timeline",
@@ -5962,9 +5509,9 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 252
+        "y": 218
       },
-      "id": 85
+      "id": 78
     },
     {
       "type": "table",
@@ -6034,9 +5581,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 262
+        "y": 228
       },
-      "id": 86
+      "id": 79
     },
     {
       "type": "timeseries",
@@ -6105,9 +5652,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 262
+        "y": 228
       },
-      "id": 87
+      "id": 80
     },
     {
       "type": "timeseries",
@@ -6175,9 +5722,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 270
+        "y": 236
       },
-      "id": 88
+      "id": 81
     },
     {
       "type": "timeseries",
@@ -6245,9 +5792,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 270
+        "y": 236
       },
-      "id": 89
+      "id": 82
     },
     {
       "type": "row",
@@ -6257,9 +5804,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 278
+        "y": 244
       },
-      "id": 90,
+      "id": 83,
       "panels": []
     },
     {
@@ -6326,9 +5873,9 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 279
+        "y": 245
       },
-      "id": 91
+      "id": 84
     },
     {
       "type": "gauge",
@@ -6394,9 +5941,9 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 279
+        "y": 245
       },
-      "id": 92
+      "id": 85
     },
     {
       "type": "gauge",
@@ -6463,9 +6010,9 @@
         "h": 7,
         "w": 6,
         "x": 12,
-        "y": 279
+        "y": 245
       },
-      "id": 93
+      "id": 86
     },
     {
       "type": "stat",
@@ -6526,9 +6073,9 @@
         "h": 7,
         "w": 6,
         "x": 18,
-        "y": 279
+        "y": 245
       },
-      "id": 94
+      "id": 87
     },
     {
       "type": "timeseries",
@@ -6597,9 +6144,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 286
+        "y": 252
       },
-      "id": 95
+      "id": 88
     },
     {
       "type": "timeseries",
@@ -6701,9 +6248,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 286
+        "y": 252
       },
-      "id": 96
+      "id": 89
     },
     {
       "type": "timeseries",
@@ -6793,9 +6340,9 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 294
+        "y": 260
       },
-      "id": 97
+      "id": 90
     },
     {
       "type": "timeseries",
@@ -6874,9 +6421,9 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 294
+        "y": 260
       },
-      "id": 98
+      "id": 91
     },
     {
       "type": "timeseries",
@@ -6956,9 +6503,9 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 294
+        "y": 260
       },
-      "id": 99
+      "id": 92
     },
     {
       "type": "table",
@@ -7027,9 +6574,9 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 302
+        "y": 268
       },
-      "id": 100
+      "id": 93
     },
     {
       "type": "row",
@@ -7039,9 +6586,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 310
+        "y": 276
       },
-      "id": 101,
+      "id": 94,
       "panels": []
     },
     {
@@ -7122,9 +6669,9 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 311
+        "y": 277
       },
-      "id": 102
+      "id": 95
     },
     {
       "type": "timeseries",
@@ -7193,9 +6740,9 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 311
+        "y": 277
       },
-      "id": 103
+      "id": 96
     },
     {
       "type": "timeseries",
@@ -7264,9 +6811,9 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 311
+        "y": 277
       },
-      "id": 104
+      "id": 97
     },
     {
       "type": "timeseries",
@@ -7335,9 +6882,9 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 311
+        "y": 277
       },
-      "id": 105
+      "id": 98
     },
     {
       "type": "row",
@@ -7347,9 +6894,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 319
+        "y": 285
       },
-      "id": 106,
+      "id": 99,
       "panels": []
     },
     {
@@ -7419,9 +6966,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 320
+        "y": 286
       },
-      "id": 107
+      "id": 100
     },
     {
       "type": "timeseries",
@@ -7490,9 +7037,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 320
+        "y": 286
       },
-      "id": 108
+      "id": 101
     },
     {
       "type": "logs",
@@ -7528,9 +7075,9 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 328
+        "y": 294
       },
-      "id": 109
+      "id": 102
     }
   ],
   "refresh": "30s",
@@ -7551,6 +7098,6 @@
   "timezone": "browser",
   "title": "Voicebot Application Observability",
   "uid": "voicebot-app-metrics",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }
