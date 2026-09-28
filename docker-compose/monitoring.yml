@@ -310,11 +310,14 @@ services:
       # near-duplicate filesystems.
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
       - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|securityfs|sysfs|tracefs)$$'
+      # Serves docker-state's per-container restart / running / health metrics.
+      - '--collector.textfile.directory=/textfile'
     pid: host
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+      - docker-state-textfile:/textfile:ro
     # The landing page, not /metrics: a scrape walks every collector.
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9100/"]
@@ -331,7 +334,50 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # 13. docker-state - Docker's own per-container restart count, running state and
+  # healthcheck status, which cadvisor cannot provide
+  #
+  # Every 15s it asks the Docker API and writes the result as a metrics file that
+  # node-exporter serves (--collector.textfile.directory above), so there is no new
+  # endpoint to scrape. Feeds ContainerRestartLoop, ContainerUnhealthy and
+  # ContainerNotRunning. See docker-config/docker-state/collect.sh.
+  #
+  # The official Docker CLI image rather than a third-party exporter: the CLI
+  # negotiates the API version with the daemon, and Docker 29 stopped serving the
+  # old API versions that unmaintained exporters pin.
+  #
+  # `:ro` on the socket protects only the socket file; the Docker API behind it
+  # stays fully usable, so this container is root-equivalent on the host, same
+  # caveat as alloy and cadvisor.
+  docker-state:
+    image: docker:cli
+    container_name: docker-state-voicebot
+    profiles:
+      - host-metrics
+    entrypoint: ["/bin/sh", "/etc/docker-state/collect.sh"]
+    volumes:
+      - ../docker-config/docker-state:/etc/docker-state:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker-state-textfile:/textfile
+    # Unhealthy once the file is more than a minute old, i.e. the loop has stalled.
+    healthcheck:
+      test: ["CMD-SHELL", "find /textfile -name docker_state.prom -mmin -1 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backend
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   # Holds the static busybox probe-tools copies in; see the loki service.
   probe-tools:
   alertmanager-data:
+  # docker-state writes, node-exporter reads.
+  docker-state-textfile:

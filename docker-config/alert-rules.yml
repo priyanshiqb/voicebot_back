@@ -249,14 +249,58 @@ groups:
   # ------------------------------------------------------------------------- #
   - name: containers
     rules:
+      # The docker_container_* metrics come from the docker-state sidecar via
+      # node-exporter's textfile collector (profile host-metrics). Not cadvisor:
+      # its container_start_time_seconds is the *creation* time, so the old
+      # changes()-based version of this rule could never fire.
+      #
+      # App containers (backend, celery) page as critical; monitoring and admin
+      # containers as warning.
       - alert: ContainerRestartLoop
-        expr: sum(changes(container_start_time_seconds{name!=""}[15m])) by (name) > 2
-        for: 5m
+        # RestartCount resets on a manual restart or recreate; increase() treats
+        # that as a counter reset, so deploys do not trigger this. `>= 3`, not
+        # `> 2`: increase() extrapolates to the window edges, so exactly two
+        # restarts can read as ~2.03.
+        expr: increase(docker_container_restarts_total[15m]) >= 3
+        for: 1m
         labels:
-          severity: critical
+          severity: '{{ if match "backend|celery" $labels.name }}critical{{ else }}warning{{ end }}'
         annotations:
           summary: "{{ $labels.name }} is restarting repeatedly"
-          description: "Started more than twice in 15 minutes. restart: always is masking a crash -- check its logs."
+          description: "Restarted {{ $value | printf \"%.0f\" }} times in the last 15 minutes. restart: always is masking a crash -- check `docker logs {{ $labels.name }}`."
+
+      - alert: ContainerUnhealthy
+        # Docker only reports unhealthy after the healthcheck's own retries fail,
+        # so this is already a sustained failure, not a single missed probe.
+        expr: docker_container_health{status="unhealthy"} == 1
+        for: 2m
+        labels:
+          severity: '{{ if match "backend|celery" $labels.name }}critical{{ else }}warning{{ end }}'
+        annotations:
+          summary: "{{ $labels.name }} is unhealthy"
+          description: "Its Docker healthcheck is failing. Docker does not restart unhealthy containers, so it stays like this until someone acts. The probe output is under State.Health.Log in `docker inspect {{ $labels.name }}`."
+
+      - alert: ContainerNotRunning
+        # Only containers meant to stay up; one-shots such as probe-tools use
+        # restart: "no" and are expected to have exited.
+        expr: docker_container_running{restart_policy=~"always|unless-stopped"} == 0
+        for: 2m
+        labels:
+          severity: '{{ if match "backend|celery" $labels.name }}critical{{ else }}warning{{ end }}'
+        annotations:
+          summary: "{{ $labels.name }} is not running"
+          description: "Stopped for over 2 minutes despite restart: {{ $labels.restart_policy }}. Someone stopped it, or it is crashing faster than Docker restarts it."
+
+      - alert: ContainerStateMetricsStale
+        # Without this, a dead docker-state sidecar silently disables the three
+        # rules above.
+        expr: time() - node_textfile_mtime_seconds{file=~".*docker_state\\.prom"} > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container state metrics are stale"
+          description: "docker-state has not refreshed its file for {{ $value | humanizeDuration }}. Restart, unhealthy and not-running alerts are blind until it does. Check `docker logs docker-state-voicebot`."
 
       - alert: ContainerHighCPU
         expr: sum(rate(container_cpu_usage_seconds_total{name!=""}[5m])) by (name) * 100 > 90

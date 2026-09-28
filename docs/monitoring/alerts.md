@@ -112,10 +112,21 @@ The email body is Alertmanager's standard template, with the same summary and de
 
 | Alert | Severity | Triggers when | Notified after | Message |
 |---|---|---|---|---|
-| `ContainerRestartLoop` | critical | ⚠️ **Currently never fires** (see note below) | — | **celery-prod-voicebot is restarting repeatedly**<br>Started more than twice in 15 minutes. restart: always is masking a crash -- check its logs. |
+| `ContainerRestartLoop` | critical / warning* | Docker restarted a container 3 or more times in 15 min (a crash loop under `restart: always`) | ~1.5 min | **celery-prod-voicebot is restarting repeatedly**<br>Restarted 6 times in the last 15 minutes. restart: always is masking a crash -- check `docker logs celery-prod-voicebot`. |
+| `ContainerUnhealthy` | critical / warning* | A running container's Docker healthcheck reports `unhealthy` | ~2.5 min after Docker marks it unhealthy | **celery-prod-voicebot is unhealthy**<br>Its Docker healthcheck is failing. Docker does not restart unhealthy containers, so it stays like this until someone acts. The probe output is under State.Health.Log in `docker inspect celery-prod-voicebot`. |
+| `ContainerNotRunning` | critical / warning* | A container with `restart: always` / `unless-stopped` has been stopped for over 2 min | ~2.5 min | **celery-prod-voicebot is not running**<br>Stopped for over 2 minutes despite restart: always. Someone stopped it, or it is crashing faster than Docker restarts it. |
+| `ContainerStateMetricsStale` | warning | The `docker-state` collector stopped refreshing, so the three alerts above are blind | ~4 min | **Container state metrics are stale**<br>docker-state has not refreshed its file for 4m 0s. Restart, unhealthy and not-running alerts are blind until it does. Check `docker logs docker-state-voicebot`. |
 | `ContainerHighCPU` | warning | A container uses over 90% of one CPU core | ~15.5 min | **celery-prod-voicebot is saturating a core**<br>At 97% of one core for 15 minutes. |
 
-> **`ContainerRestartLoop` cannot fire as written.** It counts changes in cadvisor's `container_start_time_seconds`, but that metric holds the container's **creation** time (Docker's `Created`), not its last start. A crash loop under `restart: always` restarts the same container, so the value never changes. A redeploy creates a new container, which appears as a new series rather than a change. Verified on the local stack: a container that crash-looped three times scored 0. See section 5 for what to use instead.
+\* **critical** when the container name contains `backend` or `celery` (the app), **warning** for everything else (monitoring, admin tools, other stacks).
+
+**Where these come from.** The restart, health and running alerts use Docker's own state, which the `docker-state` sidecar (profile `host-metrics`) reads every 15 s and node-exporter serves. cadvisor can't be used for this: its `container_start_time_seconds` is the container's *creation* time, so a crash loop never changes it. The earlier cadvisor-based `ContainerRestartLoop` could never fire.
+
+**Every container on the server is watched**, not only this project's. If the frontend or ETL runs on the same VM, its crash loops and failing healthchecks alert too. Each alert carries a `project` label with the Compose project name.
+
+> **Clear out stopped leftovers.** A stopped container with `restart: always` or `unless-stopped` triggers `ContainerNotRunning` until it is started or removed. Turning a Compose profile off (for example dropping `database` and `pgbouncer` after moving to Azure) does **not** remove that profile's existing containers. Check `sudo docker ps -a` and `sudo docker rm` anything you no longer run.
+
+**Verified locally:** a crash-looping container, a container with a failing healthcheck, and a stopped container each fired the matching alert, with the expected severity and message.
 
 ---
 
@@ -129,8 +140,8 @@ Prometheus and Alertmanager run **on the same server** as the app, so they only 
 | **Whole server down** (crashed, frozen, out of memory, Azure host problem) | Monitoring goes down with it | External uptime check, or an Azure Monitor alert on the VM's availability |
 | **Prometheus or Alertmanager down** | Nothing is left to evaluate or send | Heartbeat ("dead man's switch"): an always-firing `Watchdog` alert pinged to an outside service, which alerts you when the pings stop |
 | **Server loses outbound internet** | Messages cannot leave the server | Same heartbeat as above |
-| **A container crash-looping** (`restart: always` keeps bringing it back), e.g. a Celery worker that dies on startup | `ContainerRestartLoop` never fires (see the note in 4.6), and nothing scrapes Celery | An exporter that reports Docker's own per-container restart count and health status. It would also alert on the containers' failing healthchecks. |
-| Celery queue backing up, a container disappearing, out-of-memory kills, logs no longer arriving | No rule exists yet | Rules that can be added with the current stack |
+| Celery queue backing up, out-of-memory kills, logs no longer arriving | No rule exists yet | Rules that can be added with the current stack |
+| A container **removed** outright (rather than stopped) | Its metrics vanish instead of reporting "not running" | Only an issue outside normal deploys; a missing backend still triggers `TargetDown` |
 | **Monitoring stopped by `docker compose down`** | Prometheus and Alertmanager are removed with everything else | The heartbeat above. It will also report planned downs, so pause it for maintenance. |
 
 > **Status:** none of the fixes in this table are set up yet.
@@ -148,7 +159,9 @@ A deploy only alerts if something stays broken past an alert's hold time. The sh
 | `docker compose up -d --build` | Builds the new image while the old containers keep serving, then recreates backend-wsgi first, and backend-asgi, celery-prod and celery-beat-prod once backend-wsgi is healthy. Typical gap: under a minute or two. | No, unless startup (migrations run on backend-wsgi start) takes **more than 3 min**. Then you get `TargetDown` for `django-prod-wsgi` / `django-prod-asgi`, followed by a Resolved message. |
 | `docker compose down` | Removes **every** container, including Prometheus and Alertmanager | **No, and nothing can alert while it stays down.** Anything that breaks in that window goes unreported. |
 | `docker compose down` then `up -d` | A full cold start | No, unless startup takes more than 3 min (as above) |
-| `docker compose stop backend-wsgi` (a single service) | Monitoring keeps running and watches it go down | **Yes**, `TargetDown` after 3 min |
+| `docker compose stop backend-wsgi` (a single service) | Monitoring keeps running and watches it go down | **Yes**: `ContainerNotRunning` (critical) after 2 min, then `TargetDown` after 3 min |
+
+Recreating containers never triggers `ContainerRestartLoop`. A recreate resets Docker's restart count, and the rule only counts restarts made by the restart policy.
 
 **Side effects of a build, only on a small or full server:**
 
