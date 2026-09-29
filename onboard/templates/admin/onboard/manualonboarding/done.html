@@ -1,0 +1,46 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls %}
+
+{% block breadcrumbs %}{% include "admin/onboard/manualonboarding/_breadcrumbs.html" with step="Done" %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <ul class="messagelist"><li class="success">{{ tenant.name }} is onboarded.</li></ul>
+
+  <div class="module">
+    <h2>Result</h2>
+    <table>
+      <tr><th>Tenant</th><td>{{ tenant.name }} ({{ tenant.pk }})</td></tr>
+      <tr><th>Subdomain</th><td>{{ tenant.subdomain }}</td></tr>
+      <tr><th>Subscription</th><td>{{ subscription.pk }}</td></tr>
+      <tr><th>Cycle ends</th><td>{{ subscription.end_date|date:"j M Y" }}</td></tr>
+      <tr><th>Sign in as</th><td>{{ sign_in_email }}</td></tr>
+      {% if generated_password %}
+        <tr>
+          <th>Initial password</th>
+          <td>
+            <code>{{ generated_password }}</code>
+            <div class="help">
+              <strong>Shown once.</strong> It is not stored in readable form and will not
+              be shown again. Copy it now and share it securely.
+            </div>
+          </td>
+        </tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <p>
+    The primary user is the tenant OWNER and can invite colleagues. Credits and
+    allowances came from this contract, not the plan. This onboarding is recorded in the
+    operator audit log under your name.
+  </p>
+
+  <p>
+    <a href="{% url 'admin:onboard_subscription_change' subscription.pk %}">Open the subscription</a>
+    &middot; <a href="{% url 'admin:tenant_tenant_change' tenant.pk %}">Open the tenant</a>
+    &middot; <a href="{% url opts|admin_urlname:'changelist' %}">All manual onboardings</a>
+    &middot; <a href="{% url opts|admin_urlname:'add' %}">Onboard another</a>
+  </p>
+</div>
+{% endblock %}

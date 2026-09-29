@@ -1,0 +1,101 @@
+{% extends "admin/base_site.html" %}
+{% load static admin_urls %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+<style>
+  .mo-review table { width: 100%; }
+  .mo-review th { width: 30%; font-weight: 600; }
+  .mo-allowances td { vertical-align: top; }
+  .mo-allowances input[type=number] { width: 8em; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}{% include "admin/onboard/manualonboarding/_breadcrumbs.html" with step="Add" %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>
+    <strong>{{ plan.name }} ({{ plan.code }})</strong>, {{ minutes }} minutes per cycle.
+    Defaults below come from this plan; override anything.
+    <a href="{% url opts|admin_urlname:'add' %}">Change plan or minutes</a>
+  </p>
+
+  {% if notice %}<p class="errornote">{{ notice }}</p>{% endif %}
+  {% if form.errors %}<p class="errornote">Please correct the errors below.</p>{% endif %}
+  {{ form.non_field_errors }}
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for field in plan_form %}{{ field.as_hidden }}{% endfor %}
+
+    {% for heading, fields in form.bound_sections %}
+      <fieldset class="module aligned">
+        <h2>{{ forloop.counter }}. {{ heading }}</h2>
+        {% for field in fields %}{% include "admin/onboard/manualonboarding/_field.html" %}{% endfor %}
+      </fieldset>
+    {% endfor %}
+
+    <fieldset class="module mo-allowances">
+      <h2>5. Allowances</h2>
+      <div class="description">
+        What this contract includes, per resource. Written to the subscription, not the
+        plan. <strong>Blank means unlimited</strong>; the plan's own figure is shown for
+        reference and is not applied unless you type it.
+      </div>
+      <table>
+        <thead><tr><th>Resource</th><th>Included</th><th>Resets</th></tr></thead>
+        <tbody>
+        {% for included, period in form.bound_entitlements %}
+          <tr>
+            <td>{{ included.label }}<div class="help">{{ included.help_text }}</div></td>
+            <td>{{ included.errors }}{{ included }}</td>
+            <td>{{ period.errors }}{{ period }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </fieldset>
+
+    <fieldset class="module aligned">
+      <h2>6. Reason</h2>
+      {% include "admin/onboard/manualonboarding/_field.html" with field=form.reason %}
+    </fieldset>
+
+    {% if review %}
+      <fieldset class="module mo-review">
+        <h2>Review</h2>
+        <div class="description">
+          This is what will be created. Call rates come from the selected plan and are
+          <strong>not</strong> customised here.
+        </div>
+        {% for heading, rows in review %}
+          <table>
+            <caption>{{ heading }}</caption>
+            {% for label, value in rows %}<tr><th>{{ label }}</th><td>{{ value }}</td></tr>{% endfor %}
+          </table>
+        {% endfor %}
+      </fieldset>
+
+      <fieldset class="module aligned">
+        <h2>Confirm with your authenticator</h2>
+        <div class="description">
+          Creating a tenant needs a fresh code from your authenticator app, even though
+          you are already signed in. The attempt is recorded in the operator audit log
+          under your name.
+        </div>
+        {% include "admin/onboard/manualonboarding/_field.html" with field=form.otp_token %}
+      </fieldset>
+      <input type="hidden" name="review_digest" value="{{ review_digest }}">
+
+      <div class="submit-row">
+        <button type="submit" name="_action" value="create" class="default">Create tenant</button>
+        <button type="submit" name="_action" value="review">Update review</button>
+      </div>
+    {% else %}
+      <div class="submit-row">
+        <button type="submit" name="_action" value="review" class="default">Review</button>
+      </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

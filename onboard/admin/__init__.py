@@ -4,6 +4,7 @@ from .temp_user import TempUserAdmin
 from .transaction import TransactionAdmin
 from .webhook_log import RazorpayWebhookLogAdmin
 from .subscription import SubscriptionAdmin
+from .manual_onboarding_admin import ManualOnboardingAdmin
 from .plan_entitlement import PlanEntitlementAdmin, PlanEntitlementInline
 from .tenant_entitlement import TenantEntitlementAdmin
 from .country_admin import CountryAdmin
@@ -19,6 +20,7 @@ __all__ = [
     "TransactionAdmin",
     "RazorpayWebhookLogAdmin",
     "SubscriptionAdmin",
+    "ManualOnboardingAdmin",
     "PlanEntitlementAdmin",
     "PlanEntitlementInline",
     "TenantEntitlementAdmin",

@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">{% endblock %}
+
+{% block breadcrumbs %}{% include "admin/onboard/manualonboarding/_breadcrumbs.html" with step="Add" %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>
+    Onboards a business that paid outside the payment gateway, on negotiated terms.
+    The plan chosen here supplies the defaults on the next page and the per-minute
+    call rates; everything else can be overridden there. The plan itself is never changed.
+  </p>
+
+  {% if plan_form.non_field_errors or plan_form.errors %}
+    <p class="errornote">Please correct the errors below.</p>
+    {{ plan_form.non_field_errors }}
+  {% endif %}
+
+  {% if not plan_form.fields.plan.queryset.exists %}
+    <p class="errornote">
+      No plan is sold by the minute, so there is nothing a tenant can be activated on.
+      Create one under Plans first.
+    </p>
+  {% else %}
+    <form method="get" novalidate>
+      <fieldset class="module aligned">
+        <h2>1. Plan and minutes</h2>
+        {% for field in plan_form %}{% include "admin/onboard/manualonboarding/_field.html" %}{% endfor %}
+      </fieldset>
+      <div class="submit-row">
+        <input type="submit" class="default" value="Continue">
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

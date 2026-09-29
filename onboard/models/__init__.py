@@ -6,6 +6,7 @@ from .billing_address import BillingAddress
 from .transaction import Transaction
 from .webhook_log import RazorpayWebhookLog
 from .subscription import Subscription
+from .manual_onboarding import ManualOnboarding
 from .timezone import Timezone, get_default_timezone
 from .language import Language, get_default_language
 
@@ -17,7 +18,7 @@ from .place import Place
 
 __all__ = [
     "Plan", "PlanEntitlement", "TenantEntitlement", "TempUser", "BillingAddress", "Transaction", 
-    "RazorpayWebhookLog", "Subscription", "Timezone", "get_default_timezone",
+    "RazorpayWebhookLog", "Subscription", "ManualOnboarding", "Timezone", "get_default_timezone",
     "Language", "get_default_language",
     "Country", "Admin1", "Admin2", "Admin3", "Place"
 ]

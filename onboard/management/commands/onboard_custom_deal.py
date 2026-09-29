@@ -24,38 +24,28 @@ else's pricing.
 the selected plan, because that is what the wallet rates calls against. Pick a plan
 whose rates match what was agreed.
 
+The same onboarding is available in the Django admin (Onboard → Manual onboardings),
+which also requires a fresh TOTP code on submit and records the operator in the
+operator audit log. Both run ``onboard.services.manual_onboarding.provision``.
+
+    docker exec -it voicebot_back-backend-wsgi-1 uv run python manage.py onboard_custom_deal
+
     python manage.py onboard_custom_deal
     python manage.py onboard_custom_deal --dry-run
 """
 
-import uuid
 from decimal import Decimal, InvalidOperation
 
-from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.core.validators import validate_email
-from django.db import transaction as db_transaction
 
 from onboard.constants.entitlement_resource import EntitlementResource
 from onboard.constants.reset_period import ResetPeriod
-from onboard.models import BillingAddress, Plan, TempUser, Transaction
+from onboard.models import Plan
 from onboard.models.language import Language
 from onboard.models.timezone import Timezone
-
-#: What storage falls back to when the operator leaves it blank. Every other
-#: allowance falls back to unlimited; storage does not, because "unlimited" there
-#: is an open-ended hosting bill rather than a generous seat count.
-DEFAULT_STORAGE_GB = 10
-
-
-def _band_label(plan):
-    """A plan's minutes band, phrased for a prompt."""
-    if plan.is_fixed_quantity:
-        return f"exactly {plan.min_minutes:,} minutes"
-    low = f"{plan.min_minutes:,}" if plan.min_minutes is not None else "any"
-    high = f"{plan.max_minutes:,}" if plan.max_minutes is not None else "any"
-    return f"{low}-{high} minutes"
+from onboard.services.manual_onboarding import DEFAULT_STORAGE_GB, band_label, provision
 
 
 class Command(BaseCommand):
@@ -308,7 +298,7 @@ class Command(BaseCommand):
             [
                 (p, f"{p.name} ({p.code}) — {p.billing_cycle}, "
                     + (
-                        f"{_band_label(p)} at {p.currency} "
+                        f"{band_label(p)} at {p.currency} "
                         f"{p.basis_rate().price_per_minute_inr}/min"
                         if p.is_minutes_based
                         else "not sold by the minute -- not selectable"
@@ -335,7 +325,7 @@ class Command(BaseCommand):
 
         self._heading("3b. Minutes")
         self.stdout.write(
-            f"  {plan.name} sells {_band_label(plan)} at {plan.currency} "
+            f"  {plan.name} sells {band_label(plan)} at {plan.currency} "
             f"{plan.basis_rate().price_per_minute_inr}/min, "
             f"{plan.credits_per_minute()} credits/min.\n"
             "  A negotiated quantity outside that band is accepted.\n"
@@ -506,102 +496,17 @@ class Command(BaseCommand):
     # Provisioning
     # ------------------------------------------------------------------
 
-    @db_transaction.atomic
     def _provision(self, registrant, address, plan, payment, terms, entitlements,
                    minutes=None):
-        from onboard.services import subscriptions as subscription_service
-        from onboard.views.onboarding.base import create_tenant_and_mapping
-        from user.models.CustomUser import CustomUser
-
-        # A real TempUser, not a stand-in. `create_tenant_and_mapping` reads it, and
-        # going through the same object the paid path uses means this cannot drift
-        # away from how a normal signup builds a tenant.
-        temp_user = TempUser.objects.create(
-            email=registrant["email"],
-            phone_number=registrant["phone_number"],
-            first_name=registrant["first_name"],
-            last_name=registrant["last_name"],
-            business_name=registrant["business_name"],
-            referral_code=registrant["referral_code"],
-            password_hash=make_password(registrant["password"]),
-            selected_plan=plan,
-            timezone=registrant["timezone"],
-            language=registrant["language"],
-            is_email_verified=True,
-        )
-
-        # The dummy order. `razorpay_order_id` is unique and non-null, so it needs a
-        # value — prefixed `manual_` so it is obvious in support and in the ledger
-        # that no gateway was involved. The reference the operator typed goes in the
-        # payment id field, which is where a human looks for "what proves this".
-        order_id = f"manual_{uuid.uuid4().hex[:20]}"
-        txn = Transaction.objects.create(
-            razorpay_order_id=order_id,
-            razorpay_payment_id=payment["reference"],
-            amount=payment["amount"],
-            status=Transaction.TransactionStatusChoices.SUCCESSFUL,
-            transaction_type=Transaction.TransactionTypeChoices.ONBOARDING,
-            temp_user=temp_user,
+        return provision(
+            registrant=registrant,
+            address=address,
             plan=plan,
-        )
-
-        user = CustomUser(
-            email=registrant["email"],
-            username=registrant["email"],
-            phone_number=registrant["phone_number"],
-            first_name=registrant["first_name"],
-            last_name=registrant["last_name"],
-            password=temp_user.password_hash,
-            is_active=True,
-            is_verified=True,
-            timezone=registrant["timezone"],
-            language=registrant["language"],
-        )
-        user.save()
-
-        tenant = create_tenant_and_mapping(temp_user, user)
-
-        subscription = subscription_service.activate(
-            tenant,
-            plan,
+            payment=payment,
+            terms=terms,
+            entitlements=entitlements,
             minutes=minutes,
-            transaction=txn,
-            credit_grant=terms["credits"],
-            notes=f"Manual enterprise onboarding — {payment['reference']}",
-            snapshot_overrides={
-                "entitlements": entitlements,
-                "allocated_credits": terms["credits"],
-                "max_rollover_credits": terms["max_rollover_credits"],
-                "low_balance_threshold": terms["low_balance_threshold"],
-                "allow_rollover_on_renewal": terms["allow_rollover_on_renewal"],
-                "allow_rollover_on_upgrade": terms["allow_rollover_on_upgrade"],
-                "allow_rollover_on_downgrade": terms["allow_rollover_on_downgrade"],
-                "allow_use_after_expiry": terms["allow_use_after_expiry"],
-                "renews_without_payment": terms["renews_without_payment"],
-                # What was actually paid, which for a negotiated deal is not the
-                # plan's list price. Frozen here so an invoice query does not have to
-                # join back to the transaction.
-                "total_price": str(payment["amount"]),
-                "manual_payment_reference": payment["reference"],
-            },
         )
-
-        if address:
-            BillingAddress.objects.create(user=user, **address)
-
-        txn.user = user
-        txn.tenant = tenant
-        txn.subscription = subscription
-        txn.temp_user = None
-        txn.save(update_fields=[
-            "user", "tenant", "subscription", "temp_user", "updated_at",
-        ])
-
-        temp_user.is_onboarded = True
-        temp_user.save()
-        temp_user.soft_delete()
-
-        return subscription
 
     def _report(self, subscription, registrant):
         w = self.stdout.write
