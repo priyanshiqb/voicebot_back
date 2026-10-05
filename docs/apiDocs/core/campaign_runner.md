@@ -58,7 +58,7 @@ mechanism, not a latency optimisation.
 
 ### What we send
 
-`POST` to `CAMPAIGN_RUNNER_NOTIFY_URL`, with `Authorization: Bearer <CAMPAIGN_RUNNER_TOKEN>` and
+`POST` to `CAMPAIGN_RUNNER_NOTIFY_URL`, with `X-API-Key: <CAMPAIGN_RUNNER_TOKEN>` and
 `X-Handoff-Id` duplicating the body field so the runner can dedupe at its edge without parsing
 JSON.
 
@@ -122,7 +122,7 @@ campaigns stuck there, reusing the same `handoff_id`.
 |---|---|---|
 | `CAMPAIGN_RUNNER_NOTIFY_ENABLED` | `false` | Master switch. Off, materialisation goes straight to `RUNNING` and nothing is sent. |
 | `CAMPAIGN_RUNNER_NOTIFY_URL` | *(empty)* | The runner's campaign-start endpoint. No default on purpose. |
-| `CAMPAIGN_RUNNER_TOKEN` | *(empty)* | Bearer token for the push. **Distinct from the `VB_AGENT` token the runner uses to call back** — this one authenticates us *to* the runner. |
+| `CAMPAIGN_RUNNER_TOKEN` | *(empty)* | API key for the push, sent as the `X-API-Key` header. **Distinct from the `VB_AGENT` token the runner uses to call back** — this one authenticates us *to* the runner. |
 | `CAMPAIGN_RUNNER_TIMEOUT` | `10` | Seconds. |
 | `CAMPAIGN_RUNNER_STALE_HANDOFF_MINUTES` | `20` | How long a campaign may sit in `HANDING_OFF` before the sweeper re-notifies. Must exceed the retry budget above. |
 

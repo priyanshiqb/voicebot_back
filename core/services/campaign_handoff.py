@@ -115,7 +115,7 @@ def notify_runner(campaign):
     payload = build_notify_payload(campaign)
 
     headers = {
-        "Authorization": f"Bearer {token}",
+        "X-API-Key": token,
         "Content-Type": "application/json",
         # Duplicated from the body so the runner can dedupe at its edge without
         # parsing JSON.

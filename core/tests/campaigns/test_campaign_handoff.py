@@ -154,7 +154,7 @@ class NotifyRunnerTests(HandoffTestCase):
             },
         )
         self.assertEqual(
-            kwargs["headers"]["Authorization"], "Bearer test-runner-token"
+            kwargs["headers"]["X-API-Key"], "test-runner-token"
         )
         self.assertEqual(
             kwargs["headers"]["X-Handoff-Id"], str(campaign.handoff_id)
