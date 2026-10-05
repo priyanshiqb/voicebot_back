@@ -58,30 +58,28 @@ if "backend-wsgi" not in ALLOWED_HOSTS:
 if "backend-asgi" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("backend-asgi")
 
-BACKEND_PROJECT_URL = env('BACKEND_PROJECT_URL')
+BACKEND_PROJECT_URL = env('BACKEND_PROJECT_URL').rstrip("/")
 be_parsed=urlparse(BACKEND_PROJECT_URL)
 if be_parsed.hostname and be_parsed.hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(be_parsed.hostname)
 
-FRONTEND_PROJECT_URL = env('FRONTEND_PROJECT_URL')
+FRONTEND_PROJECT_URL = env('FRONTEND_PROJECT_URL').rstrip("/")
 
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[FRONTEND_PROJECT_URL])
 
-CORS_ALLOWED_ORIGINS.extend(
-    filter(
-        None,
-        [
-            FRONTEND_PROJECT_URL,
-            BACKEND_PROJECT_URL,
-        ]
-    )
+def _origins(values):
+    # Browsers send Origin without a trailing slash and corsheaders/CSRF compare
+    # exactly, so "https://app.example.com/" in the env silently never matches.
+    # gunicorn/daphne skip system checks, so corsheaders.E014 never surfaces either.
+    return list(dict.fromkeys(v.strip().rstrip("/") for v in values if v and v.strip()))
+
+
+CORS_ALLOWED_ORIGINS = _origins(
+    [*env.list("CORS_ALLOWED_ORIGINS", default=[]), FRONTEND_PROJECT_URL, BACKEND_PROJECT_URL]
 )
 
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[FRONTEND_PROJECT_URL,BACKEND_PROJECT_URL])
-if FRONTEND_PROJECT_URL not in CSRF_TRUSTED_ORIGINS:
-    CSRF_TRUSTED_ORIGINS.append(FRONTEND_PROJECT_URL)
-if BACKEND_PROJECT_URL not in CSRF_TRUSTED_ORIGINS:
-    CSRF_TRUSTED_ORIGINS.append(BACKEND_PROJECT_URL)
+CSRF_TRUSTED_ORIGINS = _origins(
+    [*env.list("CSRF_TRUSTED_ORIGINS", default=[]), FRONTEND_PROJECT_URL, BACKEND_PROJECT_URL]
+)
 
 
 INSTALLED_APPS = [
